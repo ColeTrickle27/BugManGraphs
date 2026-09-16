@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../models/trace_geometry.dart';
+import '../models/graph_point.dart';
+import '../services/trace_presentation.dart';
 import '../services/measurement_format.dart';
 import '../services/measurement_service.dart';
 import '../services/trace_projection_service.dart';
@@ -20,8 +22,22 @@ class TraceGeometryPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final displayScale = TracePresentation.labelScale(traces);
+    canvas.save();
+    canvas.scale(displayScale);
     for (var traceIndex = 0; traceIndex < traces.length; traceIndex += 1) {
-      final trace = traces[traceIndex];
+      final source = traces[traceIndex];
+      // This temporary paint view leaves every vertex in the same world
+      // location while text is sized independently of geographic measurements.
+      final trace = source.copyWith(
+        canvasPoints: [
+          for (final p in source.canvasPoints)
+            GraphPoint(x: p.x / displayScale, y: p.y / displayScale)
+        ],
+        metersPerCanvasUnit: source.metersPerCanvasUnit == null
+            ? null
+            : source.metersPerCanvasUnit! * displayScale,
+      );
       final selected = traceIndex == selectedTraceIndex;
       final hovered = traceIndex == hoveredTraceIndex;
       if (trace.canvasPoints.length < 2) continue;
@@ -65,6 +81,7 @@ class TraceGeometryPainter extends CustomPainter {
       _drawScaleBar(canvas, trace);
       if (selected) _drawRotationHandle(canvas, trace);
     }
+    canvas.restore();
   }
 
   static Rect? canvasBounds(TraceGeometry trace) {
@@ -76,9 +93,12 @@ class TraceGeometryPainter extends CustomPainter {
     return Rect.fromLTRB(left, top, right, bottom);
   }
 
-  static Offset? rotationHandleCenter(TraceGeometry trace) {
+  static Offset? rotationHandleCenter(TraceGeometry trace,
+      {double displayScale = 1}) {
     final bounds = canvasBounds(trace);
-    return bounds == null ? null : bounds.topCenter - const Offset(0, 42);
+    return bounds == null
+        ? null
+        : bounds.topCenter - Offset(0, 42 * displayScale);
   }
 
   void _drawSegmentMeasurements(Canvas canvas, TraceGeometry trace) {
@@ -132,6 +152,7 @@ class TraceGeometryPainter extends CustomPainter {
           text: MeasurementFormat.linearFeet(linearFeet),
           style: const TextStyle(
             color: Color(0xFF0F3D77),
+            fontFamily: 'Roboto',
             fontSize: 17,
             fontWeight: FontWeight.w800,
             height: 1,
@@ -222,6 +243,7 @@ class TraceGeometryPainter extends CustomPainter {
             '${MeasurementFormat.acres(measurement.acres)}',
         style: const TextStyle(
           color: Color(0xFF0E3056),
+          fontFamily: 'Roboto',
           fontSize: 17,
           fontWeight: FontWeight.w800,
           height: 1.2,
@@ -267,7 +289,7 @@ class TraceGeometryPainter extends CustomPainter {
     final width = feet / (metersPerCanvasUnit * 3.280839895013123);
     final left = trace.canvasPoints.map((point) => point.x).reduce(math.min);
     final top = trace.canvasPoints.map((point) => point.y).reduce(math.min);
-    final start = Offset(left, math.max(26, top - 54));
+    final start = Offset(left, top - 54);
     final end = start + Offset(width, 0);
     final paint = Paint()
       ..color = const Color(0xFF111111)
@@ -281,6 +303,7 @@ class TraceGeometryPainter extends CustomPainter {
         text: '${feet.round()} ft',
         style: const TextStyle(
           color: Color(0xFF0E3056),
+          fontFamily: 'Roboto',
           fontSize: 15,
           fontWeight: FontWeight.w800,
         ),

@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import 'package:flex_color_picker/flex_color_picker.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -46,6 +45,8 @@ import '../widgets/graph_grid_painter.dart';
 import '../widgets/graph_shapes_painter.dart';
 import '../widgets/wall_segments_painter.dart';
 import '../widgets/trace_geometry_painter.dart';
+import '../widgets/graph_scene_boundary.dart';
+import '../services/trace_presentation.dart';
 
 class GraphCanvasScreen extends StatefulWidget {
   const GraphCanvasScreen({
@@ -81,6 +82,8 @@ class GraphCanvasScreen extends StatefulWidget {
 
 class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   static const Size _canvasSize = Size(3600, 2600);
+  Rect get _sceneBounds => (Offset.zero & _canvasSize)
+      .expandToInclude(ExportBoundsCalculator.forDocument(_document));
   static const double _endpointSnapDistance = 22;
   static const double _gridSnapSize = WallSegment.pixelsPerFoot;
   static const double _minimumWallLength = 6;
@@ -1113,10 +1116,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   bool _isInsideCanvas(Offset sceneOffset) {
-    return sceneOffset.dx >= 0 &&
-        sceneOffset.dy >= 0 &&
-        sceneOffset.dx <= _canvasSize.width &&
-        sceneOffset.dy <= _canvasSize.height;
+    return _sceneBounds.contains(sceneOffset);
   }
 
   bool _removeLatestDraftPoint() {
@@ -2589,7 +2589,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   _DragTarget? _nearestTraceVertexTarget(int traceIndex, GraphPoint point) {
     if (traceIndex < 0 || traceIndex >= _traces.length) return null;
     final trace = _traces[traceIndex];
-    var nearestDistance = _handleHitDistance;
+    var nearestDistance =
+        _handleHitDistance * TracePresentation.labelScale(_traces);
     int? nearestVertexIndex;
     for (var i = 0; i < trace.canvasPoints.length; i += 1) {
       final distance = trace.canvasPoints[i].distanceTo(point);
@@ -2610,11 +2611,13 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   _DragTarget? _nearestTraceRotationTarget(int traceIndex, GraphPoint point) {
     if (traceIndex < 0 || traceIndex >= _traces.length) return null;
     final trace = _traces[traceIndex];
-    final handleCenter = TraceGeometryPainter.rotationHandleCenter(trace);
+    final displayScale = TracePresentation.labelScale(_traces);
+    final handleCenter = TraceGeometryPainter.rotationHandleCenter(trace,
+        displayScale: displayScale);
     final bounds = TraceGeometryPainter.canvasBounds(trace);
     if (handleCenter == null || bounds == null) return null;
     final distance = (point.offset - handleCenter).distance;
-    if (distance > _handleHitDistance) return null;
+    if (distance > _handleHitDistance * displayScale) return null;
     return _DragTarget.traceRotation(
       traceIndex: traceIndex,
       distance: distance,
@@ -4832,23 +4835,26 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         _canvasViewportKey.currentContext?.findRenderObject() as RenderBox?;
     final size = viewportSize ?? viewportBox?.size;
     if (size == null || size.isEmpty) return;
-    final left = trace.canvasPoints.map((point) => point.x).reduce(math.min);
-    final right = trace.canvasPoints.map((point) => point.x).reduce(math.max);
-    final top = trace.canvasPoints.map((point) => point.y).reduce(math.min);
-    final bottom = trace.canvasPoints.map((point) => point.y).reduce(math.max);
     // Keep the edge footage labels and selected trace rotation handle inside
     // the viewport when a new or existing trace is fitted to the canvas.
-    final bounds = Rect.fromLTRB(left, top, right, bottom).inflate(64);
+    final bounds = TracePresentation.paintedBounds(_traces) ??
+        TracePresentation.paintedBounds([trace])!;
+    final leftInset =
+        widget.presentationMode || _mainToolbarCollapsed ? 0.0 : 120.0;
+    final rightInset =
+        widget.presentationMode || _sidePanelMode == null ? 0.0 : 280.0;
+    final usable = Rect.fromLTWH(leftInset, 0,
+        math.max(1, size.width - leftInset - rightInset), size.height);
     const padding = 96.0;
     final scale = math
         .min(
-          (size.width - padding).clamp(1.0, double.infinity) /
+          (usable.width - padding).clamp(1.0, double.infinity) /
               math.max(bounds.width, 1),
-          (size.height - padding).clamp(1.0, double.infinity) /
+          (usable.height - padding).clamp(1.0, double.infinity) /
               math.max(bounds.height, 1),
         )
         .clamp(0.01, 4.0);
-    final viewportCenter = size.center(Offset.zero);
+    final viewportCenter = usable.center;
     final next = Matrix4.identity()
       ..setEntry(0, 0, scale)
       ..setEntry(1, 1, scale)
@@ -5688,7 +5694,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   // showing its own message) when the canvas isn't ready yet; callers stop.
   Future<Uint8List?> _renderExportBytes(GraphFileKind kind) async {
     final boundary = _canvasBoundaryKey.currentContext?.findRenderObject()
-        as RenderRepaintBoundary?;
+        as GraphSceneRenderBoundary?;
     if (boundary == null) {
       _showCanvasMessage(
         'Graph export is not ready yet',
@@ -5808,6 +5814,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   void _resetZoom() {
+    if (_traceLayerVisible && _traces.isNotEmpty) {
+      _fitTraceInViewport(_traces.last);
+      return;
+    }
     _transformationController.value = Matrix4.identity();
     setState(() {
       _scaleLabel = '1:1';
@@ -6516,7 +6526,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     };
   }
 
-  Widget? _buildInlineTextEditor() {
+  Widget? _buildInlineTextEditor(Size viewportSize) {
     final index = _inlineTextAnnotationIndex;
     if (index == null || index < 0 || index >= _annotations.length) {
       return null;
@@ -6538,11 +6548,13 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     )..layout(maxWidth: 260);
     final width =
         math.max(132.0, math.min(280.0, textPainter.width + 32)).toDouble();
-    final left = (annotation.point.x - (width / 2))
-        .clamp(8.0, _canvasSize.width - width - 8)
+    final anchor = MatrixUtils.transformPoint(
+        _transformationController.value, annotation.point.offset);
+    final left = (anchor.dx - (width / 2))
+        .clamp(8.0, math.max(8, viewportSize.width - width - 8))
         .toDouble();
-    final top = (annotation.point.y - 28)
-        .clamp(8.0, _canvasSize.height - 56)
+    final top = (anchor.dy - 28)
+        .clamp(8.0, math.max(8, viewportSize.height - 56))
         .toDouble();
 
     return Positioned(
@@ -6688,10 +6700,12 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                                       ? double.infinity
                                       : 1200,
                                 ),
-                                child: RepaintBoundary(
+                                child: GraphSceneBoundary(
                                   key: _canvasBoundaryKey,
+                                  sceneBounds: _sceneBounds,
                                   child: _CanvasSurface(
                                     canvasSize: _canvasSize,
+                                    sceneBounds: _sceneBounds,
                                     wallSegments: _wallSegments,
                                     annotations: _annotations,
                                     shapes: _shapes,
@@ -6725,7 +6739,6 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                                     treatmentCalloutTip: _treatmentCalloutTip,
                                     treatmentCalloutBox: _treatmentCalloutBox,
                                     activeCalloutKind: _activeCalloutKind,
-                                    inlineTextEditor: _buildInlineTextEditor(),
                                     structureVisible:
                                         _isLayerVisible(_GraphLayer.structure),
                                     shapesVisible: _isLayerVisible(
@@ -6746,6 +6759,22 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                         },
                       ),
                     ),
+                    if (_inlineTextAnnotationIndex != null)
+                      Positioned.fill(
+                        left: canvasLeftInset,
+                        top: 54,
+                        right: canvasRightInset,
+                        bottom: canvasBottomInset,
+                        child: LayoutBuilder(
+                            builder: (context, constraints) => AnimatedBuilder(
+                                animation: _transformationController,
+                                builder: (context, _) => Stack(children: [
+                                      if (_buildInlineTextEditor(
+                                              constraints.biggest)
+                                          case final editor?)
+                                        editor,
+                                    ]))),
+                      ),
                     if (!_mainToolbarCollapsed)
                       Positioned(
                         left: 12,
@@ -6974,7 +7003,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted || !widget.presentationMode) throw StateError('Unavailable');
     final boundary = _presentationBoundaryKey.currentContext?.findRenderObject()
-        as RenderRepaintBoundary?;
+        as GraphSceneRenderBoundary?;
     if (boundary == null) throw StateError('Not ready');
     // A separate filtered document keeps internal markup out of crop bounds too.
     final presentation = GraphDocument(
@@ -7030,10 +7059,12 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                     ? double.infinity
                     : 1200,
               ),
-              child: RepaintBoundary(
+              child: GraphSceneBoundary(
                 key: _presentationBoundaryKey,
+                sceneBounds: _sceneBounds,
                 child: _CanvasSurface(
                   canvasSize: _canvasSize,
+                  sceneBounds: _sceneBounds,
                   wallSegments: _wallSegments,
                   annotations: visibleAnnotations,
                   shapes: _shapes,
@@ -8683,6 +8714,7 @@ class _LayerRow extends StatelessWidget {
 class _CanvasSurface extends StatelessWidget {
   const _CanvasSurface({
     required this.canvasSize,
+    required this.sceneBounds,
     required this.wallSegments,
     required this.annotations,
     required this.shapes,
@@ -8708,7 +8740,6 @@ class _CanvasSurface extends StatelessWidget {
     required this.treatmentCalloutTip,
     required this.treatmentCalloutBox,
     required this.activeCalloutKind,
-    this.inlineTextEditor,
     required this.structureVisible,
     required this.shapesVisible,
     required this.inspectionsVisible,
@@ -8718,6 +8749,7 @@ class _CanvasSurface extends StatelessWidget {
   });
 
   final Size canvasSize;
+  final Rect sceneBounds;
   final List<WallSegment> wallSegments;
   final List<GraphAnnotation> annotations;
   final List<GraphShape> shapes;
@@ -8743,7 +8775,6 @@ class _CanvasSurface extends StatelessWidget {
   final GraphPoint? treatmentCalloutTip;
   final Offset? treatmentCalloutBox;
   final _CalloutKind? activeCalloutKind;
-  final Widget? inlineTextEditor;
   final bool structureVisible;
   final bool shapesVisible;
   final bool inspectionsVisible;
@@ -8762,8 +8793,10 @@ class _CanvasSurface extends StatelessWidget {
           CustomPaint(
             key: const ValueKey('graph-canvas-paint'),
             size: canvasSize,
-            painter: GraphGridPainter(visible: gridVisible),
+            painter: GraphGridPainter(
+                visible: gridVisible, sceneBounds: sceneBounds),
             foregroundPainter: _GraphOverlayPainter(
+              sceneBounds: sceneBounds,
               wallSegments: wallSegments,
               annotations: annotations,
               shapes: shapes,
@@ -8803,7 +8836,6 @@ class _CanvasSurface extends StatelessWidget {
                   : null,
             ),
           ),
-          if (inlineTextEditor != null) inlineTextEditor!,
         ],
       ),
     );
@@ -8811,7 +8843,9 @@ class _CanvasSurface extends StatelessWidget {
 }
 
 class _GraphOverlayPainter extends CustomPainter {
+  final Rect sceneBounds;
   const _GraphOverlayPainter({
+    required this.sceneBounds,
     required this.wallSegments,
     required this.annotations,
     required this.shapes,
@@ -8939,6 +8973,7 @@ class _GraphOverlayPainter extends CustomPainter {
             ),
           ];
     GraphAnnotationsPainter(
+      sceneBounds: sceneBounds,
       annotations: previewAnnotations,
       selectedAnnotationIndex: selectedAnnotationIndex,
       hoveredAnnotationIndex: hoveredAnnotationIndex,
@@ -8951,7 +8986,8 @@ class _GraphOverlayPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _GraphOverlayPainter oldDelegate) {
-    return oldDelegate.wallSegments != wallSegments ||
+    return oldDelegate.sceneBounds != sceneBounds ||
+        oldDelegate.wallSegments != wallSegments ||
         oldDelegate.annotations != annotations ||
         oldDelegate.shapes != shapes ||
         oldDelegate.freehandStrokes != freehandStrokes ||
