@@ -5,6 +5,7 @@ import '../models/graph_annotation.dart';
 import '../models/graph_marker_catalog.dart';
 import '../models/graph_point.dart';
 import '../models/graph_shape.dart';
+import 'trace_presentation.dart';
 
 class ExportBoundsCalculator {
   const ExportBoundsCalculator._();
@@ -76,8 +77,9 @@ class ExportBoundsCalculator {
       right + padding,
       bottom + padding,
     );
-    if (canvasSize != null) {
-      bounds = bounds.intersect(Offset.zero & canvasSize);
+    if (traceVisible) {
+      final traceBounds = TracePresentation.paintedBounds(document.traces);
+      if (traceBounds != null) bounds = bounds.expandToInclude(traceBounds);
     }
     if (bounds.width < 1 || bounds.height < 1) {
       return Rect.fromLTWH(bounds.left, bounds.top, 1, 1);

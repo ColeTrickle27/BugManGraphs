@@ -8,6 +8,7 @@ import 'graph_marker_visual.dart';
 
 class GraphAnnotationsPainter extends CustomPainter {
   const GraphAnnotationsPainter({
+    this.sceneBounds,
     required this.annotations,
     required this.selectedAnnotationIndex,
     this.hoveredAnnotationIndex,
@@ -18,6 +19,7 @@ class GraphAnnotationsPainter extends CustomPainter {
   });
 
   final List<GraphAnnotation> annotations;
+  final Rect? sceneBounds;
   final int? selectedAnnotationIndex;
   final int? hoveredAnnotationIndex;
   final bool inspectionsVisible;
@@ -208,10 +210,12 @@ class GraphAnnotationsPainter extends CustomPainter {
     final height = math.max(48.0, textPainter.height + 22);
     final center = Offset(
       requestedCenter.dx
-          .clamp(width / 2, canvasSize.width - (width / 2))
+          .clamp((sceneBounds?.left ?? 0) + width / 2,
+              (sceneBounds?.right ?? canvasSize.width) - width / 2)
           .toDouble(),
       requestedCenter.dy
-          .clamp(height / 2, canvasSize.height - (height / 2))
+          .clamp((sceneBounds?.top ?? 0) + height / 2,
+              (sceneBounds?.bottom ?? canvasSize.height) - height / 2)
           .toDouble(),
     );
     final rect = Rect.fromCenter(
@@ -420,7 +424,8 @@ class GraphAnnotationsPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant GraphAnnotationsPainter oldDelegate) {
-    return oldDelegate.annotations != annotations ||
+    return oldDelegate.sceneBounds != sceneBounds ||
+        oldDelegate.annotations != annotations ||
         oldDelegate.selectedAnnotationIndex != selectedAnnotationIndex ||
         oldDelegate.hoveredAnnotationIndex != hoveredAnnotationIndex ||
         oldDelegate.inspectionsVisible != inspectionsVisible ||

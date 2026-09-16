@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 class GraphGridPainter extends CustomPainter {
   const GraphGridPainter({
     this.visible = true,
+    this.sceneBounds,
   });
 
   final bool visible;
+  final Rect? sceneBounds;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -20,25 +22,31 @@ class GraphGridPainter extends CustomPainter {
       ..color = const Color(0xFFD1CCBF)
       ..strokeWidth = 1.4;
 
-    canvas.drawRect(Offset.zero & size, backgroundPaint);
+    final bounds = sceneBounds ?? Offset.zero & size;
+    canvas.drawRect(bounds, backgroundPaint);
 
     if (!visible) {
       return;
     }
 
-    for (double x = 0; x <= size.width; x += smallGrid) {
+    for (double x = (bounds.left / smallGrid).floor() * smallGrid;
+        x <= bounds.right;
+        x += smallGrid) {
       final paint = x % majorGrid == 0 ? majorGridPaint : smallGridPaint;
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+      canvas.drawLine(Offset(x, bounds.top), Offset(x, bounds.bottom), paint);
     }
 
-    for (double y = 0; y <= size.height; y += smallGrid) {
+    for (double y = (bounds.top / smallGrid).floor() * smallGrid;
+        y <= bounds.bottom;
+        y += smallGrid) {
       final paint = y % majorGrid == 0 ? majorGridPaint : smallGridPaint;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+      canvas.drawLine(Offset(bounds.left, y), Offset(bounds.right, y), paint);
     }
   }
 
   @override
   bool shouldRepaint(covariant GraphGridPainter oldDelegate) {
-    return oldDelegate.visible != visible;
+    return oldDelegate.visible != visible ||
+        oldDelegate.sceneBounds != sceneBounds;
   }
 }
