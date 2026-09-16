@@ -1505,6 +1505,59 @@ void main() {
     });
   }
 
+  testWidgets('an oversized property trace is fitted inside the viewport',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1440, 900);
+    addTearDown(tester.view.reset);
+    final job = Job(
+      customerName: 'Large Property',
+      serviceAddress: '10 Carlie Cs Drive',
+      pestPacLocationNumber: '',
+      pestPacBillToNumber: '',
+      serviceType: 'Inspection',
+      createdBy: 'Widget Test',
+      createdDate: DateTime(2026, 9, 16),
+    );
+    final document = GraphDocument(
+      id: job.id,
+      customer: GraphCustomerInfo.fromJob(job),
+      layers: const {'trace': GraphLayerState(visible: true)},
+      traces: const [
+        TraceGeometry(
+          id: 'large-property-trace',
+          label: 'Large property',
+          geoPoints: [],
+          canvasPoints: [
+            GraphPoint(x: -2400, y: -3600),
+            GraphPoint(x: 7200, y: -3600),
+            GraphPoint(x: 7200, y: 7600),
+            GraphPoint(x: -2400, y: 7600),
+          ],
+        ),
+      ],
+    )..markClean();
+
+    await tester.pumpWidget(
+      MaterialApp(home: GraphCanvasScreen(document: document)),
+    );
+    await tester.pumpAndSettle();
+
+    final viewerFinder = find.byType(InteractiveViewer);
+    final viewer = tester.widget<InteractiveViewer>(viewerFinder);
+    final matrix = viewer.transformationController!.value;
+    final viewport = tester.getSize(viewerFinder);
+    final traceBounds =
+        const Rect.fromLTRB(-2400, -3600, 7200, 7600).inflate(64);
+    final fittedBounds = MatrixUtils.transformRect(matrix, traceBounds);
+
+    expect(matrix.getMaxScaleOnAxis(), lessThan(0.25));
+    expect(fittedBounds.left, greaterThanOrEqualTo(0));
+    expect(fittedBounds.top, greaterThanOrEqualTo(0));
+    expect(fittedBounds.right, lessThanOrEqualTo(viewport.width));
+    expect(fittedBounds.bottom, lessThanOrEqualTo(viewport.height));
+  });
+
   testWidgets('Spacebar drag pans without drawing and restores the line tool',
       (tester) async {
     tester.view.devicePixelRatio = 1;
