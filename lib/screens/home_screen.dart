@@ -54,7 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFC20000),
       appBar: AppBar(
-        title: const Text('BugMan Graphs'),
+        title: const Text('BugManGraphs'),
         actions: const [OpsBrainHomeButton()],
         centerTitle: false,
         bottom: const PreferredSize(

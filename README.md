@@ -1,6 +1,10 @@
-# BugManInspects / BugMan Graphs
+# BugManGraphs
 
-Internal Flutter app for Holloman Exterminators field inspectors.
+Independent Flutter graphing, measurements, and site-plan app for Holloman Exterminators.
+
+Canonical repository: https://github.com/ColeTrickle27/BugManGraphs. A future inspection app will have its own name and repository. Existing graph markers, photos, and saved-file formats remain supported.
+
+OpsBrain is the operations hub; SalesBrain owns sales workflows; Inventory owns inventory; holloman-mcp and shared APIs provide integrations. Existing authenticated OpsBrain API endpoints remain in use during the staged separation. Do not copy another app's source into this repository.
 
 The app currently focuses on the graph editor workflow:
 

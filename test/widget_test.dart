@@ -24,10 +24,10 @@ import 'package:flutter/services.dart';
 import 'package:image/image.dart' as image_lib;
 
 void main() {
-  testWidgets('BugMan Graphs starts on the job list', (tester) async {
+  testWidgets('BugManGraphs starts on the job list', (tester) async {
     await tester.pumpWidget(const BugManGraphsApp());
 
-    expect(find.text('BugMan Graphs'), findsOneWidget);
+    expect(find.text('BugManGraphs'), findsOneWidget);
     expect(find.text('No jobs yet'), findsOneWidget);
     expect(find.text('New Job'), findsOneWidget);
     expect(find.byKey(const ValueKey('holloman-logo')), findsOneWidget);
@@ -645,7 +645,7 @@ void main() {
     expect(
       find.text(
         'Exporting PDF/PNG files to Holloman Ops Brain is available when '
-        'BugMan Graphs is opened through Holloman Ops Brain',
+        'BugManGraphs is opened through Holloman Ops Brain',
       ),
       findsOneWidget,
     );
@@ -653,7 +653,7 @@ void main() {
     expect(
       find.text(
         'Exporting PDF/PNG files to Holloman Ops Brain is available when '
-        'BugMan Graphs is opened through Holloman Ops Brain',
+        'BugManGraphs is opened through Holloman Ops Brain',
       ),
       findsOneWidget,
     );
@@ -1017,7 +1017,7 @@ void main() {
     expect(
       find.text(
         'Exporting PDF/PNG files to Holloman Ops Brain is available when '
-        'BugMan Graphs is opened through Holloman Ops Brain',
+        'BugManGraphs is opened through Holloman Ops Brain',
       ),
       findsOneWidget,
     );
