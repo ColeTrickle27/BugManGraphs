@@ -71,6 +71,7 @@ void Function() listenForPresentationExport({
 
 const Set<String> _allowedReturnOrigins = <String>{
   'https://ops.holloman-ext.com',
+  'https://sales.holloman-ext.com',
   'http://localhost:8443',
   'http://127.0.0.1:8443',
 };

@@ -1,7 +1,7 @@
 {
    {
-  "name": "BugMan Graphs",
-  "short_name": "BugMan Graphs",
+  "name": "BugManGraphs",
+  "short_name": "BugManGraphs",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#FFFFFF",

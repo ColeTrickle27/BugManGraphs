@@ -121,7 +121,7 @@ class _BugManGraphsAppState extends State<BugManGraphsApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'BugMan Graphs',
+      title: 'BugManGraphs',
       debugShowCheckedModeBanner: false,
       theme: buildBugManTheme(),
       home: _portalGraph != null
@@ -215,7 +215,7 @@ class _PortalOpenError extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('BugMan Graphs')),
+      appBar: AppBar(title: const Text('BugManGraphs')),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),

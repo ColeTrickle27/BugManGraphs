@@ -49,7 +49,7 @@ class HttpBugManPortalService implements BugManPortalService {
     required String contentType,
     required DateTime graphCreatedAt,
   }) async {
-    final uri = Uri.parse('$_apiOrigin/upload');
+    final uri = Uri.parse('$_apiOrigin/api/upload');
     final request = http.MultipartRequest('POST', uri)
       ..fields['scope'] = 'customer'
       ..fields['folder'] = 'bugman-graphs'
@@ -154,7 +154,10 @@ class HttpBugManPortalService implements BugManPortalService {
     required String graphKey,
   }) {
     if (!isAvailable) return null;
-    final uri = Uri.parse('$_apiOrigin/sales-brain/').replace(
+    final salesUrl = Uri.base.path.startsWith('/bugman-graphs/')
+        ? '$_apiOrigin/sales-brain/'
+        : 'https://sales.holloman-ext.com/';
+    final uri = Uri.parse(salesUrl).replace(
       queryParameters: {
         'billTo': billToNumber,
         'location': locationNumber,

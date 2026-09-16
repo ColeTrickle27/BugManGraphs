@@ -5112,7 +5112,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   Future<void> _saveAndCreateSalesBrainReport() async {
     if (!_portalService.isAvailable) {
       _showCanvasMessage(
-        'Opening the inspection workflow is available when BugMan Graphs '
+        'Opening the inspection workflow is available when BugManGraphs '
         'is opened through Holloman Ops Brain',
         severity: _CanvasMessageSeverity.warning,
       );
@@ -5156,13 +5156,13 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   // Each export first saves the editable graph, then saves the rendered PDF
-  // or PNG in the same customer BugMan Graphs folder. If the graph save
+  // or PNG in the same customer BugManGraphs folder. If the graph save
   // fails, stop before creating an export without its matching graph file.
   Future<void> _exportGraphToOpsBrain(GraphFileKind kind) async {
     if (!_portalService.isAvailable) {
       _showCanvasMessage(
         'Exporting PDF/PNG files to Holloman Ops Brain is available when '
-        'BugMan Graphs is opened through Holloman Ops Brain',
+        'BugManGraphs is opened through Holloman Ops Brain',
         severity: _CanvasMessageSeverity.warning,
       );
       return;
@@ -5177,7 +5177,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     if (!_portalService.isAvailable) {
       _showCanvasMessage(
         'Saving PDF/PNG files to Holloman Ops Brain is available when '
-        'BugMan Graphs is opened through Holloman Ops Brain',
+        'BugManGraphs is opened through Holloman Ops Brain',
         severity: _CanvasMessageSeverity.warning,
       );
       return;
@@ -6596,7 +6596,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
 
     showAboutDialog(
       context: context,
-      applicationName: 'BugMan Graphs',
+      applicationName: 'BugManGraphs',
       applicationVersion: '${packageInfo.version}+${packageInfo.buildNumber}',
       applicationLegalese: '© 2026 Holloman Exterminators',
       children: const [
@@ -6636,7 +6636,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
             itemBuilder: (context) => const [
               PopupMenuItem(
                 value: 'about',
-                child: Text('About BugMan Graphs'),
+                child: Text('About BugManGraphs'),
               ),
             ],
           ),
