@@ -1505,58 +1505,97 @@ void main() {
     });
   }
 
-  testWidgets('an oversized property trace is fitted inside the viewport',
-      (tester) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(1440, 900);
-    addTearDown(tester.view.reset);
-    final job = Job(
-      customerName: 'Large Property',
-      serviceAddress: '10 Carlie Cs Drive',
-      pestPacLocationNumber: '',
-      pestPacBillToNumber: '',
-      serviceType: 'Inspection',
-      createdBy: 'Widget Test',
-      createdDate: DateTime(2026, 9, 16),
-    );
-    final document = GraphDocument(
-      id: job.id,
-      customer: GraphCustomerInfo.fromJob(job),
-      layers: const {'trace': GraphLayerState(visible: true)},
-      traces: const [
-        TraceGeometry(
-          id: 'large-property-trace',
-          label: 'Large property',
-          geoPoints: [],
-          canvasPoints: [
-            GraphPoint(x: -2400, y: -3600),
-            GraphPoint(x: 7200, y: -3600),
-            GraphPoint(x: 7200, y: 7600),
-            GraphPoint(x: -2400, y: 7600),
-          ],
-        ),
-      ],
-    )..markClean();
+  for (final presentationMode in [false, true]) {
+    testWidgets(
+        'an oversized property trace stays fitted through pinch and pan (presentation: $presentationMode)',
+        (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1440, 900);
+      addTearDown(tester.view.reset);
+      final job = Job(
+        customerName: 'Large Property',
+        serviceAddress: '10 Carlie Cs Drive',
+        pestPacLocationNumber: '',
+        pestPacBillToNumber: '',
+        serviceType: 'Inspection',
+        createdBy: 'Widget Test',
+        createdDate: DateTime(2026, 9, 16),
+      );
+      final document = GraphDocument(
+        id: job.id,
+        customer: GraphCustomerInfo.fromJob(job),
+        layers: const {'trace': GraphLayerState(visible: true)},
+        traces: const [
+          TraceGeometry(
+            id: 'large-property-trace',
+            label: 'Large property',
+            geoPoints: [],
+            canvasPoints: [
+              GraphPoint(x: -2400, y: -3600),
+              GraphPoint(x: 7200, y: -3600),
+              GraphPoint(x: 7200, y: 7600),
+              GraphPoint(x: -2400, y: 7600),
+            ],
+          ),
+        ],
+      )..markClean();
 
-    await tester.pumpWidget(
-      MaterialApp(home: GraphCanvasScreen(document: document)),
-    );
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        MaterialApp(
+            home: GraphCanvasScreen(
+                document: document, presentationMode: presentationMode)),
+      );
+      await tester.pumpAndSettle();
 
-    final viewerFinder = find.byType(InteractiveViewer);
-    final viewer = tester.widget<InteractiveViewer>(viewerFinder);
-    final matrix = viewer.transformationController!.value;
-    final viewport = tester.getSize(viewerFinder);
-    final traceBounds =
-        const Rect.fromLTRB(-2400, -3600, 7200, 7600).inflate(64);
-    final fittedBounds = MatrixUtils.transformRect(matrix, traceBounds);
+      final viewerFinder = find.byType(InteractiveViewer);
+      final viewer = tester.widget<InteractiveViewer>(viewerFinder);
+      final matrix = viewer.transformationController!.value;
+      final viewport = tester.getSize(viewerFinder);
+      final traceBounds =
+          const Rect.fromLTRB(-2400, -3600, 7200, 7600).inflate(64);
+      final fittedBounds = MatrixUtils.transformRect(matrix, traceBounds);
 
-    expect(matrix.getMaxScaleOnAxis(), lessThan(0.25));
-    expect(fittedBounds.left, greaterThanOrEqualTo(0));
-    expect(fittedBounds.top, greaterThanOrEqualTo(0));
-    expect(fittedBounds.right, lessThanOrEqualTo(viewport.width));
-    expect(fittedBounds.bottom, lessThanOrEqualTo(viewport.height));
-  });
+      expect(matrix.getMaxScaleOnAxis(), lessThan(0.25));
+      expect(fittedBounds.left, greaterThanOrEqualTo(0));
+      expect(fittedBounds.top, greaterThanOrEqualTo(0));
+      expect(fittedBounds.right, lessThanOrEqualTo(viewport.width));
+      expect(fittedBounds.bottom, lessThanOrEqualTo(viewport.height));
+
+      final initialScale = matrix.getMaxScaleOnAxis();
+      final center = tester.getCenter(viewerFinder);
+      final first =
+          await tester.startGesture(center - const Offset(100, 0), pointer: 1);
+      final second =
+          await tester.startGesture(center + const Offset(100, 0), pointer: 2);
+      await first.moveTo(center - const Offset(80, 0));
+      await second.moveTo(center + const Offset(80, 0));
+      await tester.pump();
+      await first.up();
+      await second.up();
+      await tester.pumpAndSettle();
+      final pinched = viewer.transformationController!.value.clone();
+      expect(pinched.getMaxScaleOnAxis(), lessThan(initialScale));
+      final pinchedBounds = MatrixUtils.transformRect(pinched, traceBounds);
+      expect(pinchedBounds.left, greaterThanOrEqualTo(0));
+      expect(pinchedBounds.top, greaterThanOrEqualTo(0));
+      expect(pinchedBounds.right, lessThanOrEqualTo(viewport.width));
+      expect(pinchedBounds.bottom, lessThanOrEqualTo(viewport.height));
+
+      if (!presentationMode) {
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.space);
+        await tester.pump();
+      }
+      await tester.dragFrom(center, const Offset(30, 20));
+      await tester.pumpAndSettle();
+      if (!presentationMode) {
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.space);
+      }
+      final panned = viewer.transformationController!.value;
+      expect(panned.entry(0, 3), greaterThan(pinched.entry(0, 3)));
+      expect(panned.getMaxScaleOnAxis(),
+          closeTo(pinched.getMaxScaleOnAxis(), 0.0001));
+    });
+  }
 
   testWidgets('Spacebar drag pans without drawing and restores the line tool',
       (tester) async {

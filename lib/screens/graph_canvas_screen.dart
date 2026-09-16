@@ -6680,7 +6680,14 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                                 constrained: false,
                                 minScale: 0.01,
                                 maxScale: 10,
-                                boundaryMargin: const EdgeInsets.all(1200),
+                                // Traces can extend beyond the fixed drawing
+                                // surface. Do not let gesture bounds override
+                                // their fitted scale or prevent panning.
+                                boundaryMargin: EdgeInsets.all(
+                                  _traceLayerVisible && _traces.isNotEmpty
+                                      ? double.infinity
+                                      : 1200,
+                                ),
                                 child: RepaintBoundary(
                                   key: _canvasBoundaryKey,
                                   child: _CanvasSurface(
@@ -7018,7 +7025,11 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
               constrained: false,
               minScale: 0.01,
               maxScale: 10,
-              boundaryMargin: const EdgeInsets.all(1200),
+              boundaryMargin: EdgeInsets.all(
+                _traceLayerVisible && _traces.isNotEmpty
+                    ? double.infinity
+                    : 1200,
+              ),
               child: RepaintBoundary(
                 key: _presentationBoundaryKey,
                 child: _CanvasSurface(
