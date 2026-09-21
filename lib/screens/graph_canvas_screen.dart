@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../editor/editor_interaction_controller.dart';
+import '../editor/drawing_scale.dart';
 import '../models/graph_annotation.dart';
 import '../models/marker_color_palette.dart';
 import '../models/graph_document.dart';
@@ -85,7 +86,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   Rect get _sceneBounds => (Offset.zero & _canvasSize)
       .expandToInclude(ExportBoundsCalculator.forDocument(_document));
   static const double _endpointSnapDistance = 22;
-  static const double _gridSnapSize = WallSegment.pixelsPerFoot;
+  double get _gridSnapSize => _drawingScale.canonicalGridSpacing;
+  DrawingScale _drawingScale = const DrawingScale();
+  Offset _scenePoint(Offset viewportPoint) => _drawingScale
+      .toCanonical(_transformationController.toScene(viewportPoint));
   static const double _minimumWallLength = 6;
   static const double _tapMovementLimit = 10;
   static const Duration _doubleClickWindow = Duration(milliseconds: 360);
@@ -146,6 +150,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   double _pointerTravel = 0;
   int _activePointerCount = 0;
   GraphPoint? _pointerDownActiveWallStart;
+  WallSegment? _pointerDownPreviewSegment;
   GraphPoint? _pointerDownActivePathStartPoint;
   int? _pointerDownActivePathStartSegmentIndex;
   DateTime? _lastTapTime;
@@ -665,8 +670,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       if (_removeLatestDraftPoint()) {
         return;
       }
-      final sceneOffset =
-          _transformationController.toScene(event.localPosition);
+      final sceneOffset = _scenePoint(event.localPosition);
       _showContextMenu(event.position, sceneOffset);
       return;
     }
@@ -682,6 +686,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       if (!_multiTouchPanning) {
         _multiTouchPanning = true;
         _cancelDrawingGestureForSelection();
+        _previewSegment = _pointerDownPreviewSegment;
+        _treatmentCalloutTip = null;
+        _treatmentCalloutBox = null;
+        _activeCalloutKind = null;
         _resetPointerGesture();
       }
       return;
@@ -691,10 +699,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       _pointerDownPosition = event.localPosition;
       _pointerTravel = 0;
       _pointerDownActiveWallStart = _activeWallStart;
+      _pointerDownPreviewSegment = _previewSegment;
       _pointerDownActivePathStartPoint = _activePathStartPoint;
       _pointerDownActivePathStartSegmentIndex = _activePathStartSegmentIndex;
-      final sceneOffset =
-          _transformationController.toScene(event.localPosition);
+      final sceneOffset = _scenePoint(event.localPosition);
       _interaction.pointerDown(sceneOffset);
       final calloutKind = _selectedCalloutKind;
       if (calloutKind != null && _isInsideCanvas(sceneOffset)) {
@@ -779,22 +787,19 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         return;
       }
       _interaction.beginDrag();
-      final sceneOffset =
-          _transformationController.toScene(event.localPosition);
+      final sceneOffset = _scenePoint(event.localPosition);
       if (_isInsideCanvas(sceneOffset)) {
         _moveActiveTarget(GraphPoint.fromOffset(sceneOffset));
       }
     } else if (_treatmentCalloutTip != null) {
-      final sceneOffset =
-          _transformationController.toScene(event.localPosition);
+      final sceneOffset = _scenePoint(event.localPosition);
       if (_isInsideCanvas(sceneOffset)) {
         setState(() => _treatmentCalloutBox = sceneOffset);
       }
     } else if (_isPresetShapeTool(_selectedTool) &&
         _shapeDrawStart != null &&
         _pointerTravel > _tapMovementLimit) {
-      final sceneOffset =
-          _transformationController.toScene(event.localPosition);
+      final sceneOffset = _scenePoint(event.localPosition);
       if (_isInsideCanvas(sceneOffset)) {
         setState(() {
           _shapeDrawCurrent = sceneOffset;
@@ -802,14 +807,12 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       }
     } else if (_selectedTool == CanvasTool.freehand &&
         _draftFreehandPoints.isNotEmpty) {
-      final sceneOffset =
-          _transformationController.toScene(event.localPosition);
+      final sceneOffset = _scenePoint(event.localPosition);
       if (_isInsideCanvas(sceneOffset)) {
         _appendFreehandPoint(sceneOffset);
       }
     } else {
-      final sceneOffset =
-          _transformationController.toScene(event.localPosition);
+      final sceneOffset = _scenePoint(event.localPosition);
       if (_isInsideCanvas(sceneOffset)) {
         _updatePreviewSegment(sceneOffset);
       }
@@ -817,7 +820,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   void _handlePointerHover(PointerHoverEvent event) {
-    final sceneOffset = _transformationController.toScene(event.localPosition);
+    final sceneOffset = _scenePoint(event.localPosition);
     if (_isInsideCanvas(sceneOffset)) {
       if (_selectedTool != CanvasTool.select) {
         if (_hoverSelection != null) {
@@ -865,7 +868,16 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       _activePointerCount -= 1;
     }
 
-    final sceneOffset = _transformationController.toScene(event.localPosition);
+    final sceneOffset = _scenePoint(event.localPosition);
+
+    // Once a second finger participates, every release belongs to navigation.
+    if (_multiTouchPanning) {
+      if (_activePointerCount == 0) {
+        _multiTouchPanning = false;
+        _resetPointerGesture();
+      }
+      return;
+    }
 
     final treatmentCalloutTip = _treatmentCalloutTip;
     if (treatmentCalloutTip != null) {
@@ -4837,8 +4849,12 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     if (size == null || size.isEmpty) return;
     // Keep the edge footage labels and selected trace rotation handle inside
     // the viewport when a new or existing trace is fitted to the canvas.
-    final bounds = TracePresentation.paintedBounds(_traces) ??
+    final canonicalBounds = TracePresentation.paintedBounds(_traces) ??
         TracePresentation.paintedBounds([trace])!;
+    final bounds = Rect.fromPoints(
+      _drawingScale.toDisplay(canonicalBounds.topLeft),
+      _drawingScale.toDisplay(canonicalBounds.bottomRight),
+    );
     final leftInset =
         widget.presentationMode || _mainToolbarCollapsed ? 0.0 : 120.0;
     final rightInset =
@@ -5841,15 +5857,22 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
 
   void _setScaleLabel(String value) {
     final requestedScale = double.tryParse(value.split(':').first) ?? 1.0;
-    final currentScale = _transformationController.value.getMaxScaleOnAxis();
     final viewportBox =
         _canvasViewportKey.currentContext?.findRenderObject() as RenderBox?;
     final viewportCenter =
         viewportBox?.size.center(Offset.zero) ?? const Offset(0, 0);
-    _zoomAt(viewportCenter, requestedScale / currentScale);
+    final anchor = _scenePoint(viewportCenter);
+    final nextScale = DrawingScale(feetPerGridUnit: requestedScale);
+    final next = _transformationController.value.clone();
+    final displayedAnchor = nextScale.toDisplay(anchor);
+    final zoom = next.getMaxScaleOnAxis();
+    next.setEntry(0, 3, viewportCenter.dx - displayedAnchor.dx * zoom);
+    next.setEntry(1, 3, viewportCenter.dy - displayedAnchor.dy * zoom);
     setState(() {
+      _drawingScale = nextScale;
+      _transformationController.value = next;
       _scaleLabel = value;
-      _canvasStatus = 'Scale set to $value';
+      _canvasStatus = '$value • each grid square represents $requestedScale ft';
     });
   }
 
@@ -6548,8 +6571,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     )..layout(maxWidth: 260);
     final width =
         math.max(132.0, math.min(280.0, textPainter.width + 32)).toDouble();
-    final anchor = MatrixUtils.transformPoint(
-        _transformationController.value, annotation.point.offset);
+    final anchor = MatrixUtils.transformPoint(_transformationController.value,
+        _drawingScale.toDisplay(annotation.point.offset));
     final left = (anchor.dx - (width / 2))
         .clamp(8.0, math.max(8, viewportSize.width - width - 8))
         .toDouble();
@@ -6700,57 +6723,66 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                                       ? double.infinity
                                       : 1200,
                                 ),
-                                child: GraphSceneBoundary(
-                                  key: _canvasBoundaryKey,
-                                  sceneBounds: _sceneBounds,
-                                  child: _CanvasSurface(
-                                    canvasSize: _canvasSize,
+                                child: Transform.scale(
+                                  scale: _drawingScale.presentationFactor,
+                                  alignment: Alignment.topLeft,
+                                  child: GraphSceneBoundary(
+                                    key: _canvasBoundaryKey,
                                     sceneBounds: _sceneBounds,
-                                    wallSegments: _wallSegments,
-                                    annotations: _annotations,
-                                    shapes: _shapes,
-                                    freehandStrokes: _freehandStrokes,
-                                    traces: _traces,
-                                    draftFreehandPoints: _draftFreehandPoints,
-                                    previewShapeSegments: _previewShapeSegments,
-                                    previewShape: _previewShape,
-                                    hiddenSegmentIndexes: _shapeSegmentIndexSet,
-                                    gridVisible: _gridVisible,
-                                    selectedSegmentIndex:
-                                        _selection?.segmentIndex,
-                                    selectedAnnotationIndex:
-                                        _selection?.annotationIndex,
-                                    selectedShapeIndex: _selection?.shapeIndex,
-                                    selectedFreehandIndex:
-                                        _selection?.freehandIndex,
-                                    selectedTraceIndex: _selection?.traceIndex,
-                                    hoveredSegmentIndex:
-                                        _hoverSelection?.segmentIndex,
-                                    hoveredAnnotationIndex:
-                                        _hoverSelection?.annotationIndex,
-                                    hoveredShapeIndex:
-                                        _hoverSelection?.shapeIndex,
-                                    hoveredFreehandIndex:
-                                        _hoverSelection?.freehandIndex,
-                                    hoveredTraceIndex:
-                                        _hoverSelection?.traceIndex,
-                                    activeWallStart: _activeWallStart,
-                                    previewSegment: _previewSegment,
-                                    treatmentCalloutTip: _treatmentCalloutTip,
-                                    treatmentCalloutBox: _treatmentCalloutBox,
-                                    activeCalloutKind: _activeCalloutKind,
-                                    structureVisible:
-                                        _isLayerVisible(_GraphLayer.structure),
-                                    shapesVisible: _isLayerVisible(
-                                            _GraphLayer.structure) &&
-                                        _isLayerVisible(_GraphLayer.shapes),
-                                    inspectionsVisible: _isLayerVisible(
-                                        _GraphLayer.inspections),
-                                    treatmentVisible:
-                                        _isLayerVisible(_GraphLayer.treatment),
-                                    photosVisible:
-                                        _isLayerVisible(_GraphLayer.photos),
-                                    traceLayerVisible: _traceLayerVisible,
+                                    child: _CanvasSurface(
+                                      canvasSize: _canvasSize,
+                                      sceneBounds: _sceneBounds,
+                                      wallSegments: _wallSegments,
+                                      annotations: _annotations,
+                                      shapes: _shapes,
+                                      freehandStrokes: _freehandStrokes,
+                                      traces: _traces,
+                                      draftFreehandPoints: _draftFreehandPoints,
+                                      previewShapeSegments:
+                                          _previewShapeSegments,
+                                      previewShape: _previewShape,
+                                      hiddenSegmentIndexes:
+                                          _shapeSegmentIndexSet,
+                                      gridVisible: _gridVisible,
+                                      drawingScale: _drawingScale,
+                                      selectedSegmentIndex:
+                                          _selection?.segmentIndex,
+                                      selectedAnnotationIndex:
+                                          _selection?.annotationIndex,
+                                      selectedShapeIndex:
+                                          _selection?.shapeIndex,
+                                      selectedFreehandIndex:
+                                          _selection?.freehandIndex,
+                                      selectedTraceIndex:
+                                          _selection?.traceIndex,
+                                      hoveredSegmentIndex:
+                                          _hoverSelection?.segmentIndex,
+                                      hoveredAnnotationIndex:
+                                          _hoverSelection?.annotationIndex,
+                                      hoveredShapeIndex:
+                                          _hoverSelection?.shapeIndex,
+                                      hoveredFreehandIndex:
+                                          _hoverSelection?.freehandIndex,
+                                      hoveredTraceIndex:
+                                          _hoverSelection?.traceIndex,
+                                      activeWallStart: _activeWallStart,
+                                      previewSegment: _previewSegment,
+                                      treatmentCalloutTip: _treatmentCalloutTip,
+                                      treatmentCalloutBox: _treatmentCalloutBox,
+                                      activeCalloutKind: _activeCalloutKind,
+                                      structureVisible: _isLayerVisible(
+                                          _GraphLayer.structure),
+                                      shapesVisible: _isLayerVisible(
+                                              _GraphLayer.structure) &&
+                                          _isLayerVisible(_GraphLayer.shapes),
+                                      inspectionsVisible: _isLayerVisible(
+                                          _GraphLayer.inspections),
+                                      treatmentVisible: _isLayerVisible(
+                                          _GraphLayer.treatment),
+                                      photosVisible:
+                                          _isLayerVisible(_GraphLayer.photos),
+                                      traceLayerVisible: _traceLayerVisible,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -8713,6 +8745,7 @@ class _LayerRow extends StatelessWidget {
 
 class _CanvasSurface extends StatelessWidget {
   const _CanvasSurface({
+    this.drawingScale = const DrawingScale(),
     required this.canvasSize,
     required this.sceneBounds,
     required this.wallSegments,
@@ -8749,6 +8782,7 @@ class _CanvasSurface extends StatelessWidget {
   });
 
   final Size canvasSize;
+  final DrawingScale drawingScale;
   final Rect sceneBounds;
   final List<WallSegment> wallSegments;
   final List<GraphAnnotation> annotations;
@@ -8794,7 +8828,9 @@ class _CanvasSurface extends StatelessWidget {
             key: const ValueKey('graph-canvas-paint'),
             size: canvasSize,
             painter: GraphGridPainter(
-                visible: gridVisible, sceneBounds: sceneBounds),
+                visible: gridVisible,
+                sceneBounds: sceneBounds,
+                drawingScale: drawingScale),
             foregroundPainter: _GraphOverlayPainter(
               sceneBounds: sceneBounds,
               wallSegments: wallSegments,

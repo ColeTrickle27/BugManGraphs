@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
+import '../editor/drawing_scale.dart';
 
 class GraphGridPainter extends CustomPainter {
   const GraphGridPainter({
     this.visible = true,
     this.sceneBounds,
+    this.drawingScale = const DrawingScale(),
   });
 
   final bool visible;
   final Rect? sceneBounds;
+  final DrawingScale drawingScale;
 
   @override
   void paint(Canvas canvas, Size size) {
-    const smallGrid = 24.0;
-    const majorGrid = smallGrid * 4;
+    final smallGrid = drawingScale.canonicalGridSpacing;
+    final majorGrid = smallGrid * DrawingScale.minorUnitsPerMajor;
 
     final backgroundPaint = Paint()..color = Colors.white;
     final smallGridPaint = Paint()
@@ -47,6 +50,8 @@ class GraphGridPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant GraphGridPainter oldDelegate) {
     return oldDelegate.visible != visible ||
-        oldDelegate.sceneBounds != sceneBounds;
+        oldDelegate.sceneBounds != sceneBounds ||
+        oldDelegate.drawingScale.feetPerGridUnit !=
+            drawingScale.feetPerGridUnit;
   }
 }

@@ -1096,7 +1096,7 @@ void main() {
     );
   });
 
-  testWidgets('scale options update the canvas transformation', (tester) async {
+  testWidgets('drawing ratio leaves viewport zoom and geometry unchanged', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
     addTearDown(tester.view.reset);
@@ -1116,7 +1116,44 @@ void main() {
     await tester.tap(scaleItem);
     await tester.pumpAndSettle();
 
-    expect(controller.value.getMaxScaleOnAxis(), closeTo(3, 0.001));
+    expect(controller.value.getMaxScaleOnAxis(), closeTo(1, 0.001));
+    final grid = tester.widget<CustomPaint>(
+        find.byKey(const ValueKey('graph-canvas-paint'))).painter as dynamic;
+    expect(grid.drawingScale.feetPerGridUnit, 3);
+    expect(_wallCount(tester), 0);
+  });
+
+  testWidgets('pinch preserves a pending structure and freehand still draws', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1400, 900);
+    addTearDown(tester.view.reset);
+    await _pumpEditor(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+    await tester.tapAt(const Offset(300, 240));
+    await tester.tapAt(const Offset(500, 240));
+    await tester.pump();
+    final before = _graphOverlayPainter(tester);
+    final segments = List<WallSegment>.of(before.wallSegments as List<WallSegment>);
+    final active = before.activeWallStart;
+    final controller = tester.widget<InteractiveViewer>(find.byType(InteractiveViewer)).transformationController!;
+    final first = await tester.startGesture(const Offset(550, 380), pointer: 11);
+    final second = await tester.startGesture(const Offset(750, 380), pointer: 12);
+    await first.moveBy(const Offset(-40, 0));
+    await second.moveBy(const Offset(40, 0));
+    await tester.pump();
+    await first.up();
+    await second.up();
+    await tester.pumpAndSettle();
+    expect(controller.value.getMaxScaleOnAxis(), greaterThan(1));
+    final after = _graphOverlayPainter(tester);
+    expect(after.wallSegments, segments);
+    expect(after.activeWallStart, active);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+    await tester.pump();
+    await tester.dragFrom(const Offset(550, 380), const Offset(100, 70));
+    await tester.pump();
+    expect((_graphOverlayPainter(tester).freehandStrokes as List), hasLength(1));
   });
 
   testWidgets('completed Trace vertices can be moved and trace can be deleted',
