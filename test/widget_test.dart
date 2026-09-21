@@ -345,7 +345,57 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pump();
     expect(_shapeCount(tester), 1);
+    expect(find.text('Name detached structure'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).last, 'Pool House');
+    await tester.tap(find.text('Save').last);
+    await tester.pumpAndSettle();
+    expect((_graphOverlayPainter(tester).shapes as List).single.name, 'Pool House');
     expect(find.text('Shape Properties'), findsNothing);
+  });
+
+  testWidgets('structure rectangle previews dimensions and finishes in Select', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1400, 900);
+    addTearDown(tester.view.reset);
+    await _pumpEditor(tester);
+    final gesture = await tester.startGesture(const Offset(300, 240));
+    await gesture.moveTo(const Offset(540, 480));
+    await tester.pump();
+    expect(_graphOverlayPainter(tester).previewShape.name, '10 lf × 10 lf');
+    await gesture.up();
+    await tester.pump();
+    expect(_shapeCount(tester), 1);
+    expect(tester.widget<CanvasToolbar>(find.byType(CanvasToolbar)).selectedTool, CanvasTool.select);
+    await tester.tapAt(const Offset(700, 500));
+    await tester.pump();
+    expect(_wallCount(tester), 4);
+    expect(_graphOverlayPainter(tester).activeWallStart, isNull);
+    // Re-select, then move the top midpoint without moving the bottom edge.
+    await tester.tapAt(const Offset(420, 350));
+    await tester.pump();
+    final before = List<WallSegment>.of(_graphOverlayPainter(tester).wallSegments as List<WallSegment>);
+    await tester.dragFrom(const Offset(420, 240), const Offset(0, -48));
+    await tester.pump();
+    final after = _graphOverlayPainter(tester).wallSegments as List<WallSegment>;
+    expect(after[0].start.y, closeTo(before[0].start.y - 48, 0.01));
+    expect(after[0].end.y, closeTo(before[0].end.y - 48, 0.01));
+    expect(after[2].start.offset, before[2].start.offset);
+    expect(after[2].end.offset, before[2].end.offset);
+  });
+
+  testWidgets('switching tools completes a valid structure draft', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1400, 900);
+    addTearDown(tester.view.reset);
+    await _pumpEditor(tester);
+    await tester.tapAt(const Offset(300, 240));
+    await tester.tapAt(const Offset(540, 240));
+    await tester.tapAt(const Offset(540, 480));
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyL);
+    await tester.pump();
+    expect(_shapeCount(tester), 1);
+    expect((_graphOverlayPainter(tester).shapes as List).single.closed, isTrue);
+    expect(tester.widget<CanvasToolbar>(find.byType(CanvasToolbar)).selectedTool, CanvasTool.wall);
   });
 
   testWidgets('Escape cancels an unfinished structure', (tester) async {

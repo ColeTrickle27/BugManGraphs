@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../models/graph_shape.dart';
+import '../editor/rectangle_geometry.dart';
 import '../models/wall_segment.dart';
 import '../services/measurement_format.dart';
 import 'wall_segments_painter.dart';
@@ -285,6 +286,14 @@ class GraphShapesPainter extends CustomPainter {
       );
       canvas.drawRect(handle, Paint()..color = Colors.white);
       canvas.drawRect(handle, selectedPaint);
+    }
+
+    if (RectangleGeometry.isRectangle(shapeSegments)) {
+      for (final segment in shapeSegments) {
+        final center = (segment.start.offset + segment.end.offset) / 2;
+        canvas.drawCircle(center, 7, Paint()..color = Colors.white);
+        canvas.drawCircle(center, 7, selectedPaint);
+      }
     }
 
     final rotationHandleCenter = bounds.topCenter - const Offset(0, 28);

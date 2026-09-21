@@ -136,9 +136,7 @@ List<GraphDrawingPreset> get structureToolbarPresets => [
     ];
 
 @visibleForTesting
-List<GraphDrawingPreset> get drawingToolbarPresets => const [
-      GraphDrawingPreset.measurementLine,
-    ];
+List<GraphDrawingPreset> get drawingToolbarPresets => const [];
 
 @visibleForTesting
 List<GraphMarkerType> get utilityToolbarMarkers =>
@@ -236,13 +234,13 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
                 _ToolbarHeader(onCollapse: widget.onCollapse),
                 const SizedBox(height: 4),
                 KeyedSubtree(
-                  key: const ValueKey('quick-measure-tool'),
+                  key: const ValueKey('draw-structure-tool'),
                   child: _ActionFace(
                     action: const CanvasToolbarAction.preset(
-                      GraphDrawingPreset.measurementLine,
+                      GraphDrawingPreset.mainStructure,
                     ),
                     selected: const CanvasToolbarAction.preset(
-                      GraphDrawingPreset.measurementLine,
+                      GraphDrawingPreset.mainStructure,
                     ).isSelected(
                       selectedTool: widget.selectedTool,
                       selectedPreset: widget.selectedDrawingPreset,
@@ -250,12 +248,12 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
                     ),
                     onPressed: () => _activate(
                       const CanvasToolbarAction.preset(
-                        GraphDrawingPreset.measurementLine,
+                        GraphDrawingPreset.mainStructure,
                       ),
                     ),
                     onDoubleTap: () => widget.onActionDoubleTapped(
                       const CanvasToolbarAction.preset(
-                        GraphDrawingPreset.measurementLine,
+                        GraphDrawingPreset.mainStructure,
                       ),
                     ),
                   ),

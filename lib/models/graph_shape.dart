@@ -33,7 +33,7 @@ enum StructureFoundationType {
 
 enum GraphDrawingPreset {
   mainStructure(
-    'Main Structure',
+    'Draw Structure',
     'Main Structure',
     GraphDrawingPresetKind.area,
     Color(0xFFB6D94C),

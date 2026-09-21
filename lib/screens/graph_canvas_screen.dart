@@ -8,6 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../editor/editor_interaction_controller.dart';
 import '../editor/drawing_scale.dart';
+import '../editor/rectangle_geometry.dart';
 import '../models/graph_annotation.dart';
 import '../models/marker_color_palette.dart';
 import '../models/graph_document.dart';
@@ -127,7 +128,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   WallSegment? _previewSegment;
   int? _activePathStartSegmentIndex;
   _EditorSnapshot? _structureStartSnapshot;
-  String _canvasStatus = 'Select selected: click an object';
+  String _canvasStatus = 'Draw Structure: tap corners or drag a rectangle';
   _Selection? _selection;
   bool _gridVisible = true;
   bool _snapToGrid = true;
@@ -338,12 +339,22 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     super.dispose();
   }
 
-  void _selectTool(CanvasTool tool) {
-    _finishInlineTextEditing();
-    if (_selectedTool == CanvasTool.structure &&
-        _interaction.drawingSession == EditorDrawingSession.plottingStructure) {
+  void _completeDraftBeforeToolSwitch() {
+    if (_selectedTool != CanvasTool.structure ||
+        _interaction.drawingSession != EditorDrawingSession.plottingStructure)
+      return;
+    final count = _wallSegments.length -
+        (_activePathStartSegmentIndex ?? _wallSegments.length);
+    if (count >= 2) {
+      _finishStructurePath();
+    } else {
       _cancelActiveStructure();
     }
+  }
+
+  void _selectTool(CanvasTool tool) {
+    _finishInlineTextEditing();
+    _completeDraftBeforeToolSwitch();
     setState(() {
       _lastTapTime = null;
       _lastTapSceneOffset = null;
@@ -355,6 +366,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   void _selectMarker(GraphMarkerType markerType) {
+    _completeDraftBeforeToolSwitch();
     if (markerType == GraphMarkerType.treatmentArea) {
       _selectDrawingPreset(GraphDrawingPreset.treatmentArea);
       return;
@@ -373,10 +385,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   void _selectDrawingPreset(GraphDrawingPreset preset) {
-    if (_selectedTool == CanvasTool.structure &&
-        _interaction.drawingSession == EditorDrawingSession.plottingStructure) {
-      _cancelActiveStructure();
-    }
+    _completeDraftBeforeToolSwitch();
     setState(() {
       _lastTapTime = null;
       _lastTapSceneOffset = null;
@@ -752,7 +761,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         return;
       }
 
-      if (_isPresetShapeTool(_selectedTool)) {
+      if (_isPresetShapeTool(_selectedTool) || _canDragStructure) {
         _shapeDrawStart = sceneOffset;
         _shapeDrawCurrent = sceneOffset;
       } else if (_selectedTool == CanvasTool.freehand) {
@@ -796,7 +805,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       if (_isInsideCanvas(sceneOffset)) {
         setState(() => _treatmentCalloutBox = sceneOffset);
       }
-    } else if (_isPresetShapeTool(_selectedTool) &&
+    } else if ((_isPresetShapeTool(_selectedTool) || _canDragStructure) &&
         _shapeDrawStart != null &&
         _pointerTravel > _tapMovementLimit) {
       final sceneOffset = _scenePoint(event.localPosition);
@@ -944,6 +953,17 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       return;
     }
 
+    if (_canDragStructure && _shapeDrawStart != null && !wasSinglePointerTap) {
+      _finishPresetShape(sceneOffset);
+      _shapeDrawStart = null;
+      _shapeDrawCurrent = null;
+      _resetPointerGesture();
+      return;
+    }
+    if (_selectedTool == CanvasTool.structure && wasSinglePointerTap) {
+      _shapeDrawStart = null;
+      _shapeDrawCurrent = null;
+    }
     if (_isPresetShapeTool(_selectedTool) && _shapeDrawStart != null) {
       if (_isInsideCanvas(sceneOffset) && !wasSinglePointerTap) {
         _finishPresetShape(sceneOffset);
@@ -1510,6 +1530,11 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     };
   }
 
+  bool get _canDragStructure =>
+      _selectedTool == CanvasTool.structure &&
+      _activeWallStart == null &&
+      _selectedStructureType.kind == GraphDrawingPresetKind.area;
+
   void _finishPresetShape(Offset endOffset) {
     final start = _shapeDrawStart ?? endOffset;
     final distance = (endOffset - start).distance;
@@ -1587,7 +1612,12 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         ),
       );
       _canvasStatus = '${shape.name} added';
+      _interaction.selectTool(CanvasTool.select);
+      _interaction.setSelected(_interactionReference(_selection!));
     });
+    if (shape.preset == GraphDrawingPreset.detachedStructure) {
+      _nameDetachedStructure(_shapes.length - 1);
+    }
   }
 
   Rect _normalizeMinimumRect(Rect rect) {
@@ -1627,7 +1657,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
 
   List<WallSegment> _segmentsForPresetShapeTool(CanvasTool tool, Rect rect) {
     return switch (tool) {
-      CanvasTool.rectangle || CanvasTool.square => _rectangleSegments(rect),
+      CanvasTool.structure ||
+      CanvasTool.rectangle ||
+      CanvasTool.square =>
+        _rectangleSegments(rect),
       CanvasTool.circle || CanvasTool.ellipse => _ellipseSegments(rect),
       CanvasTool.triangle => _triangleSegments(rect),
       _ => <WallSegment>[],
@@ -1867,6 +1900,24 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       _structureStartSnapshot = null;
       _interaction.setDrawingSession(EditorDrawingSession.idle);
       _canvasStatus = '${preset.label} finished';
+      _interaction.selectTool(CanvasTool.select);
+    });
+    if (preset == GraphDrawingPreset.detachedStructure) {
+      _nameDetachedStructure(_shapes.length - 1);
+    }
+  }
+
+  Future<void> _nameDetachedStructure(int index) async {
+    final name = await _showTextLabelDialog(
+        title: 'Name detached structure', initialText: _shapes[index].name);
+    if (!mounted ||
+        name == null ||
+        name.trim().isEmpty ||
+        index >= _shapes.length) return;
+    setState(() {
+      final shapes = [..._shapes];
+      shapes[index] = shapes[index].copyWith(name: name.trim());
+      _shapes = shapes;
     });
   }
 
@@ -2711,6 +2762,12 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       bounds.bottomRight,
       bounds.bottomLeft,
     ];
+    final segments = _uniqueShapeSegmentIndexes(_shapes[selectedShapeIndex])
+        .map((i) => _wallSegments[i])
+        .toList();
+    if (RectangleGeometry.isRectangle(segments)) {
+      handles.addAll(segments.map((s) => (s.start.offset + s.end.offset) / 2));
+    }
 
     for (var i = 0; i < handles.length; i += 1) {
       final distance = (point.offset - handles[i]).distance;
@@ -3160,6 +3217,25 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         originalBounds == null ||
         shapeIndex < 0 ||
         shapeIndex >= _shapes.length) {
+      return;
+    }
+
+    if (target.resizeHandleIndex >= 4) {
+      final source = _dragOriginalWallSegments ?? _wallSegments;
+      final indexes = _uniqueShapeSegmentIndexes(_shapes[shapeIndex]);
+      final segments = indexes.map((i) => source[i]).toList();
+      final updated = RectangleGeometry.moveEdge(
+          segments,
+          target.resizeHandleIndex - 4,
+          point.offset - target.originalPoint!.offset);
+      setState(() {
+        final next = [..._wallSegments];
+        for (var i = 0; i < indexes.length; i++) {
+          next[indexes[i]] = updated[i];
+        }
+        _wallSegments = next;
+        _dragMoved = true;
+      });
       return;
     }
 
@@ -5663,7 +5739,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     final current = _shapeDrawCurrent;
     if (start == null ||
         current == null ||
-        !_isPresetShapeTool(_selectedTool)) {
+        !(_isPresetShapeTool(_selectedTool) || _canDragStructure) ||
+        _pointerTravel <= _tapMovementLimit) {
       return const <WallSegment>[];
     }
 
@@ -5685,7 +5762,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     }
 
     return GraphShape(
-      name: _defaultShapeName(_selectedTool),
+      name: _canDragStructure
+          ? '${MeasurementFormat.linearFeet(segments[0].lengthFeet)} × ${MeasurementFormat.linearFeet(segments[1].lengthFeet)}'
+          : _defaultShapeName(_selectedTool),
       segmentIndexes: [
         for (var i = 0; i < segments.length; i += 1) i,
       ],
