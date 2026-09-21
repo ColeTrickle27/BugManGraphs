@@ -3,11 +3,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../models/graph_annotation.dart';
+import '../editor/label_presentation.dart';
 import '../models/graph_marker_catalog.dart';
 import 'graph_marker_visual.dart';
 
 class GraphAnnotationsPainter extends CustomPainter {
   const GraphAnnotationsPainter({
+    this.labels = const LabelPresentation(),
     this.sceneBounds,
     required this.annotations,
     required this.selectedAnnotationIndex,
@@ -19,6 +21,7 @@ class GraphAnnotationsPainter extends CustomPainter {
   });
 
   final List<GraphAnnotation> annotations;
+  final LabelPresentation labels;
   final Rect? sceneBounds;
   final int? selectedAnnotationIndex;
   final int? hoveredAnnotationIndex;
@@ -198,7 +201,7 @@ class GraphAnnotationsPainter extends CustomPainter {
         text: annotation.label,
         style: TextStyle(
           color: annotation.textColor,
-          fontSize: annotation.fontSize,
+          fontSize: labels.fontSize(annotation.fontSize),
           fontWeight: annotation.bold ? FontWeight.w800 : FontWeight.w600,
           fontStyle: annotation.italic ? FontStyle.italic : FontStyle.normal,
         ),
@@ -342,6 +345,7 @@ class GraphAnnotationsPainter extends CustomPainter {
     double horizontalPadding = 8,
     double verticalPadding = 4,
   }) {
+    fontSize = labels.fontSize(fontSize);
     final textPainter = TextPainter(
       text: TextSpan(
         text: label,

@@ -106,7 +106,7 @@ void main() {
     expect(availableTreatmentMarkers, contains(GraphMarkerType.rodentTrap));
     expect(availableTreatmentMarkers, contains(GraphMarkerType.treatmentNote));
     expect(availableTreatmentMarkers, isNot(contains(GraphMarkerType.circle)));
-    expect(drawingToolbarPresets, contains(GraphDrawingPreset.measurementLine));
+    expect(drawingToolbarPresets, isNot(contains(GraphDrawingPreset.measurementLine)));
     expect(structureToolbarPresets,
         isNot(contains(GraphDrawingPreset.measurementLine)));
     expect(structureToolbarPresets,
@@ -121,6 +121,7 @@ void main() {
       CanvasTool.rectangle,
       CanvasTool.circle,
       CanvasTool.triangle,
+      CanvasTool.wall,
     ]);
     expect(structureToolbarPresets,
         isNot(contains(GraphDrawingPreset.crawlspace)));

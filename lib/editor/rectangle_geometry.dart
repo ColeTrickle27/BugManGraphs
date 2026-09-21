@@ -16,7 +16,9 @@ class RectangleGeometry {
       if (av.distance < 1 ||
           bv.distance < 1 ||
           (av.dx * bv.dx + av.dy * bv.dy).abs() >
-              av.distance * bv.distance * 0.001) return false;
+              av.distance * bv.distance * 0.001) {
+        return false;
+      }
     }
     return true;
   }

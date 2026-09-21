@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../models/graph_point.dart';
+import '../editor/label_presentation.dart';
 import '../models/wall_segment.dart';
 
 @visibleForTesting
@@ -36,6 +37,7 @@ Offset wallMeasurementLabelCenter(
 
 class WallSegmentsPainter extends CustomPainter {
   const WallSegmentsPainter({
+    this.labels = const LabelPresentation(),
     required this.segments,
     required this.selectedSegmentIndex,
     this.hoveredSegmentIndex,
@@ -49,6 +51,7 @@ class WallSegmentsPainter extends CustomPainter {
   });
 
   final List<WallSegment> segments;
+  final LabelPresentation labels;
   final int? selectedSegmentIndex;
   final int? hoveredSegmentIndex;
   final GraphPoint? activeWallStart;
@@ -364,9 +367,9 @@ class WallSegmentsPainter extends CustomPainter {
     final textPainter = TextPainter(
       text: TextSpan(
         text: segment.measurementLabel,
-        style: const TextStyle(
-          color: Color(0xFF173C2B),
-          fontSize: 17,
+        style: TextStyle(
+          color: const Color(0xFF173C2B),
+          fontSize: labels.fontSize(17),
           fontWeight: FontWeight.w800,
           height: 1,
         ),

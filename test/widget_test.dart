@@ -383,6 +383,42 @@ void main() {
     expect(after[2].end.offset, before[2].end.offset);
   });
 
+  testWidgets('phone toolbar fits and drawing controls restore after completion', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
+    await _pumpEditor(tester);
+    for (final tooltip in ['Undo', 'Zoom out', 'Zoom in', 'Canvas options', 'File actions']) {
+      final rect = tester.getRect(find.byTooltip(tooltip));
+      expect(rect.left, greaterThanOrEqualTo(0));
+      expect(rect.right, lessThanOrEqualTo(390));
+      expect(rect.width, greaterThanOrEqualTo(44));
+    }
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+    await tester.pump();
+    expect(find.byType(CanvasToolbar), findsNothing);
+    expect(find.byTooltip('Show main toolbar'), findsOneWidget);
+    await tester.tapAt(const Offset(150, 240));
+    await tester.tapAt(const Offset(330, 240));
+    await tester.tapAt(const Offset(330, 420));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('drawing-essential-controls')), findsOneWidget);
+    await tester.tap(find.byTooltip('Finish drawing'));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('drawing-essential-controls')), findsNothing);
+    expect(find.byKey(const ValueKey('canvas-quick-toolbar')), findsOneWidget);
+    expect(_shapeCount(tester), 1);
+    await tester.tap(find.byTooltip('Canvas options'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Clear Graph'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(_shapeCount(tester), 1);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(_shapeCount(tester), 1);
+  });
+
   testWidgets('switching tools completes a valid structure draft', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
@@ -2088,13 +2124,10 @@ Future<void> _selectLineTool(WidgetTester tester, String label) async {
 }
 
 Future<void> _selectQuickMeasure(WidgetTester tester) async {
-  final quickMeasure = find.byKey(const ValueKey('quick-measure-tool'));
-  await tester.ensureVisible(quickMeasure);
-  final action = tester.widget<InkWell>(find.descendant(
-    of: quickMeasure,
-    matching: find.byType(InkWell),
-  ));
-  action.onTap!();
+  // The legacy tool remains supported for old documents, but is no longer
+  // exposed for new placement in the toolbar.
+  tester.widget<CanvasToolbar>(find.byType(CanvasToolbar))
+      .onDrawingPresetSelected(GraphDrawingPreset.measurementLine);
   await tester.pumpAndSettle();
 }
 

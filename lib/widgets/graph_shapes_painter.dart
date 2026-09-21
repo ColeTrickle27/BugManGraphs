@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/graph_shape.dart';
 import '../editor/rectangle_geometry.dart';
+import '../editor/label_presentation.dart';
 import '../models/wall_segment.dart';
 import '../services/measurement_format.dart';
 import 'wall_segments_painter.dart';
@@ -100,6 +101,7 @@ double _shapeAreaSquareFeet(
 
 class GraphShapesPainter extends CustomPainter {
   const GraphShapesPainter({
+    this.labels = const LabelPresentation(),
     required this.shapes,
     required this.segments,
     required this.selectedShapeIndex,
@@ -109,6 +111,7 @@ class GraphShapesPainter extends CustomPainter {
   });
 
   final List<GraphShape> shapes;
+  final LabelPresentation labels;
   final List<WallSegment> segments;
   final int? selectedShapeIndex;
   final int? hoveredShapeIndex;
@@ -136,6 +139,7 @@ class GraphShapesPainter extends CustomPainter {
 
       if (isStyledLine) {
         WallSegmentsPainter(
+          labels: labels,
           segments: shapeSegments,
           selectedSegmentIndex: null,
           hoveredSegmentIndex: null,
@@ -154,6 +158,7 @@ class GraphShapesPainter extends CustomPainter {
 
       if (!isStyledLine && isQuickMeasure) {
         WallSegmentsPainter(
+          labels: labels,
           segments: shapeSegments,
           selectedSegmentIndex: null,
           hoveredSegmentIndex: null,
@@ -166,6 +171,7 @@ class GraphShapesPainter extends CustomPainter {
         _drawShapeBorder(canvas, shape, path);
         if (shape.preset?.showsLinearAndAreaMeasurements ?? false) {
           WallSegmentsPainter(
+            labels: labels,
             segments: shapeSegments,
             selectedSegmentIndex: null,
             hoveredSegmentIndex: null,
@@ -493,15 +499,15 @@ class GraphShapesPainter extends CustomPainter {
       text: TextSpan(
         text: name,
         style: TextStyle(
-          color: Color(0xFFCC2000),
-          fontSize: fontSize,
+          color: const Color(0xFFCC2000),
+          fontSize: labels.fontSize(fontSize),
           fontWeight: FontWeight.w800,
           height: 1.25,
         ),
       ),
       textDirection: TextDirection.ltr,
       textAlign: TextAlign.center,
-    )..layout(maxWidth: maxWidth);
+    )..layout(maxWidth: maxWidth * (labels.fontSize(fontSize) / fontSize));
     final labelRect = Rect.fromCenter(
       center: center,
       width: textPainter.width + 18,
@@ -512,18 +518,20 @@ class GraphShapesPainter extends CustomPainter {
       const Radius.circular(5),
     );
 
-    if (background)
+    if (background) {
       canvas.drawRRect(
         labelRRect,
         Paint()..color = const Color(0xFFE6E6E6),
       );
-    if (background)
+    }
+    if (background) {
       canvas.drawRRect(
         labelRRect,
         Paint()
           ..color = Colors.black
           ..style = PaintingStyle.stroke,
       );
+    }
     textPainter.paint(
       canvas,
       Offset(

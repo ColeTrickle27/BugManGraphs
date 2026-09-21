@@ -125,6 +125,8 @@ void main() {
         expect(document.isDirty, isFalse);
 
         if (!presentation) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+          await tester.pump();
           final finder = find.byType(InteractiveViewer);
           final controller = tester
               .widget<InteractiveViewer>(finder)
