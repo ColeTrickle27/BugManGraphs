@@ -13,18 +13,23 @@ IconData iconForGraphMarker(GraphMarkerType marker) => switch (marker.symbol) {
       GraphMarkerSymbol.moisture => Icons.water_drop_outlined,
       GraphMarkerSymbol.water => Icons.water_outlined,
       GraphMarkerSymbol.leak => Icons.plumbing_outlined,
-      GraphMarkerSymbol.fungi => Icons.grass_outlined,
+      GraphMarkerSymbol.fungi => marker == GraphMarkerType.bushPlant
+          ? Icons.yard_outlined
+          : Icons.grass_outlined,
       GraphMarkerSymbol.crack => Icons.warning_amber_outlined,
       GraphMarkerSymbol.penetration => Icons.adjust_outlined,
       GraphMarkerSymbol.access => Icons.meeting_room_outlined,
       GraphMarkerSymbol.vent => Icons.air_outlined,
       GraphMarkerSymbol.door => Icons.door_front_door_outlined,
       GraphMarkerSymbol.window => Icons.window_outlined,
-      GraphMarkerSymbol.steps => Icons.stairs_outlined,
+      GraphMarkerSymbol.steps => Icons.stairs_rounded,
       GraphMarkerSymbol.hvac => Icons.ac_unit_outlined,
-      GraphMarkerSymbol.utility => marker == GraphMarkerType.crawlspaceAccess
-          ? Icons.stairs_outlined
-          : Icons.cable_outlined,
+      GraphMarkerSymbol.utility => switch (marker) {
+          GraphMarkerType.crawlspaceAccess => Icons.door_sliding_outlined,
+          GraphMarkerType.gasLine => Icons.local_fire_department_outlined,
+          GraphMarkerType.waterLine => Icons.plumbing_outlined,
+          _ => Icons.cable_outlined,
+        },
       GraphMarkerSymbol.support => Icons.foundation_outlined,
       GraphMarkerSymbol.drillVertical => Icons.south_outlined,
       GraphMarkerSymbol.drillHorizontal => Icons.east_outlined,

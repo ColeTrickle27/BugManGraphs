@@ -13,6 +13,7 @@ void main() {
     required CustomerFilesService service,
     CustomerLocation? preselectedLocation,
     String? resolutionWarning,
+    Future<String?> Function()? authenticatedNameLoader,
   }) async {
     final capture = _JobCapture();
     tester.view.devicePixelRatio = 1;
@@ -25,6 +26,7 @@ void main() {
           customerFilesService: service,
           preselectedLocation: preselectedLocation,
           resolutionWarning: resolutionWarning,
+          authenticatedNameLoader: authenticatedNameLoader,
         ),
         onGenerateRoute: (settings) => MaterialPageRoute<void>(
           builder: (context) => const Scaffold(),
@@ -43,6 +45,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(
         find.widgetWithText(TextField, 'Company'), 'Draft company');
+    await tester.tap(find.text('+ Add Contact'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Primary'));
+    await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, 'Phone'), '555-0100');
     await tester.tap(find.widgetWithText(ChoiceChip, 'New Customer'));
     await tester.pumpAndSettle();
@@ -198,6 +204,35 @@ void main() {
       // onto the created Job via the callback in the wrapper below.
     },
   );
+
+  testWidgets('known identity fills and locks Created By', (tester) async {
+    await pumpNewJobScreen(
+      tester,
+      service: _FakeCustomerFilesService(results: const []),
+      authenticatedNameLoader: () async => 'Field Technician',
+    );
+
+    final createdBy = tester.widget<TextField>(
+      find.widgetWithText(TextField, 'Created By'),
+    );
+    expect(createdBy.controller!.text, 'Field Technician');
+    expect(createdBy.readOnly, isTrue);
+  });
+
+  testWidgets('unavailable identity preserves manual Created By fallback',
+      (tester) async {
+    await pumpNewJobScreen(
+      tester,
+      service: _FakeCustomerFilesService(results: const []),
+      authenticatedNameLoader: () async => null,
+    );
+
+    final finder = find.widgetWithText(TextField, 'Created By');
+    expect(tester.widget<TextField>(finder).readOnly, isFalse);
+    await tester.enterText(finder, 'Manual Technician');
+    expect(
+        tester.widget<TextField>(finder).controller!.text, 'Manual Technician');
+  });
 
   testWidgets(
     'created job carries the selected Customer File PestPac identifiers',

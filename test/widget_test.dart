@@ -59,7 +59,17 @@ void main() {
     final document = GraphDocument(
       id: job.id,
       customer: GraphCustomerInfo.fromJob(job),
-      traces: const [TraceGeometry(id: 'property-trace', label: 'Property', geoPoints: [], canvasPoints: [GraphPoint(x: 100, y: 100), GraphPoint(x: 200, y: 100), GraphPoint(x: 200, y: 200)])],
+      traces: const [
+        TraceGeometry(
+            id: 'property-trace',
+            label: 'Property',
+            geoPoints: [],
+            canvasPoints: [
+              GraphPoint(x: 100, y: 100),
+              GraphPoint(x: 200, y: 100),
+              GraphPoint(x: 200, y: 200)
+            ])
+      ],
       annotations: const [
         GraphAnnotation(
             id: 'approved',
@@ -128,10 +138,6 @@ void main() {
       'City',
       'State',
       'Zip',
-      'Phone',
-      'Email',
-      'Name',
-      'Phone Number',
       'Location Name',
       'Date',
       'Created By',
@@ -150,8 +156,13 @@ void main() {
     final serviceType = tester.widget<DropdownButtonFormField<String>>(
       find.widgetWithText(DropdownButtonFormField<String>, 'Service Type'),
     );
-    expect(NewJobScreen.serviceTypes,
-        ['Inspection', 'WDIR', 'ATBS Installation', 'General Use']);
+    expect(NewJobScreen.serviceTypes, [
+      'Inspection',
+      'WDIR',
+      'ATBS Installation',
+      'General Use',
+      'Termite Treatment',
+    ]);
     expect(serviceType.initialValue, 'Inspection');
     expect(find.text('Termite Inspection'), findsNothing);
     expect(find.text('Termite Treatment'), findsNothing);
@@ -299,7 +310,7 @@ void main() {
       'Updated Location',
     );
     await tester.enterText(
-      find.widgetWithText(TextField, 'Street Address'),
+      find.widgetWithText(TextField, 'Location Address'),
       '20 New Road',
     );
     await tester.scrollUntilVisible(find.text('Save Changes'), 400,
@@ -349,11 +360,13 @@ void main() {
     await tester.enterText(find.byType(TextField).last, 'Pool House');
     await tester.tap(find.text('Save').last);
     await tester.pumpAndSettle();
-    expect((_graphOverlayPainter(tester).shapes as List).single.name, 'Pool House');
+    expect((_graphOverlayPainter(tester).shapes as List).single.name,
+        'Pool House');
     expect(find.text('Shape Properties'), findsNothing);
   });
 
-  testWidgets('structure rectangle previews dimensions and finishes in Select', (tester) async {
+  testWidgets('structure rectangle previews dimensions and finishes in Select',
+      (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
     addTearDown(tester.view.reset);
@@ -365,7 +378,9 @@ void main() {
     await gesture.up();
     await tester.pump();
     expect(_shapeCount(tester), 1);
-    expect(tester.widget<CanvasToolbar>(find.byType(CanvasToolbar)).selectedTool, CanvasTool.select);
+    expect(
+        tester.widget<CanvasToolbar>(find.byType(CanvasToolbar)).selectedTool,
+        CanvasTool.select);
     await tester.tapAt(const Offset(700, 500));
     await tester.pump();
     expect(_wallCount(tester), 4);
@@ -373,22 +388,32 @@ void main() {
     // Re-select, then move the top midpoint without moving the bottom edge.
     await tester.tapAt(const Offset(420, 350));
     await tester.pump();
-    final before = List<WallSegment>.of(_graphOverlayPainter(tester).wallSegments as List<WallSegment>);
+    final before = List<WallSegment>.of(
+        _graphOverlayPainter(tester).wallSegments as List<WallSegment>);
     await tester.dragFrom(const Offset(420, 240), const Offset(0, -48));
     await tester.pump();
-    final after = _graphOverlayPainter(tester).wallSegments as List<WallSegment>;
+    final after =
+        _graphOverlayPainter(tester).wallSegments as List<WallSegment>;
     expect(after[0].start.y, closeTo(before[0].start.y - 48, 0.01));
     expect(after[0].end.y, closeTo(before[0].end.y - 48, 0.01));
     expect(after[2].start.offset, before[2].start.offset);
     expect(after[2].end.offset, before[2].end.offset);
   });
 
-  testWidgets('phone toolbar fits and drawing controls restore after completion', (tester) async {
+  testWidgets(
+      'phone toolbar fits and drawing controls restore after completion',
+      (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(390, 844);
     addTearDown(tester.view.reset);
     await _pumpEditor(tester);
-    for (final tooltip in ['Undo', 'Zoom out', 'Zoom in', 'Canvas options', 'File actions']) {
+    for (final tooltip in [
+      'Undo',
+      'Zoom out',
+      'Zoom in',
+      'Canvas options',
+      'File actions'
+    ]) {
       final rect = tester.getRect(find.byTooltip(tooltip));
       expect(rect.left, greaterThanOrEqualTo(0));
       expect(rect.right, lessThanOrEqualTo(390));
@@ -402,10 +427,12 @@ void main() {
     await tester.tapAt(const Offset(330, 240));
     await tester.tapAt(const Offset(330, 420));
     await tester.pump();
-    expect(find.byKey(const ValueKey('drawing-essential-controls')), findsOneWidget);
+    expect(find.byKey(const ValueKey('drawing-essential-controls')),
+        findsOneWidget);
     await tester.tap(find.byTooltip('Finish drawing'));
     await tester.pump();
-    expect(find.byKey(const ValueKey('drawing-essential-controls')), findsNothing);
+    expect(
+        find.byKey(const ValueKey('drawing-essential-controls')), findsNothing);
     expect(find.byKey(const ValueKey('canvas-quick-toolbar')), findsOneWidget);
     expect(_shapeCount(tester), 1);
     await tester.tap(find.byTooltip('Canvas options'));
@@ -419,7 +446,8 @@ void main() {
     expect(_shapeCount(tester), 1);
   });
 
-  testWidgets('switching tools completes a valid structure draft', (tester) async {
+  testWidgets('switching tools completes a valid structure draft',
+      (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
     addTearDown(tester.view.reset);
@@ -431,7 +459,9 @@ void main() {
     await tester.pump();
     expect(_shapeCount(tester), 1);
     expect((_graphOverlayPainter(tester).shapes as List).single.closed, isTrue);
-    expect(tester.widget<CanvasToolbar>(find.byType(CanvasToolbar)).selectedTool, CanvasTool.wall);
+    expect(
+        tester.widget<CanvasToolbar>(find.byType(CanvasToolbar)).selectedTool,
+        CanvasTool.wall);
   });
 
   testWidgets('Escape cancels an unfinished structure', (tester) async {
@@ -476,14 +506,12 @@ void main() {
     tester.view.physicalSize = const Size(1400, 900);
     addTearDown(tester.view.reset);
     await _pumpEditor(tester);
-    await _selectStructure(tester, 'Detached Structure');
+    await _selectStructure(tester, 'Garage/Carport');
 
     await tester.tapAt(const Offset(280, 240));
     await tester.tapAt(const Offset(520, 240));
     await tester.tapAt(const Offset(520, 440));
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pump();
-    await tester.tap(find.byTooltip('Select (V)'));
     await tester.pump();
 
     final before = List.of(_graphOverlayPainter(tester).wallSegments as List);
@@ -527,7 +555,8 @@ void main() {
   });
 
   for (final tool in ['Circle', 'Triangle']) {
-    testWidgets('$tool inserts on tap and resizing preserves its primitive', (tester) async {
+    testWidgets('$tool inserts on tap and resizing preserves its primitive',
+        (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(1400, 900);
       addTearDown(tester.view.reset);
@@ -538,7 +567,8 @@ void main() {
       expect(_shapeCount(tester), 1);
       await tester.dragFrom(const Offset(340, 290), const Offset(-60, -30));
       await tester.pump();
-      final segments = _graphOverlayPainter(tester).wallSegments as List<WallSegment>;
+      final segments =
+          _graphOverlayPainter(tester).wallSegments as List<WallSegment>;
       expect(segments.length, tool == 'Circle' ? 8 : 3);
       if (tool == 'Circle') {
         final xs = segments.map((s) => s.start.x).toList()..sort();
@@ -1210,7 +1240,8 @@ void main() {
     );
   });
 
-  testWidgets('drawing ratio leaves viewport zoom and geometry unchanged', (tester) async {
+  testWidgets('drawing ratio leaves viewport zoom and geometry unchanged',
+      (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
     addTearDown(tester.view.reset);
@@ -1231,13 +1262,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(controller.value.getMaxScaleOnAxis(), closeTo(1, 0.001));
-    final grid = tester.widget<CustomPaint>(
-        find.byKey(const ValueKey('graph-canvas-paint'))).painter as dynamic;
+    final grid = tester
+        .widget<CustomPaint>(find.byKey(const ValueKey('graph-canvas-paint')))
+        .painter as dynamic;
     expect(grid.drawingScale.feetPerGridUnit, 3);
     expect(_wallCount(tester), 0);
   });
 
-  testWidgets('pinch preserves a pending structure and freehand still draws', (tester) async {
+  testWidgets('pinch preserves a pending structure and freehand still draws',
+      (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
     addTearDown(tester.view.reset);
@@ -1247,11 +1280,16 @@ void main() {
     await tester.tapAt(const Offset(500, 240));
     await tester.pump();
     final before = _graphOverlayPainter(tester);
-    final segments = List<WallSegment>.of(before.wallSegments as List<WallSegment>);
+    final segments =
+        List<WallSegment>.of(before.wallSegments as List<WallSegment>);
     final active = before.activeWallStart;
-    final controller = tester.widget<InteractiveViewer>(find.byType(InteractiveViewer)).transformationController!;
-    final first = await tester.startGesture(const Offset(550, 380), pointer: 11);
-    final second = await tester.startGesture(const Offset(750, 380), pointer: 12);
+    final controller = tester
+        .widget<InteractiveViewer>(find.byType(InteractiveViewer))
+        .transformationController!;
+    final first =
+        await tester.startGesture(const Offset(550, 380), pointer: 11);
+    final second =
+        await tester.startGesture(const Offset(750, 380), pointer: 12);
     await first.moveBy(const Offset(-40, 0));
     await second.moveBy(const Offset(40, 0));
     await tester.pump();
@@ -1267,7 +1305,8 @@ void main() {
     await tester.pump();
     await tester.dragFrom(const Offset(550, 380), const Offset(100, 70));
     await tester.pump();
-    expect((_graphOverlayPainter(tester).freehandStrokes as List), hasLength(1));
+    expect(
+        (_graphOverlayPainter(tester).freehandStrokes as List), hasLength(1));
   });
 
   testWidgets('completed Trace vertices can be moved and trace can be deleted',
@@ -1310,6 +1349,9 @@ void main() {
       MaterialApp(home: GraphCanvasScreen(document: document)),
     );
     await tester.pumpAndSettle();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+    await tester.pump();
 
     final viewerFinder = find.byType(InteractiveViewer);
     final controller = tester
@@ -1857,12 +1899,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(_shapeCount(tester), 1);
-    expect((_graphOverlayPainter(tester).shapes as List).single.closed, isFalse);
+    expect(
+        (_graphOverlayPainter(tester).shapes as List).single.closed, isFalse);
     expect(find.byType(AlertDialog), findsNothing);
   });
 
-  testWidgets('Finish Line saves an open multi-point line',
-      (tester) async {
+  testWidgets('Finish Line saves an open multi-point line', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
     addTearDown(tester.view.reset);
@@ -1875,7 +1917,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(_shapeCount(tester), 1);
-    expect((_graphOverlayPainter(tester).shapes as List).single.closed, isFalse);
+    expect(
+        (_graphOverlayPainter(tester).shapes as List).single.closed, isFalse);
     expect(find.byType(AlertDialog), findsNothing);
   });
 
@@ -2090,20 +2133,12 @@ Future<void> _secondaryClick(WidgetTester tester, Offset position) async {
 }
 
 Future<void> _selectStructure(WidgetTester tester, String label) async {
-  await _expandToolbarSection(tester, 'Sketch Structure', find.text('MAIN'));
-  if (label == 'Main Structure') {
-    await tester.ensureVisible(find.text('MAIN'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('MAIN'));
-    await tester.pumpAndSettle();
-    return;
-  }
-
-  await tester.ensureVisible(find.text('Building Features'));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text('Building Features'));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text(label));
+  final preset = GraphDrawingPreset.values.singleWhere(
+    (preset) => preset.label == label || preset.shortLabel == label,
+  );
+  tester
+      .widget<CanvasToolbar>(find.byType(CanvasToolbar))
+      .onDrawingPresetSelected(preset);
   await tester.pumpAndSettle();
 }
 
@@ -2126,7 +2161,8 @@ Future<void> _selectLineTool(WidgetTester tester, String label) async {
 Future<void> _selectQuickMeasure(WidgetTester tester) async {
   // The legacy tool remains supported for old documents, but is no longer
   // exposed for new placement in the toolbar.
-  tester.widget<CanvasToolbar>(find.byType(CanvasToolbar))
+  tester
+      .widget<CanvasToolbar>(find.byType(CanvasToolbar))
       .onDrawingPresetSelected(GraphDrawingPreset.measurementLine);
   await tester.pumpAndSettle();
 }

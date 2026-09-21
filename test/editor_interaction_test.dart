@@ -106,7 +106,8 @@ void main() {
     expect(availableTreatmentMarkers, contains(GraphMarkerType.rodentTrap));
     expect(availableTreatmentMarkers, contains(GraphMarkerType.treatmentNote));
     expect(availableTreatmentMarkers, isNot(contains(GraphMarkerType.circle)));
-    expect(drawingToolbarPresets, isNot(contains(GraphDrawingPreset.measurementLine)));
+    expect(drawingToolbarPresets,
+        isNot(contains(GraphDrawingPreset.measurementLine)));
     expect(structureToolbarPresets,
         isNot(contains(GraphDrawingPreset.measurementLine)));
     expect(structureToolbarPresets,
@@ -139,6 +140,7 @@ void main() {
       GraphMarkerType.crawlspaceAccess,
       GraphMarkerType.gasLine,
       GraphMarkerType.waterLine,
+      GraphMarkerType.bushPlant,
     ]);
     expect(CanvasTool.select.icon, Icons.navigation);
     expect(CanvasTool.pan.icon, Icons.pan_tool_outlined);

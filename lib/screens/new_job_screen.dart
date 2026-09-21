@@ -8,6 +8,7 @@ import '../services/customer_files_service.dart';
 import '../services/customer_files_service_factory.dart';
 import '../services/bugman_portal_service.dart';
 import '../services/portal_sign_in.dart';
+import '../services/authenticated_identity.dart';
 import '../widgets/ops_brain_home_button.dart';
 import 'graph_canvas_screen.dart';
 
@@ -19,6 +20,7 @@ class NewJobScreen extends StatefulWidget {
     this.preselectedLocation,
     this.resolutionWarning,
     this.customerFilesService,
+    this.authenticatedNameLoader,
     super.key,
   });
 
@@ -28,6 +30,7 @@ class NewJobScreen extends StatefulWidget {
     'WDIR',
     'ATBS Installation',
     'General Use',
+    'Termite Treatment',
   ];
 
   final ValueChanged<Job> onCreateJob;
@@ -49,6 +52,7 @@ class NewJobScreen extends StatefulWidget {
   /// tests; production code should leave this null so the real
   /// Ops-Brain-backed implementation is used.
   final CustomerFilesService? customerFilesService;
+  final Future<String?> Function()? authenticatedNameLoader;
 
   @override
   State<NewJobScreen> createState() => _NewJobScreenState();
@@ -67,6 +71,9 @@ class _NewJobScreenState extends State<NewJobScreen> {
   late final CustomerFilesService _customerFilesService;
 
   String _serviceType = 'Inspection';
+  bool _authenticatedCreator = false;
+  bool _primaryContactVisible = false;
+  bool _alternateContactVisible = false;
 
   CustomerLocation? _selectedLocation;
   bool _manualEntryOverride = false;
@@ -83,7 +90,9 @@ class _NewJobScreenState extends State<NewJobScreen> {
       'phone',
       'email',
       'contactName',
-      'contactPhone'
+      'contactPhone',
+      'primaryContactName',
+      'contactEmail',
     ])
       key: TextEditingController(),
   };
@@ -152,6 +161,28 @@ class _NewJobScreenState extends State<NewJobScreen> {
       _selectedLocation = preselected;
       _applyLocation(preselected);
     }
+    _restoreContactVisibility();
+    _loadCreator();
+  }
+
+  void _restoreContactVisibility() {
+    _primaryContactVisible = ['phone', 'email', 'primaryContactName']
+        .any((key) => _details[key]!.text.isNotEmpty);
+    _alternateContactVisible = ['contactName', 'contactPhone', 'contactEmail']
+        .any((key) => _details[key]!.text.isNotEmpty);
+  }
+
+  Future<void> _loadCreator() async {
+    final name =
+        await (widget.authenticatedNameLoader ?? loadAuthenticatedName)();
+    if (!mounted || name == null || name.trim().isEmpty) return;
+    setState(() {
+      _authenticatedCreator = true;
+      if (widget.initialJob == null ||
+          _createdByController.text.trim().isEmpty) {
+        _createdByController.text = name.trim();
+      }
+    });
   }
 
   @override
@@ -175,6 +206,8 @@ class _NewJobScreenState extends State<NewJobScreen> {
     for (final controller in _details.values) {
       controller.clear();
     }
+    // Bill-To name is the available company/account name. Do not attempt to
+    // split it into first/last name fields when the source is not structured.
     _details['company']!.text = location.billToName;
     _details['phone']!.text = location.phone;
     _details['email']!.text = location.email;
@@ -198,6 +231,7 @@ class _NewJobScreenState extends State<NewJobScreen> {
               _locationAddressController.text;
       _customerType = previous.intakeDetails['customerType'] ?? '';
     }
+    _restoreContactVisibility();
   }
 
   void _clearLocationFields() {
@@ -209,6 +243,8 @@ class _NewJobScreenState extends State<NewJobScreen> {
     _locationAddressController.clear();
     _pestPacLocationController.clear();
     _pestPacBillToController.clear();
+    _primaryContactVisible = false;
+    _alternateContactVisible = false;
   }
 
   void _selectLocation(CustomerLocation location) {
@@ -322,23 +358,32 @@ class _NewJobScreenState extends State<NewJobScreen> {
       for (final entry in _details.entries) entry.key: entry.value.text.trim(),
       'leadType': _manualEntryOverride ? 'New Customer' : 'Existing Customer',
       'locationName': _locationNameController.text.trim(),
-      'streetAddress': _locationAddressController.text.trim(),
+      'streetAddress': _selectedLocation == null
+          ? _locationAddressController.text.trim()
+          : '',
+      'locationAddress': _selectedLocation == null
+          ? ''
+          : _locationAddressController.text.trim(),
       'state': 'NC',
       'customerType': _customerType,
       'customerLocationId': _selectedLocation?.customerLocationId ?? '',
       'billToId': _selectedLocation?.billToId ?? '',
     };
-    final name = details['company']!.isNotEmpty
-        ? details['company']!
-        : [details['first']!, details['last']!]
-            .where((value) => value.isNotEmpty)
-            .join(' ');
-    final address = [
-      details['streetAddress']!,
-      details['city']!,
-      if (details['city']!.isNotEmpty || details['zip']!.isNotEmpty) 'NC',
-      details['zip']!
-    ].where((value) => value.isNotEmpty).join(', ');
+    final name = _selectedLocation != null
+        ? _details['company']!.text.trim()
+        : details['company']!.isNotEmpty
+            ? details['company']!
+            : [details['first']!, details['last']!]
+                .where((value) => value.isNotEmpty)
+                .join(' ');
+    final address = _selectedLocation != null
+        ? _locationAddressController.text.trim()
+        : [
+            details['streetAddress']!,
+            details['city']!,
+            if (details['city']!.isNotEmpty || details['zip']!.isNotEmpty) 'NC',
+            details['zip']!
+          ].where((value) => value.isNotEmpty).join(', ');
     final job = Job(
       intakeDetails: details,
       id: widget.initialJob?.id,
@@ -440,6 +485,7 @@ class _NewJobScreenState extends State<NewJobScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: _createdByController,
+              readOnly: _authenticatedCreator,
               textInputAction: TextInputAction.done,
               decoration: const InputDecoration(
                 labelText: 'Created By',
@@ -602,11 +648,17 @@ class _NewJobScreenState extends State<NewJobScreen> {
         Text('Location Fields', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 12),
         _detailField('company', 'Company'),
-        _detailField('first', 'First Name'),
-        _detailField('last', 'Last Name'),
+        Row(children: [
+          Expanded(child: _detailField('first', 'First Name')),
+          const SizedBox(width: 12),
+          Expanded(child: _detailField('last', 'Last Name'))
+        ]),
         TextField(
             controller: _locationAddressController,
-            decoration: const InputDecoration(labelText: 'Street Address')),
+            decoration: InputDecoration(
+                labelText: _selectedLocation == null
+                    ? 'Street Address'
+                    : 'Location Address')),
         const SizedBox(height: 12),
         _detailField('city', 'City'),
         TextField(
@@ -616,9 +668,32 @@ class _NewJobScreenState extends State<NewJobScreen> {
                 const InputDecoration(labelText: 'State', hintText: 'NC')),
         const SizedBox(height: 12),
         _detailField('zip', 'Zip', keyboardType: TextInputType.number),
-        _detailField('phone', 'Phone', keyboardType: TextInputType.phone),
-        _detailField('email', 'Email',
-            keyboardType: TextInputType.emailAddress),
+        if (_primaryContactVisible) _contactCard(primary: true),
+        if (_alternateContactVisible) _contactCard(primary: false),
+        Align(
+            alignment: Alignment.centerLeft,
+            child: PopupMenuButton<bool>(
+                tooltip: 'Add Contact',
+                onSelected: (primary) => setState(() {
+                      if (primary) {
+                        _primaryContactVisible = true;
+                      } else {
+                        _alternateContactVisible = true;
+                      }
+                    }),
+                itemBuilder: (_) => [
+                      PopupMenuItem(
+                          value: true,
+                          enabled: !_primaryContactVisible,
+                          child: const Text('Primary')),
+                      PopupMenuItem(
+                          value: false,
+                          enabled: !_alternateContactVisible,
+                          child: const Text('Alternate')),
+                    ],
+                child: const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Text('+ Add Contact')))),
         DropdownButtonFormField<String>(
             key: ValueKey('customer-type-$_customerType'),
             initialValue: _customerType,
@@ -633,16 +708,46 @@ class _NewJobScreenState extends State<NewJobScreen> {
                   _customerType = value ?? '';
                 })),
         const SizedBox(height: 12),
-        Text('Primary/Alternate Contact',
-            style: Theme.of(context).textTheme.titleSmall),
-        const SizedBox(height: 12),
-        _detailField('contactName', 'Name'),
-        _detailField('contactPhone', 'Phone Number',
-            keyboardType: TextInputType.phone),
         TextField(
             controller: _locationNameController,
             decoration: const InputDecoration(labelText: 'Location Name')),
       ];
+
+  Widget _contactCard({required bool primary}) {
+    final keys = primary
+        ? ['primaryContactName', 'phone', 'email']
+        : ['contactName', 'contactPhone', 'contactEmail'];
+    return Card(
+        child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(children: [
+              Row(children: [
+                Expanded(
+                    child: Text(
+                        primary ? 'Primary contact' : 'Alternate contact')),
+                IconButton(
+                    tooltip: primary
+                        ? 'Remove primary contact'
+                        : 'Remove alternate contact',
+                    icon: const Icon(Icons.close),
+                    onPressed: () => setState(() {
+                          for (final key in keys) {
+                            _details[key]!.clear();
+                          }
+                          if (primary) {
+                            _primaryContactVisible = false;
+                          } else {
+                            _alternateContactVisible = false;
+                          }
+                        }))
+              ]),
+              _detailField(keys[0], primary ? 'Name' : 'Contact Name'),
+              _detailField(keys[1], primary ? 'Phone' : 'Contact Phone',
+                  keyboardType: TextInputType.phone),
+              _detailField(keys[2], primary ? 'Email' : 'Contact Email',
+                  keyboardType: TextInputType.emailAddress),
+            ])));
+  }
 
   static String _formatDate(DateTime date) =>
       '${date.month.toString().padLeft(2, '0')}/'

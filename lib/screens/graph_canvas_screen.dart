@@ -3513,7 +3513,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         annotation.markerType == GraphMarkerType.moisture) {
       final moisture = await _showTextLabelDialog(
         title: 'Moisture percentage',
-        initialText: '15%',
+        initialText: '15',
+        numeric: true,
       );
       if (!mounted || moisture == null) {
         return;
@@ -3717,12 +3718,14 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   Future<String?> _showTextLabelDialog({
+    bool numeric = false,
     required String title,
     required String initialText,
   }) async {
     final text = await showDialog<String>(
       context: context,
       builder: (context) => _TextLabelDialog(
+        numeric: numeric,
         title: title,
         initialText: initialText,
       ),
@@ -7420,7 +7423,9 @@ class _TopEditorToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mobile = MediaQuery.sizeOf(context).width < 700;
+    // The fully labelled desktop toolbar exceeds common tablet and compact
+    // laptop widths. The icon treatment also fits phones without scrolling.
+    final mobile = MediaQuery.sizeOf(context).width < 1120;
     return Material(
       elevation: 6,
       borderRadius: BorderRadius.circular(8),
@@ -7437,12 +7442,11 @@ class _TopEditorToolbar extends StatelessWidget {
                 tooltip: 'Undo',
                 onPressed: onUndo,
               ),
-              if (!mobile)
-                _IconOnlyButton(
-                  icon: Icons.redo,
-                  tooltip: 'Redo',
-                  onPressed: onRedo,
-                ),
+              _IconOnlyButton(
+                icon: Icons.redo,
+                tooltip: 'Redo',
+                onPressed: onRedo,
+              ),
               if (!mobile) const _ToolbarDivider(),
               if (mobile)
                 _IconOnlyButton(
@@ -9941,11 +9945,13 @@ class _SegmentEndpointRef {
 
 class _TextLabelDialog extends StatefulWidget {
   const _TextLabelDialog({
+    this.numeric = false,
     required this.title,
     required this.initialText,
   });
 
   final String title;
+  final bool numeric;
   final String initialText;
 
   @override
@@ -9959,6 +9965,10 @@ class _TextLabelDialogState extends State<_TextLabelDialog> {
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.initialText);
+    if (widget.numeric) {
+      _controller.selection =
+          TextSelection(baseOffset: 0, extentOffset: widget.initialText.length);
+    }
   }
 
   @override
@@ -9977,10 +9987,16 @@ class _TextLabelDialogState extends State<_TextLabelDialog> {
       title: Text(widget.title),
       content: TextField(
         controller: _controller,
+        keyboardType: widget.numeric
+            ? const TextInputType.numberWithOptions(decimal: true)
+            : TextInputType.text,
+        inputFormatters: widget.numeric
+            ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))]
+            : null,
         autofocus: true,
-        decoration: const InputDecoration(
-          labelText: 'Label',
-          border: OutlineInputBorder(),
+        decoration: InputDecoration(
+          labelText: widget.numeric ? 'Moisture %' : 'Label',
+          border: const OutlineInputBorder(),
         ),
         textInputAction: TextInputAction.done,
         onSubmitted: (_) => _save(),

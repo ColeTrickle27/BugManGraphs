@@ -9,6 +9,7 @@ const utilityMarkerTypes = <GraphMarkerType>{
   GraphMarkerType.crawlspaceAccess,
   GraphMarkerType.gasLine,
   GraphMarkerType.waterLine,
+  GraphMarkerType.bushPlant,
 };
 
 final inspectionMarkerTypes = <GraphMarkerType>[
