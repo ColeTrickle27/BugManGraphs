@@ -179,7 +179,9 @@ class GraphShapesPainter extends CustomPainter {
       }
 
       final measurementSummary = shapeMeasurementSummary(shape, shapeSegments);
-      final shapeLabel = shape.text.trim().isEmpty ? shape.name : shape.text;
+      final shapeLabel = shape.text.trim().isEmpty
+          ? (shape.isStructure ? shape.name : '')
+          : shape.text;
       final foundationLabel = shape.preset == GraphDrawingPreset.mainStructure
           ? shape.foundationType?.label
           : null;
@@ -194,6 +196,9 @@ class GraphShapesPainter extends CustomPainter {
         shape.preset == GraphDrawingPreset.propertyLine
             ? _propertyLineLabelPosition(shapeSegments, bounds)
             : bounds.center,
+        background: shape.isStructure,
+        fontSize: (shape.extraProperties['textSize'] as num?)?.toDouble() ?? 15,
+        maxWidth: shape.isStructure ? 220 : math.max(24, bounds.width - 16),
       );
 
       if (i == hoveredShapeIndex && i != selectedShapeIndex) {
@@ -262,7 +267,8 @@ class GraphShapesPainter extends CustomPainter {
 
     final kind = shape.extraProperties['basicShapeKind']?.toString();
     final legacyName = shape.name.toLowerCase();
-    final supportsVertices = kind != 'circle' &&
+    final supportsVertices = shape.isStructure &&
+        kind != 'circle' &&
         kind != 'ellipse' &&
         !legacyName.startsWith('circle') &&
         !legacyName.startsWith('ellipse');
@@ -477,7 +483,8 @@ class GraphShapesPainter extends CustomPainter {
     canvas.restore();
   }
 
-  void _drawShapeName(Canvas canvas, String name, Offset center) {
+  void _drawShapeName(Canvas canvas, String name, Offset center,
+      {bool background = true, double fontSize = 15, double maxWidth = 220}) {
     if (name.trim().isEmpty) {
       return;
     }
@@ -485,16 +492,16 @@ class GraphShapesPainter extends CustomPainter {
     final textPainter = TextPainter(
       text: TextSpan(
         text: name,
-        style: const TextStyle(
+        style: TextStyle(
           color: Color(0xFFCC2000),
-          fontSize: 15,
+          fontSize: fontSize,
           fontWeight: FontWeight.w800,
           height: 1.25,
         ),
       ),
       textDirection: TextDirection.ltr,
       textAlign: TextAlign.center,
-    )..layout(maxWidth: 220);
+    )..layout(maxWidth: maxWidth);
     final labelRect = Rect.fromCenter(
       center: center,
       width: textPainter.width + 18,
@@ -505,16 +512,18 @@ class GraphShapesPainter extends CustomPainter {
       const Radius.circular(5),
     );
 
-    canvas.drawRRect(
-      labelRRect,
-      Paint()..color = const Color(0xFFE6E6E6),
-    );
-    canvas.drawRRect(
-      labelRRect,
-      Paint()
-        ..color = Colors.black
-        ..style = PaintingStyle.stroke,
-    );
+    if (background)
+      canvas.drawRRect(
+        labelRRect,
+        Paint()..color = const Color(0xFFE6E6E6),
+      );
+    if (background)
+      canvas.drawRRect(
+        labelRRect,
+        Paint()
+          ..color = Colors.black
+          ..style = PaintingStyle.stroke,
+      );
     textPainter.paint(
       canvas,
       Offset(

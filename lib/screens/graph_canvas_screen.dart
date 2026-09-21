@@ -179,6 +179,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   final TextEditingController _inlineTextController = TextEditingController();
   final FocusNode _inlineTextFocusNode = FocusNode();
   int? _inlineTextAnnotationIndex;
+  int? _inlineTextShapeIndex;
+  _EditorSnapshot? _inlineShapeSnapshot;
   GraphAnnotation? _inlineTextPreviousAnnotation;
   bool _inlineTextIsNew = false;
   bool _initialCanvasCentered = false;
@@ -225,7 +227,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     return null;
   }
 
-  bool get _isInlineTextEditing => _inlineTextAnnotationIndex != null;
+  bool get _isInlineTextEditing =>
+      _inlineTextAnnotationIndex != null || _inlineTextShapeIndex != null;
   GraphDrawingPreset get _selectedStructureType => _interaction.structureType;
   GraphDrawingPreset? get _selectedDrawingPreset =>
       _selectedTool == CanvasTool.structure ? _selectedStructureType : null;
@@ -965,7 +968,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       _shapeDrawCurrent = null;
     }
     if (_isPresetShapeTool(_selectedTool) && _shapeDrawStart != null) {
-      if (_isInsideCanvas(sceneOffset) && !wasSinglePointerTap) {
+      if (_isInsideCanvas(sceneOffset)) {
         _finishPresetShape(sceneOffset);
       }
       _shapeDrawStart = null;
@@ -1104,8 +1107,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   bool _selectionOpensPropertiesOnDoubleClick(_Selection selection) {
-    if (selection.kind == _SelectionKind.shape ||
-        selection.kind == _SelectionKind.segment ||
+    if (selection.kind == _SelectionKind.shape) {
+      return _shapes[selection.index].isStructure;
+    }
+    if (selection.kind == _SelectionKind.segment ||
         selection.kind == _SelectionKind.freehand ||
         selection.kind == _SelectionKind.trace) {
       return true;
@@ -1539,7 +1544,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     final start = _shapeDrawStart ?? endOffset;
     final distance = (endOffset - start).distance;
     if (distance <= _tapMovementLimit) {
-      _showCanvasMessage('Drag to create a shape');
+      final size = _drawingScale.toCanonical(const Offset(120, 120));
+      _addPresetShape(
+          Rect.fromCenter(center: endOffset, width: size.dx, height: size.dy));
       return;
     }
 
@@ -2830,6 +2837,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   bool _shapeSupportsVertexEditing(GraphShape shape) {
+    if (!shape.isStructure) return false;
     final kind = shape.extraProperties['basicShapeKind']?.toString();
     if (kind == CanvasTool.circle.name || kind == CanvasTool.ellipse.name) {
       return false;
@@ -3239,11 +3247,21 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       return;
     }
 
-    final nextBounds = _boundsForResizeHandle(
+    var nextBounds = _boundsForResizeHandle(
       originalBounds,
       target.resizeHandleIndex,
       point.offset,
     );
+    final kind = _shapes[shapeIndex].extraProperties['basicShapeKind'];
+    if (kind == 'circle' || kind == 'square') {
+      final opposite = [
+        originalBounds.bottomRight,
+        originalBounds.bottomLeft,
+        originalBounds.topLeft,
+        originalBounds.topRight
+      ][target.resizeHandleIndex];
+      nextBounds = _rectFromDrag(opposite, point.offset, forceSquare: true);
+    }
     if (nextBounds.width < 24 || nextBounds.height < 24) {
       return;
     }
@@ -3582,6 +3600,21 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   void _finishInlineTextEditing() {
+    final shapeIndex = _inlineTextShapeIndex;
+    if (shapeIndex != null) {
+      final before = _inlineShapeSnapshot;
+      setState(() {
+        final next = [..._shapes];
+        next[shapeIndex] =
+            next[shapeIndex].copyWith(text: _inlineTextController.text.trim());
+        _shapes = next;
+        if (before != null)
+          _undoStack
+              .add(_UndoEntry(_UndoKind.snapshot, previousSnapshot: before));
+        _clearInlineTextEditing();
+      });
+      return;
+    }
     final index = _inlineTextAnnotationIndex;
     final previous = _inlineTextPreviousAnnotation;
     if (index == null || previous == null || index >= _annotations.length) {
@@ -3631,13 +3664,15 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   void _clearInlineTextEditing() {
+    _inlineTextShapeIndex = null;
+    _inlineShapeSnapshot = null;
     _inlineTextAnnotationIndex = null;
     _inlineTextPreviousAnnotation = null;
     _inlineTextIsNew = false;
     _interaction.setTextEditing(false);
   }
 
-  Future<void> _editShapeText(int index) async {
+  void _editShapeText(int index) {
     if (index < 0 || index >= _shapes.length || _shapes[index].isStructure) {
       return;
     }
@@ -3646,26 +3681,15 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       return;
     }
 
-    final before = _EditorSnapshot.capture(this);
     final shape = _shapes[index];
-    _interaction.setTextEditing(true);
-    final text = await _showTextLabelDialog(
-      title: 'Edit shape text',
-      initialText: shape.text.isEmpty ? shape.name : shape.text,
-    );
-    _interaction.setTextEditing(false);
-    if (!mounted || text == null || text == shape.text) {
-      return;
-    }
-
-    final nextShapes = <GraphShape>[..._shapes];
-    nextShapes[index] = shape.copyWith(text: text);
     setState(() {
-      _shapes = nextShapes;
-      _undoStack.add(
-        _UndoEntry(_UndoKind.snapshot, previousSnapshot: before),
-      );
-      _canvasStatus = 'Shape text updated';
+      _inlineShapeSnapshot = _EditorSnapshot.capture(this);
+      _inlineTextShapeIndex = index;
+      _inlineTextController.text = shape.text;
+      _interaction.setTextEditing(true);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _inlineTextFocusNode.requestFocus();
     });
   }
 
@@ -3817,15 +3841,16 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         activeWallStart != null &&
         pathSegmentCount >= 2 &&
         activeWallStart.distanceTo(pathStartPoint) > _minimumWallLength;
-    final canCloseShape = pathReturnsToStart || canAddClosingSegment;
+    final canCloseShape = _selectedTool != CanvasTool.wall &&
+        (pathReturnsToStart || canAddClosingSegment);
     final defaultName = _selectedDrawingPreset?.label ??
         '${_selectedTool == CanvasTool.wall ? 'Line' : 'Shape'} ${_shapes.length + 1}';
-    final result = autoFinish
+    final result = autoFinish || _selectedTool == CanvasTool.wall
         ? _FinishShapeResult(
             name: defaultName,
             closeShape: canCloseShape,
-            fillColor: _currentShapeFillColor,
-            fillOpacity: _currentShapeFillOpacity,
+            fillColor: canCloseShape ? _currentShapeFillColor : null,
+            fillOpacity: canCloseShape ? _currentShapeFillOpacity : 0,
             borderColor: _currentShapeBorderColor,
             borderWidth: _currentShapeBorderWidth,
             pattern: _currentShapePattern,
@@ -3899,6 +3924,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         ),
       );
       _canvasStatus = 'Shape finished: ${shape.name}';
+      _interaction.selectTool(CanvasTool.select);
     });
   }
 
@@ -6628,7 +6654,71 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     };
   }
 
+  Widget? _buildInlineShapeTextEditor(int index, Size viewportSize) {
+    final bounds = _shapeBounds(_shapes[index]);
+    if (bounds == null) return null;
+    final anchor = MatrixUtils.transformPoint(_transformationController.value,
+        _drawingScale.toDisplay(bounds.center));
+    final fontSize =
+        (_shapes[index].extraProperties['textSize'] as num?)?.toDouble() ?? 15;
+    final width = math.min(220.0, viewportSize.width - 16);
+    void resizeText(double delta) {
+      setState(() {
+        final next = [..._shapes];
+        next[index] = next[index].copyWith(extraProperties: {
+          ...next[index].extraProperties,
+          'textSize': (fontSize + delta).clamp(10, 32),
+        });
+        _shapes = next;
+      });
+    }
+
+    return Positioned(
+      left: (anchor.dx - width / 2)
+          .clamp(8, math.max(8, viewportSize.width - width - 8))
+          .toDouble(),
+      top: (anchor.dy - 72)
+          .clamp(8, math.max(8, viewportSize.height - 104))
+          .toDouble(),
+      width: width,
+      child: Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          child: Column(verticalDirection: VerticalDirection.up, mainAxisSize: MainAxisSize.min, children: [
+            TextField(
+                key: const ValueKey('inline-shape-text-editor'),
+                controller: _inlineTextController,
+                focusNode: _inlineTextFocusNode,
+                autofocus: true,
+                textAlign: TextAlign.center,
+                maxLines: null,
+                style: TextStyle(fontSize: fontSize),
+                decoration: const InputDecoration(
+                    hintText: 'Shape text', isDense: true),
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _finishInlineTextEditing()),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              IconButton(
+                  tooltip: 'Smaller shape text',
+                  icon: const Icon(Icons.text_decrease),
+                  onPressed: () => resizeText(-2)),
+              IconButton(
+                  tooltip: 'Larger shape text',
+                  icon: const Icon(Icons.text_increase),
+                  onPressed: () => resizeText(2)),
+              IconButton(
+                  tooltip: 'Done editing text',
+                  icon: const Icon(Icons.check),
+                  onPressed: _finishInlineTextEditing),
+            ]),
+          ])),
+    );
+  }
+
   Widget? _buildInlineTextEditor(Size viewportSize) {
+    final shapeIndex = _inlineTextShapeIndex;
+    if (shapeIndex != null)
+      return _buildInlineShapeTextEditor(shapeIndex, viewportSize);
     final index = _inlineTextAnnotationIndex;
     if (index == null || index < 0 || index >= _annotations.length) {
       return null;
@@ -6870,7 +6960,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                         },
                       ),
                     ),
-                    if (_inlineTextAnnotationIndex != null)
+                    if (_isInlineTextEditing)
                       Positioned.fill(
                         left: canvasLeftInset,
                         top: 54,
@@ -6983,7 +7073,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                                   _selectedStructureType ==
                                       GraphDrawingPreset.measurementLine
                               ? 'Finish Measure'
-                              : 'Close Shape',
+                              : _selectedTool == CanvasTool.wall ? 'Finish Line' : 'Close Shape',
                           onClear: _confirmClearGraph,
                           onSaveGraphFile: _handleGraphFileSaveTapped,
                           onExportPdf: _exportGraphPdf,

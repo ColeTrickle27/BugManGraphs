@@ -97,6 +97,7 @@ const basicShapeToolbarActions = <CanvasToolbarAction>[
   CanvasToolbarAction.tool(CanvasTool.rectangle),
   CanvasToolbarAction.tool(CanvasTool.circle),
   CanvasToolbarAction.tool(CanvasTool.triangle),
+  CanvasToolbarAction.tool(CanvasTool.wall),
 ];
 
 const buildingFeatureToolbarActions = <CanvasToolbarAction>[

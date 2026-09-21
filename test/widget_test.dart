@@ -464,7 +464,7 @@ void main() {
     expect(after.first.end.y, before.first.end.y);
   });
 
-  testWidgets('dragging a rectangle vertex moves only its connected corners',
+  testWidgets('dragging a basic rectangle corner keeps it rectangular',
       (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
@@ -487,8 +487,31 @@ void main() {
     expect(after.last.end.x, after.first.start.x);
     expect(after.last.end.y, after.first.start.y);
     expect(after.first.end.x, before.first.end.x);
-    expect(after.first.end.y, before.first.end.y);
+    expect(after.first.end.y, after.first.start.y);
   });
+
+  for (final tool in ['Circle', 'Triangle']) {
+    testWidgets('$tool inserts on tap and resizing preserves its primitive', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1400, 900);
+      addTearDown(tester.view.reset);
+      await _pumpEditor(tester);
+      await _selectBasicShape(tester, tool);
+      await tester.tapAt(const Offset(400, 350));
+      await tester.pump();
+      expect(_shapeCount(tester), 1);
+      await tester.dragFrom(const Offset(340, 290), const Offset(-60, -30));
+      await tester.pump();
+      final segments = _graphOverlayPainter(tester).wallSegments as List<WallSegment>;
+      expect(segments.length, tool == 'Circle' ? 8 : 3);
+      if (tool == 'Circle') {
+        final xs = segments.map((s) => s.start.x).toList()..sort();
+        final ys = segments.map((s) => s.start.y).toList()..sort();
+        expect(xs.last - xs.first, closeTo(ys.last - ys.first, 0.01));
+        expect(segments.every((s) => s.isCurve), isTrue);
+      }
+    });
+  }
 
   testWidgets('double-click completes an in-progress structure',
       (tester) async {
@@ -551,7 +574,7 @@ void main() {
     });
   }
 
-  testWidgets('generic shapes require drag and double-click opens properties',
+  testWidgets('generic shapes insert on tap and double-click edits inline text',
       (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
@@ -562,19 +585,24 @@ void main() {
     await tester.pump();
     await tester.tapAt(const Offset(300, 250));
     await tester.pump();
-    expect(_shapeCount(tester), 0);
-
-    await tester.dragFrom(const Offset(300, 250), const Offset(220, 170));
-    await tester.pump();
     expect(_shapeCount(tester), 1);
     expect(find.text('Shape Properties'), findsNothing);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
-    await tester.tapAt(const Offset(410, 335));
+    await tester.tapAt(const Offset(300, 250));
     await tester.pump(const Duration(milliseconds: 40));
-    await tester.tapAt(const Offset(410, 335));
+    await tester.tapAt(const Offset(300, 250));
     await tester.pumpAndSettle();
-    expect(find.text('Shape Properties'), findsOneWidget);
+    expect(find.text('Shape Properties'), findsNothing);
+    final editor = find.byKey(const ValueKey('inline-shape-text-editor'));
+    expect(editor, findsOneWidget);
+    await tester.enterText(editor, 'Garden');
+    await tester.tap(find.byTooltip('Larger shape text'));
+    await tester.tap(find.byTooltip('Done editing text'));
+    await tester.pump();
+    final shape = (_graphOverlayPainter(tester).shapes as List).single;
+    expect(shape.text, 'Garden');
+    expect(shape.extraProperties['textSize'], 17);
   });
 
   testWidgets('deleting a finished shape removes its backing lines',
@@ -1778,7 +1806,7 @@ void main() {
     expect(matrix().entry(1, 3), isNot(closeTo(beforeShift.entry(1, 3), 0.1)));
   });
 
-  testWidgets('line double-click closes and finishes the plotted path',
+  testWidgets('line double-click finishes the plotted path without closing',
       (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
@@ -1793,10 +1821,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(_shapeCount(tester), 1);
+    expect((_graphOverlayPainter(tester).shapes as List).single.closed, isFalse);
     expect(find.byType(AlertDialog), findsNothing);
   });
 
-  testWidgets('Close Shape closes and saves a multi-point line',
+  testWidgets('Finish Line saves an open multi-point line',
       (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
@@ -1806,17 +1835,11 @@ void main() {
     await tester.tapAt(const Offset(320, 260));
     await tester.tapAt(const Offset(500, 260));
     await tester.tapAt(const Offset(500, 420));
-    await tester.tap(find.text('Close Shape').first);
-    await tester.pumpAndSettle();
-
-    final dialog = find.byType(AlertDialog);
-    expect(dialog, findsOneWidget);
-    await tester.tap(
-      find.descendant(of: dialog, matching: find.text('Close Shape')),
-    );
+    await tester.tap(find.text('Finish Line').first);
     await tester.pumpAndSettle();
 
     expect(_shapeCount(tester), 1);
+    expect((_graphOverlayPainter(tester).shapes as List).single.closed, isFalse);
     expect(find.byType(AlertDialog), findsNothing);
   });
 
