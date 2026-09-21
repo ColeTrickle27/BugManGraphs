@@ -33,7 +33,7 @@ enum StructureFoundationType {
 
 enum GraphDrawingPreset {
   mainStructure(
-    'Main Structure',
+    'Draw Structure',
     'Main Structure',
     GraphDrawingPresetKind.area,
     Color(0xFFB6D94C),
@@ -107,6 +107,19 @@ enum GraphDrawingPreset {
     3,
     GraphShapePattern.dots,
     Color(0xFFB17C18),
+    5,
+    LinePatternValue.solid,
+  ),
+  woodPorch(
+    'Wood Porch',
+    'PORCH',
+    GraphDrawingPresetKind.area,
+    Color(0xFFE2B56D),
+    0.38,
+    Color(0xFF8A5A2B),
+    3,
+    GraphShapePattern.vertical,
+    Color(0xFF8A5A2B),
     5,
     LinePatternValue.solid,
   ),
@@ -274,6 +287,7 @@ extension GraphDrawingPresetMeasurements on GraphDrawingPreset {
         GraphDrawingPreset.slab,
         GraphDrawingPreset.crawlspace,
         GraphDrawingPreset.woodDeck,
+        GraphDrawingPreset.woodPorch,
         GraphDrawingPreset.openPorch,
         GraphDrawingPreset.dirtFilledPorch,
         GraphDrawingPreset.garage,

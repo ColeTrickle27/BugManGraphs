@@ -59,7 +59,17 @@ void main() {
     final document = GraphDocument(
       id: job.id,
       customer: GraphCustomerInfo.fromJob(job),
-      traces: const [TraceGeometry(id: 'property-trace', label: 'Property', geoPoints: [], canvasPoints: [GraphPoint(x: 100, y: 100), GraphPoint(x: 200, y: 100), GraphPoint(x: 200, y: 200)])],
+      traces: const [
+        TraceGeometry(
+            id: 'property-trace',
+            label: 'Property',
+            geoPoints: [],
+            canvasPoints: [
+              GraphPoint(x: 100, y: 100),
+              GraphPoint(x: 200, y: 100),
+              GraphPoint(x: 200, y: 200)
+            ])
+      ],
       annotations: const [
         GraphAnnotation(
             id: 'approved',
@@ -128,10 +138,6 @@ void main() {
       'City',
       'State',
       'Zip',
-      'Phone',
-      'Email',
-      'Name',
-      'Phone Number',
       'Location Name',
       'Date',
       'Created By',
@@ -150,8 +156,13 @@ void main() {
     final serviceType = tester.widget<DropdownButtonFormField<String>>(
       find.widgetWithText(DropdownButtonFormField<String>, 'Service Type'),
     );
-    expect(NewJobScreen.serviceTypes,
-        ['Inspection', 'WDIR', 'ATBS Installation', 'General Use']);
+    expect(NewJobScreen.serviceTypes, [
+      'Inspection',
+      'WDIR',
+      'ATBS Installation',
+      'General Use',
+      'Termite Treatment',
+    ]);
     expect(serviceType.initialValue, 'Inspection');
     expect(find.text('Termite Inspection'), findsNothing);
     expect(find.text('Termite Treatment'), findsNothing);
@@ -299,7 +310,7 @@ void main() {
       'Updated Location',
     );
     await tester.enterText(
-      find.widgetWithText(TextField, 'Street Address'),
+      find.widgetWithText(TextField, 'Location Address'),
       '20 New Road',
     );
     await tester.scrollUntilVisible(find.text('Save Changes'), 400,
@@ -345,7 +356,112 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pump();
     expect(_shapeCount(tester), 1);
+    expect(find.text('Name detached structure'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).last, 'Pool House');
+    await tester.tap(find.text('Save').last);
+    await tester.pumpAndSettle();
+    expect((_graphOverlayPainter(tester).shapes as List).single.name,
+        'Pool House');
     expect(find.text('Shape Properties'), findsNothing);
+  });
+
+  testWidgets('structure rectangle previews dimensions and finishes in Select',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1400, 900);
+    addTearDown(tester.view.reset);
+    await _pumpEditor(tester);
+    final gesture = await tester.startGesture(const Offset(300, 240));
+    await gesture.moveTo(const Offset(540, 480));
+    await tester.pump();
+    expect(_graphOverlayPainter(tester).previewShape.name, '10 lf × 10 lf');
+    await gesture.up();
+    await tester.pump();
+    expect(_shapeCount(tester), 1);
+    expect(
+        tester.widget<CanvasToolbar>(find.byType(CanvasToolbar)).selectedTool,
+        CanvasTool.select);
+    await tester.tapAt(const Offset(700, 500));
+    await tester.pump();
+    expect(_wallCount(tester), 4);
+    expect(_graphOverlayPainter(tester).activeWallStart, isNull);
+    // Re-select, then move the top midpoint without moving the bottom edge.
+    await tester.tapAt(const Offset(420, 350));
+    await tester.pump();
+    final before = List<WallSegment>.of(
+        _graphOverlayPainter(tester).wallSegments as List<WallSegment>);
+    await tester.dragFrom(const Offset(420, 240), const Offset(0, -48));
+    await tester.pump();
+    final after =
+        _graphOverlayPainter(tester).wallSegments as List<WallSegment>;
+    expect(after[0].start.y, closeTo(before[0].start.y - 48, 0.01));
+    expect(after[0].end.y, closeTo(before[0].end.y - 48, 0.01));
+    expect(after[2].start.offset, before[2].start.offset);
+    expect(after[2].end.offset, before[2].end.offset);
+  });
+
+  testWidgets(
+      'phone toolbar fits and drawing controls restore after completion',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
+    await _pumpEditor(tester);
+    for (final tooltip in [
+      'Undo',
+      'Zoom out',
+      'Zoom in',
+      'Canvas options',
+      'File actions'
+    ]) {
+      final rect = tester.getRect(find.byTooltip(tooltip));
+      expect(rect.left, greaterThanOrEqualTo(0));
+      expect(rect.right, lessThanOrEqualTo(390));
+      expect(rect.width, greaterThanOrEqualTo(44));
+    }
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+    await tester.pump();
+    expect(find.byType(CanvasToolbar), findsNothing);
+    expect(find.byTooltip('Show main toolbar'), findsOneWidget);
+    await tester.tapAt(const Offset(150, 240));
+    await tester.tapAt(const Offset(330, 240));
+    await tester.tapAt(const Offset(330, 420));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('drawing-essential-controls')),
+        findsOneWidget);
+    await tester.tap(find.byTooltip('Finish drawing'));
+    await tester.pump();
+    expect(
+        find.byKey(const ValueKey('drawing-essential-controls')), findsNothing);
+    expect(find.byKey(const ValueKey('canvas-quick-toolbar')), findsOneWidget);
+    expect(_shapeCount(tester), 1);
+    await tester.tap(find.byTooltip('Canvas options'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Clear Graph'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(_shapeCount(tester), 1);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(_shapeCount(tester), 1);
+  });
+
+  testWidgets('switching tools completes a valid structure draft',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1400, 900);
+    addTearDown(tester.view.reset);
+    await _pumpEditor(tester);
+    await tester.tapAt(const Offset(300, 240));
+    await tester.tapAt(const Offset(540, 240));
+    await tester.tapAt(const Offset(540, 480));
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyL);
+    await tester.pump();
+    expect(_shapeCount(tester), 1);
+    expect((_graphOverlayPainter(tester).shapes as List).single.closed, isTrue);
+    expect(
+        tester.widget<CanvasToolbar>(find.byType(CanvasToolbar)).selectedTool,
+        CanvasTool.wall);
   });
 
   testWidgets('Escape cancels an unfinished structure', (tester) async {
@@ -390,14 +506,12 @@ void main() {
     tester.view.physicalSize = const Size(1400, 900);
     addTearDown(tester.view.reset);
     await _pumpEditor(tester);
-    await _selectStructure(tester, 'Detached Structure');
+    await _selectStructure(tester, 'Garage/Carport');
 
     await tester.tapAt(const Offset(280, 240));
     await tester.tapAt(const Offset(520, 240));
     await tester.tapAt(const Offset(520, 440));
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pump();
-    await tester.tap(find.byTooltip('Select (V)'));
     await tester.pump();
 
     final before = List.of(_graphOverlayPainter(tester).wallSegments as List);
@@ -414,7 +528,7 @@ void main() {
     expect(after.first.end.y, before.first.end.y);
   });
 
-  testWidgets('dragging a rectangle vertex moves only its connected corners',
+  testWidgets('dragging a basic rectangle corner keeps it rectangular',
       (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
@@ -437,8 +551,33 @@ void main() {
     expect(after.last.end.x, after.first.start.x);
     expect(after.last.end.y, after.first.start.y);
     expect(after.first.end.x, before.first.end.x);
-    expect(after.first.end.y, before.first.end.y);
+    expect(after.first.end.y, after.first.start.y);
   });
+
+  for (final tool in ['Circle', 'Triangle']) {
+    testWidgets('$tool inserts on tap and resizing preserves its primitive',
+        (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1400, 900);
+      addTearDown(tester.view.reset);
+      await _pumpEditor(tester);
+      await _selectBasicShape(tester, tool);
+      await tester.tapAt(const Offset(400, 350));
+      await tester.pump();
+      expect(_shapeCount(tester), 1);
+      await tester.dragFrom(const Offset(340, 290), const Offset(-60, -30));
+      await tester.pump();
+      final segments =
+          _graphOverlayPainter(tester).wallSegments as List<WallSegment>;
+      expect(segments.length, tool == 'Circle' ? 8 : 3);
+      if (tool == 'Circle') {
+        final xs = segments.map((s) => s.start.x).toList()..sort();
+        final ys = segments.map((s) => s.start.y).toList()..sort();
+        expect(xs.last - xs.first, closeTo(ys.last - ys.first, 0.01));
+        expect(segments.every((s) => s.isCurve), isTrue);
+      }
+    });
+  }
 
   testWidgets('double-click completes an in-progress structure',
       (tester) async {
@@ -501,7 +640,7 @@ void main() {
     });
   }
 
-  testWidgets('generic shapes require drag and double-click opens properties',
+  testWidgets('generic shapes insert on tap and double-click edits inline text',
       (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
@@ -512,19 +651,24 @@ void main() {
     await tester.pump();
     await tester.tapAt(const Offset(300, 250));
     await tester.pump();
-    expect(_shapeCount(tester), 0);
-
-    await tester.dragFrom(const Offset(300, 250), const Offset(220, 170));
-    await tester.pump();
     expect(_shapeCount(tester), 1);
     expect(find.text('Shape Properties'), findsNothing);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
-    await tester.tapAt(const Offset(410, 335));
+    await tester.tapAt(const Offset(300, 250));
     await tester.pump(const Duration(milliseconds: 40));
-    await tester.tapAt(const Offset(410, 335));
+    await tester.tapAt(const Offset(300, 250));
     await tester.pumpAndSettle();
-    expect(find.text('Shape Properties'), findsOneWidget);
+    expect(find.text('Shape Properties'), findsNothing);
+    final editor = find.byKey(const ValueKey('inline-shape-text-editor'));
+    expect(editor, findsOneWidget);
+    await tester.enterText(editor, 'Garden');
+    await tester.tap(find.byTooltip('Larger shape text'));
+    await tester.tap(find.byTooltip('Done editing text'));
+    await tester.pump();
+    final shape = (_graphOverlayPainter(tester).shapes as List).single;
+    expect(shape.text, 'Garden');
+    expect(shape.extraProperties['textSize'], 17);
   });
 
   testWidgets('deleting a finished shape removes its backing lines',
@@ -1096,7 +1240,8 @@ void main() {
     );
   });
 
-  testWidgets('scale options update the canvas transformation', (tester) async {
+  testWidgets('drawing ratio leaves viewport zoom and geometry unchanged',
+      (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
     addTearDown(tester.view.reset);
@@ -1116,7 +1261,52 @@ void main() {
     await tester.tap(scaleItem);
     await tester.pumpAndSettle();
 
-    expect(controller.value.getMaxScaleOnAxis(), closeTo(3, 0.001));
+    expect(controller.value.getMaxScaleOnAxis(), closeTo(1, 0.001));
+    final grid = tester
+        .widget<CustomPaint>(find.byKey(const ValueKey('graph-canvas-paint')))
+        .painter as dynamic;
+    expect(grid.drawingScale.feetPerGridUnit, 3);
+    expect(_wallCount(tester), 0);
+  });
+
+  testWidgets('pinch preserves a pending structure and freehand still draws',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1400, 900);
+    addTearDown(tester.view.reset);
+    await _pumpEditor(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+    await tester.tapAt(const Offset(300, 240));
+    await tester.tapAt(const Offset(500, 240));
+    await tester.pump();
+    final before = _graphOverlayPainter(tester);
+    final segments =
+        List<WallSegment>.of(before.wallSegments as List<WallSegment>);
+    final active = before.activeWallStart;
+    final controller = tester
+        .widget<InteractiveViewer>(find.byType(InteractiveViewer))
+        .transformationController!;
+    final first =
+        await tester.startGesture(const Offset(550, 380), pointer: 11);
+    final second =
+        await tester.startGesture(const Offset(750, 380), pointer: 12);
+    await first.moveBy(const Offset(-40, 0));
+    await second.moveBy(const Offset(40, 0));
+    await tester.pump();
+    await first.up();
+    await second.up();
+    await tester.pumpAndSettle();
+    expect(controller.value.getMaxScaleOnAxis(), greaterThan(1));
+    final after = _graphOverlayPainter(tester);
+    expect(after.wallSegments, segments);
+    expect(after.activeWallStart, active);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+    await tester.pump();
+    await tester.dragFrom(const Offset(550, 380), const Offset(100, 70));
+    await tester.pump();
+    expect(
+        (_graphOverlayPainter(tester).freehandStrokes as List), hasLength(1));
   });
 
   testWidgets('completed Trace vertices can be moved and trace can be deleted',
@@ -1159,6 +1349,9 @@ void main() {
       MaterialApp(home: GraphCanvasScreen(document: document)),
     );
     await tester.pumpAndSettle();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+    await tester.pump();
 
     final viewerFinder = find.byType(InteractiveViewer);
     final controller = tester
@@ -1691,7 +1884,7 @@ void main() {
     expect(matrix().entry(1, 3), isNot(closeTo(beforeShift.entry(1, 3), 0.1)));
   });
 
-  testWidgets('line double-click closes and finishes the plotted path',
+  testWidgets('line double-click finishes the plotted path without closing',
       (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
@@ -1706,11 +1899,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(_shapeCount(tester), 1);
+    expect(
+        (_graphOverlayPainter(tester).shapes as List).single.closed, isFalse);
     expect(find.byType(AlertDialog), findsNothing);
   });
 
-  testWidgets('Close Shape closes and saves a multi-point line',
-      (tester) async {
+  testWidgets('Finish Line saves an open multi-point line', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
     addTearDown(tester.view.reset);
@@ -1719,17 +1913,12 @@ void main() {
     await tester.tapAt(const Offset(320, 260));
     await tester.tapAt(const Offset(500, 260));
     await tester.tapAt(const Offset(500, 420));
-    await tester.tap(find.text('Close Shape').first);
-    await tester.pumpAndSettle();
-
-    final dialog = find.byType(AlertDialog);
-    expect(dialog, findsOneWidget);
-    await tester.tap(
-      find.descendant(of: dialog, matching: find.text('Close Shape')),
-    );
+    await tester.tap(find.text('Finish Line').first);
     await tester.pumpAndSettle();
 
     expect(_shapeCount(tester), 1);
+    expect(
+        (_graphOverlayPainter(tester).shapes as List).single.closed, isFalse);
     expect(find.byType(AlertDialog), findsNothing);
   });
 
@@ -1944,20 +2133,12 @@ Future<void> _secondaryClick(WidgetTester tester, Offset position) async {
 }
 
 Future<void> _selectStructure(WidgetTester tester, String label) async {
-  await _expandToolbarSection(tester, 'Sketch Structure', find.text('MAIN'));
-  if (label == 'Main Structure') {
-    await tester.ensureVisible(find.text('MAIN'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('MAIN'));
-    await tester.pumpAndSettle();
-    return;
-  }
-
-  await tester.ensureVisible(find.text('Building Features'));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text('Building Features'));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text(label));
+  final preset = GraphDrawingPreset.values.singleWhere(
+    (preset) => preset.label == label || preset.shortLabel == label,
+  );
+  tester
+      .widget<CanvasToolbar>(find.byType(CanvasToolbar))
+      .onDrawingPresetSelected(preset);
   await tester.pumpAndSettle();
 }
 
@@ -1978,13 +2159,11 @@ Future<void> _selectLineTool(WidgetTester tester, String label) async {
 }
 
 Future<void> _selectQuickMeasure(WidgetTester tester) async {
-  final quickMeasure = find.byKey(const ValueKey('quick-measure-tool'));
-  await tester.ensureVisible(quickMeasure);
-  final action = tester.widget<InkWell>(find.descendant(
-    of: quickMeasure,
-    matching: find.byType(InkWell),
-  ));
-  action.onTap!();
+  // The legacy tool remains supported for old documents, but is no longer
+  // exposed for new placement in the toolbar.
+  tester
+      .widget<CanvasToolbar>(find.byType(CanvasToolbar))
+      .onDrawingPresetSelected(GraphDrawingPreset.measurementLine);
   await tester.pumpAndSettle();
 }
 

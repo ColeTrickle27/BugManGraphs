@@ -97,7 +97,7 @@ enum GraphMarkerType {
   foundationCrack('Foundation Crack', 'FC', Color(0xFFD33A2C)),
   plumbingPenetration('Plumbing Penetration', 'PP', Color(0xFF168AAD)),
   utilityPenetration('Utility Penetration', 'UP', Color(0xFF5A6C7D)),
-  crawlspaceAccess('Crawlspace Access', 'Access', Color(0xFF2E7D55)),
+  crawlspaceAccess('Crawl Space Access', 'Access', Color(0xFF2E7D55)),
   vent('Vent', 'V', Color(0xFF5A9BD8)),
   expansionJoint('Expansion Joint', 'EJ', Color(0xFF56616E)),
   structuralConcern('Structural Concern', 'SC', Color(0xFFD33A2C)),
@@ -113,8 +113,9 @@ enum GraphMarkerType {
   garageDoor('Garage Door', 'GD', Color(0xFF435C70)),
   steps('Steps', 'ST', Color(0xFF795548)),
   hvacUnit('HVAC', 'AC', Color(0xFF5A9BD8)),
-  gasLine('Gas Line', 'GAS', Color(0xFFE0AD19)),
-  waterLine('Water Line', 'WL', Color(0xFF168AAD)),
+  gasLine('Gas', 'GAS', Color(0xFFE0AD19)),
+  waterLine('Water Pipe', 'WP', Color(0xFF168AAD)),
+  bushPlant('Bush / Plant', 'Plant', Color(0xFF2E7D55)),
   wellOrCistern('Well or Cistern', 'WELL', Color(0xFF0077B6)),
   deckSupport('Deck Support', 'DS', Color(0xFF8A5A2B)),
   pier('Pier', 'PIER', Color(0xFF56616E)),
@@ -190,6 +191,7 @@ extension GraphMarkerTypeMetadata on GraphMarkerType {
         GraphMarkerType.garageDoor ||
         GraphMarkerType.steps ||
         GraphMarkerType.hvacUnit ||
+        GraphMarkerType.bushPlant ||
         GraphMarkerType.gasLine ||
         GraphMarkerType.waterLine ||
         GraphMarkerType.wellOrCistern ||
@@ -248,7 +250,9 @@ extension GraphMarkerTypeMetadata on GraphMarkerType {
         GraphMarkerType.activeLeak ||
         GraphMarkerType.plumbingLeak =>
           GraphMarkerSymbol.leak,
-        GraphMarkerType.woodFungi => GraphMarkerSymbol.fungi,
+        GraphMarkerType.woodFungi ||
+        GraphMarkerType.bushPlant =>
+          GraphMarkerSymbol.fungi,
         GraphMarkerType.foundationCrack ||
         GraphMarkerType.expansionJoint ||
         GraphMarkerType.structuralConcern =>

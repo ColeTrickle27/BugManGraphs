@@ -69,7 +69,7 @@ class EditorObjectReference {
 /// only the technician's current intent and pointer session so the toolbar,
 /// canvas, cursor, and keyboard handling cannot disagree about the active mode.
 class EditorInteractionController extends ChangeNotifier {
-  CanvasTool _primaryTool = CanvasTool.select;
+  CanvasTool _primaryTool = CanvasTool.structure;
   GraphDrawingPreset _structureType = GraphDrawingPreset.mainStructure;
   GraphMarkerType _markerType = GraphMarkerType.mudTube;
   EditorDrawingSession _drawingSession = EditorDrawingSession.idle;

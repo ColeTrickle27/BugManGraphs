@@ -97,11 +97,13 @@ const basicShapeToolbarActions = <CanvasToolbarAction>[
   CanvasToolbarAction.tool(CanvasTool.rectangle),
   CanvasToolbarAction.tool(CanvasTool.circle),
   CanvasToolbarAction.tool(CanvasTool.triangle),
+  CanvasToolbarAction.tool(CanvasTool.wall),
 ];
 
 const buildingFeatureToolbarActions = <CanvasToolbarAction>[
   CanvasToolbarAction.preset(GraphDrawingPreset.slab),
   CanvasToolbarAction.preset(GraphDrawingPreset.woodDeck),
+  CanvasToolbarAction.preset(GraphDrawingPreset.woodPorch),
   CanvasToolbarAction.preset(GraphDrawingPreset.openPorch),
   CanvasToolbarAction.preset(GraphDrawingPreset.dirtFilledPorch),
   CanvasToolbarAction.preset(GraphDrawingPreset.garage),
@@ -121,6 +123,7 @@ const utilityToolbarActions = <CanvasToolbarAction>[
   CanvasToolbarAction.marker(GraphMarkerType.crawlspaceAccess),
   CanvasToolbarAction.marker(GraphMarkerType.gasLine),
   CanvasToolbarAction.marker(GraphMarkerType.waterLine),
+  CanvasToolbarAction.marker(GraphMarkerType.bushPlant),
 ];
 
 @visibleForTesting
@@ -136,9 +139,7 @@ List<GraphDrawingPreset> get structureToolbarPresets => [
     ];
 
 @visibleForTesting
-List<GraphDrawingPreset> get drawingToolbarPresets => const [
-      GraphDrawingPreset.measurementLine,
-    ];
+List<GraphDrawingPreset> get drawingToolbarPresets => const [];
 
 @visibleForTesting
 List<GraphMarkerType> get utilityToolbarMarkers =>
@@ -236,13 +237,13 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
                 _ToolbarHeader(onCollapse: widget.onCollapse),
                 const SizedBox(height: 4),
                 KeyedSubtree(
-                  key: const ValueKey('quick-measure-tool'),
+                  key: const ValueKey('draw-structure-tool'),
                   child: _ActionFace(
                     action: const CanvasToolbarAction.preset(
-                      GraphDrawingPreset.measurementLine,
+                      GraphDrawingPreset.mainStructure,
                     ),
                     selected: const CanvasToolbarAction.preset(
-                      GraphDrawingPreset.measurementLine,
+                      GraphDrawingPreset.mainStructure,
                     ).isSelected(
                       selectedTool: widget.selectedTool,
                       selectedPreset: widget.selectedDrawingPreset,
@@ -250,12 +251,12 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
                     ),
                     onPressed: () => _activate(
                       const CanvasToolbarAction.preset(
-                        GraphDrawingPreset.measurementLine,
+                        GraphDrawingPreset.mainStructure,
                       ),
                     ),
                     onDoubleTap: () => widget.onActionDoubleTapped(
                       const CanvasToolbarAction.preset(
-                        GraphDrawingPreset.measurementLine,
+                        GraphDrawingPreset.mainStructure,
                       ),
                     ),
                   ),
@@ -308,7 +309,7 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
                     ),
                     const SizedBox(height: 6),
                     _ActionPicker(
-                      groupLabel: 'Building Features',
+                      groupLabel: 'Other Structures',
                       displayedAction:
                           _displayedAction(buildingFeatureToolbarActions),
                       actions: buildingFeatureToolbarActions,
@@ -319,7 +320,7 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
                     ),
                     const SizedBox(height: 6),
                     _ActionPicker(
-                      groupLabel: 'Utility',
+                      groupLabel: 'Miscellaneous Structures',
                       displayedAction: _displayedAction(utilityToolbarActions),
                       actions: utilityToolbarActions,
                       selectedTool: widget.selectedTool,
@@ -1094,6 +1095,7 @@ IconData iconForDrawingPreset(GraphDrawingPreset preset) => switch (preset) {
       GraphDrawingPreset.crawlspace => Icons.foundation_outlined,
       GraphDrawingPreset.basement => Icons.layers_outlined,
       GraphDrawingPreset.woodDeck => Icons.deck_outlined,
+      GraphDrawingPreset.woodPorch => Icons.deck_outlined,
       GraphDrawingPreset.openPorch => Icons.meeting_room_outlined,
       GraphDrawingPreset.dirtFilledPorch => Icons.terrain_outlined,
       GraphDrawingPreset.dirtArea => Icons.landscape_outlined,

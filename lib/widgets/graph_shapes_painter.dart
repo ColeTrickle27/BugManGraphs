@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../models/graph_shape.dart';
+import '../editor/rectangle_geometry.dart';
+import '../editor/label_presentation.dart';
 import '../models/wall_segment.dart';
 import '../services/measurement_format.dart';
 import 'wall_segments_painter.dart';
@@ -99,6 +101,7 @@ double _shapeAreaSquareFeet(
 
 class GraphShapesPainter extends CustomPainter {
   const GraphShapesPainter({
+    this.labels = const LabelPresentation(),
     required this.shapes,
     required this.segments,
     required this.selectedShapeIndex,
@@ -108,6 +111,7 @@ class GraphShapesPainter extends CustomPainter {
   });
 
   final List<GraphShape> shapes;
+  final LabelPresentation labels;
   final List<WallSegment> segments;
   final int? selectedShapeIndex;
   final int? hoveredShapeIndex;
@@ -135,6 +139,7 @@ class GraphShapesPainter extends CustomPainter {
 
       if (isStyledLine) {
         WallSegmentsPainter(
+          labels: labels,
           segments: shapeSegments,
           selectedSegmentIndex: null,
           hoveredSegmentIndex: null,
@@ -153,6 +158,7 @@ class GraphShapesPainter extends CustomPainter {
 
       if (!isStyledLine && isQuickMeasure) {
         WallSegmentsPainter(
+          labels: labels,
           segments: shapeSegments,
           selectedSegmentIndex: null,
           hoveredSegmentIndex: null,
@@ -165,6 +171,7 @@ class GraphShapesPainter extends CustomPainter {
         _drawShapeBorder(canvas, shape, path);
         if (shape.preset?.showsLinearAndAreaMeasurements ?? false) {
           WallSegmentsPainter(
+            labels: labels,
             segments: shapeSegments,
             selectedSegmentIndex: null,
             hoveredSegmentIndex: null,
@@ -178,7 +185,9 @@ class GraphShapesPainter extends CustomPainter {
       }
 
       final measurementSummary = shapeMeasurementSummary(shape, shapeSegments);
-      final shapeLabel = shape.text.trim().isEmpty ? shape.name : shape.text;
+      final shapeLabel = shape.text.trim().isEmpty
+          ? (shape.isStructure ? shape.name : '')
+          : shape.text;
       final foundationLabel = shape.preset == GraphDrawingPreset.mainStructure
           ? shape.foundationType?.label
           : null;
@@ -193,6 +202,9 @@ class GraphShapesPainter extends CustomPainter {
         shape.preset == GraphDrawingPreset.propertyLine
             ? _propertyLineLabelPosition(shapeSegments, bounds)
             : bounds.center,
+        background: shape.isStructure,
+        fontSize: (shape.extraProperties['textSize'] as num?)?.toDouble() ?? 15,
+        maxWidth: shape.isStructure ? 220 : math.max(24, bounds.width - 16),
       );
 
       if (i == hoveredShapeIndex && i != selectedShapeIndex) {
@@ -261,7 +273,8 @@ class GraphShapesPainter extends CustomPainter {
 
     final kind = shape.extraProperties['basicShapeKind']?.toString();
     final legacyName = shape.name.toLowerCase();
-    final supportsVertices = kind != 'circle' &&
+    final supportsVertices = shape.isStructure &&
+        kind != 'circle' &&
         kind != 'ellipse' &&
         !legacyName.startsWith('circle') &&
         !legacyName.startsWith('ellipse');
@@ -285,6 +298,14 @@ class GraphShapesPainter extends CustomPainter {
       );
       canvas.drawRect(handle, Paint()..color = Colors.white);
       canvas.drawRect(handle, selectedPaint);
+    }
+
+    if (RectangleGeometry.isRectangle(shapeSegments)) {
+      for (final segment in shapeSegments) {
+        final center = (segment.start.offset + segment.end.offset) / 2;
+        canvas.drawCircle(center, 7, Paint()..color = Colors.white);
+        canvas.drawCircle(center, 7, selectedPaint);
+      }
     }
 
     final rotationHandleCenter = bounds.topCenter - const Offset(0, 28);
@@ -468,7 +489,8 @@ class GraphShapesPainter extends CustomPainter {
     canvas.restore();
   }
 
-  void _drawShapeName(Canvas canvas, String name, Offset center) {
+  void _drawShapeName(Canvas canvas, String name, Offset center,
+      {bool background = true, double fontSize = 15, double maxWidth = 220}) {
     if (name.trim().isEmpty) {
       return;
     }
@@ -476,16 +498,16 @@ class GraphShapesPainter extends CustomPainter {
     final textPainter = TextPainter(
       text: TextSpan(
         text: name,
-        style: const TextStyle(
-          color: Color(0xFFCC2000),
-          fontSize: 15,
+        style: TextStyle(
+          color: const Color(0xFFCC2000),
+          fontSize: labels.fontSize(fontSize),
           fontWeight: FontWeight.w800,
           height: 1.25,
         ),
       ),
       textDirection: TextDirection.ltr,
       textAlign: TextAlign.center,
-    )..layout(maxWidth: 220);
+    )..layout(maxWidth: maxWidth * (labels.fontSize(fontSize) / fontSize));
     final labelRect = Rect.fromCenter(
       center: center,
       width: textPainter.width + 18,
@@ -496,16 +518,20 @@ class GraphShapesPainter extends CustomPainter {
       const Radius.circular(5),
     );
 
-    canvas.drawRRect(
-      labelRRect,
-      Paint()..color = const Color(0xFFE6E6E6),
-    );
-    canvas.drawRRect(
-      labelRRect,
-      Paint()
-        ..color = Colors.black
-        ..style = PaintingStyle.stroke,
-    );
+    if (background) {
+      canvas.drawRRect(
+        labelRRect,
+        Paint()..color = const Color(0xFFE6E6E6),
+      );
+    }
+    if (background) {
+      canvas.drawRRect(
+        labelRRect,
+        Paint()
+          ..color = Colors.black
+          ..style = PaintingStyle.stroke,
+      );
+    }
     textPainter.paint(
       canvas,
       Offset(
