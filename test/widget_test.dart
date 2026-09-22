@@ -827,16 +827,21 @@ void main() {
     final job = Job(
       customerName: 'Save Test',
       serviceAddress: '',
-      pestPacLocationNumber: '',
-      pestPacBillToNumber: '',
+      pestPacLocationNumber: 'LOC-9',
+      pestPacBillToNumber: 'BILL-9',
       serviceType: 'Inspection',
       createdBy: 'Widget Test',
       createdDate: DateTime(2026, 8, 6),
     );
     final document = GraphDocument.forJob(job);
+    final openedUrls = <String>[];
     await tester.pumpWidget(
       MaterialApp(
-        home: GraphCanvasScreen(document: document, portalService: portal),
+        home: GraphCanvasScreen(
+          document: document,
+          portalService: portal,
+          onPortalSignIn: openedUrls.add,
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -850,6 +855,10 @@ void main() {
     document.setLayer('trace', const GraphLayerState(visible: true));
     await chooseFileAction(tester, 'Graph File');
     expect(portal.saveExistingKeys, [null]);
+    final openFolderAction = find.widgetWithText(SnackBarAction, 'Open folder');
+    expect(openFolderAction, findsOneWidget);
+    tester.widget<SnackBarAction>(openFolderAction).onPressed();
+    expect(openedUrls, [portal.customerFolderUrl]);
 
     // Dirty it again and Save again -- same key gets overwritten (no
     // conflict dialog appears the very first time a document that was
@@ -982,9 +991,14 @@ void main() {
       createdDate: DateTime(2026, 8, 6),
     );
     final document = GraphDocument.forJob(job);
+    final openedUrls = <String>[];
     await tester.pumpWidget(
       MaterialApp(
-        home: GraphCanvasScreen(document: document, portalService: portal),
+        home: GraphCanvasScreen(
+          document: document,
+          portalService: portal,
+          onPortalSignIn: openedUrls.add,
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -1001,6 +1015,10 @@ void main() {
         GraphFileKind.pdfExport,
       ),
     );
+    final openFolderAction = find.widgetWithText(SnackBarAction, 'Open folder');
+    expect(openFolderAction, findsOneWidget);
+    tester.widget<SnackBarAction>(openFolderAction).onPressed();
+    expect(openedUrls, [portal.customerFolderUrl]);
 
     await chooseFileActionAndAwaitAsyncWork(tester, 'Export PNG');
     expect(portal.saveExistingKeys, [null, portal.savedKey]);
@@ -2202,6 +2220,9 @@ class _FakeBugManPortalService implements BugManPortalService {
   final savedDocuments = <Map<String, Object?>>[];
   final savedBlobKeys = <Set<String>>[];
   final uploadExportCalls = <Map<String, Object?>>[];
+  final customerFolderUrl =
+      'https://ops.holloman-ext.com/bill-tos/BILL-9/locations/LOC-9'
+      '?folder=bugman-graphs';
   // Item 11: keys in this set make the next saveGraph() call with that
   // existingKey throw the exact server 404 error text, so tests can
   // exercise the "Saved graph not found" recovery path.
@@ -2268,5 +2289,17 @@ class _FakeBugManPortalService implements BugManPortalService {
     final encodedKey = Uri.encodeQueryComponent(graphKey);
     return 'https://ops.holloman-ext.com/sales-brain/'
         '?billTo=$billToNumber&location=$locationNumber&graphKey=$encodedKey';
+  }
+
+  @override
+  String? buildCustomerFolderUrl({
+    required String billToNumber,
+    required String locationNumber,
+  }) {
+    if (!available || billToNumber.isEmpty || locationNumber.isEmpty) {
+      return null;
+    }
+    return 'https://ops.holloman-ext.com/bill-tos/'
+        '$billToNumber/locations/$locationNumber?folder=bugman-graphs';
   }
 }
