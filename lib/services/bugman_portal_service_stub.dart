@@ -38,4 +38,11 @@ class UnavailableBugManPortalService implements BugManPortalService {
     required String graphKey,
   }) =>
       null;
+
+  @override
+  String? buildCustomerFolderUrl({
+    required String billToNumber,
+    required String locationNumber,
+  }) =>
+      null;
 }

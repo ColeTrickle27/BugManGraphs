@@ -4788,6 +4788,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     String message, {
     Duration? duration,
     _CanvasMessageSeverity severity = _CanvasMessageSeverity.info,
+    SnackBarAction? action,
   }) {
     setState(() {
       _canvasStatus = message;
@@ -4810,8 +4811,22 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
           content: Text(message),
           duration: resolvedDuration,
           showCloseIcon: dismissible,
+          action: action,
         ),
       );
+  }
+
+  SnackBarAction? _openCustomerFolderAction() {
+    final customer = _document.customer;
+    final url = _portalService.buildCustomerFolderUrl(
+      billToNumber: customer.pestPacBillToNumber,
+      locationNumber: customer.pestPacLocationNumber,
+    );
+    if (url == null) return null;
+    return SnackBarAction(
+      label: 'Open folder',
+      onPressed: () => (widget.onPortalSignIn ?? openPortalSignIn)(url),
+    );
   }
 
   void _toggleTraceLayer() {
@@ -5207,11 +5222,13 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
           'Brain (it may have been renamed or removed) -- saved your '
           'changes as a new file instead.',
           severity: _CanvasMessageSeverity.warning,
+          action: _openCustomerFolderAction(),
         );
       } else {
         _showCanvasMessage(
           portalResult?.message ?? 'Graph saved on this device',
           severity: _CanvasMessageSeverity.success,
+          action: portalResult == null ? null : _openCustomerFolderAction(),
         );
       }
       return true;
@@ -5354,6 +5371,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       _showCanvasMessage(
         result.message,
         severity: _CanvasMessageSeverity.success,
+        action: _openCustomerFolderAction(),
       );
     } catch (error) {
       if (!mounted) return;

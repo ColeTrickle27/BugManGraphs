@@ -167,6 +167,28 @@ class HttpBugManPortalService implements BugManPortalService {
     return uri.toString();
   }
 
+  @override
+  String? buildCustomerFolderUrl({
+    required String billToNumber,
+    required String locationNumber,
+  }) {
+    final billTo = billToNumber.trim();
+    final location = locationNumber.trim();
+    if (!isAvailable || billTo.isEmpty || location.isEmpty) return null;
+    final opsBrainOrigin = Uri.base.path.startsWith('/bugman-graphs/')
+        ? Uri.base.origin
+        : _opsBrainOrigin;
+    return Uri.parse(opsBrainOrigin).replace(
+      pathSegments: [
+        'bill-tos',
+        billTo,
+        'locations',
+        location,
+      ],
+      queryParameters: const {'folder': 'bugman-graphs'},
+    ).toString();
+  }
+
   Map<String, dynamic> _decodeResponse(http.Response response) {
     if (response.statusCode == 401) {
       throw PortalAuthenticationException('$_apiOrigin/');
