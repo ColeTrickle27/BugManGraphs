@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../models/trace_geometry.dart';
+import '../editor/label_presentation.dart';
 import '../models/graph_point.dart';
 import '../services/trace_presentation.dart';
 import '../services/measurement_format.dart';
@@ -12,17 +13,23 @@ import '../services/trace_projection_service.dart';
 class TraceGeometryPainter extends CustomPainter {
   const TraceGeometryPainter({
     required this.traces,
+    this.labels = const LabelPresentation(),
     this.selectedTraceIndex,
     this.hoveredTraceIndex,
   });
 
   final List<TraceGeometry> traces;
+  final LabelPresentation labels;
+  static double displayScaleFor(List<TraceGeometry> traces, LabelPresentation labels) {
+    final scale = TracePresentation.labelScale(traces);
+    return labels.bounded ? (scale * labels.zoom * labels.textScale).clamp(0.75, 1.3) / labels.zoom : scale;
+  }
   final int? selectedTraceIndex;
   final int? hoveredTraceIndex;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final displayScale = TracePresentation.labelScale(traces);
+    final displayScale = displayScaleFor(traces, labels);
     canvas.save();
     canvas.scale(displayScale);
     for (var traceIndex = 0; traceIndex < traces.length; traceIndex += 1) {
@@ -77,7 +84,9 @@ class TraceGeometryPainter extends CustomPainter {
         );
       }
       _drawSegmentMeasurements(canvas, trace);
-      _drawSummary(canvas, trace);
+      if (!labels.bounded || selected || hovered) {
+        _drawSummary(canvas, trace);
+      }
       _drawScaleBar(canvas, trace);
       if (selected) _drawRotationHandle(canvas, trace);
     }
@@ -121,6 +130,12 @@ class TraceGeometryPainter extends CustomPainter {
           pointCount,
     );
 
+    // Polygon winding gives the exterior normal even at concave corners.
+    final signedArea = List.generate(pointCount, (i) {
+      final a = trace.canvasPoints[i];
+      final b = trace.canvasPoints[(i + 1) % pointCount];
+      return a.x * b.y - b.x * a.y;
+    }).fold<double>(0, (sum, value) => sum + value);
     final placedLabelRects = <Rect>[];
     for (var index = 0; index < edgeCount; index += 1) {
       final nextIndex = (index + 1) % pointCount;
@@ -137,8 +152,8 @@ class TraceGeometryPainter extends CustomPainter {
       var normal =
           Offset(-segment.dy / segmentLength, segment.dx / segmentLength);
       final towardMidpoint = midpoint - center;
-      if ((normal.dx * towardMidpoint.dx) + (normal.dy * towardMidpoint.dy) <
-          0) {
+      if (trace.closed ? signedArea > 0 :
+          (normal.dx * towardMidpoint.dx) + (normal.dy * towardMidpoint.dy) < 0) {
         normal = Offset(-normal.dx, -normal.dy);
       }
 
@@ -185,6 +200,12 @@ class TraceGeometryPainter extends CustomPainter {
           width: labelWidth,
           height: labelHeight,
         );
+      }
+      // Never force an unresolved badge or a long leader across the drawing.
+      // Zooming in reveals short-edge detail as neighboring edges separate.
+      if (labels.bounded && (placedLabelRects.any((r) => r.inflate(4).overlaps(labelRect)) ||
+          (labelCenter - midpoint).distance > labelHalfExtent + 40)) {
+        continue;
       }
       placedLabelRects.add(labelRect);
       final labelRRect = RRect.fromRectAndRadius(
@@ -359,6 +380,8 @@ class TraceGeometryPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant TraceGeometryPainter oldDelegate) =>
+      oldDelegate.labels.zoom != labels.zoom ||
+      oldDelegate.labels.textScale != labels.textScale ||
       oldDelegate.traces != traces ||
       oldDelegate.selectedTraceIndex != selectedTraceIndex ||
       oldDelegate.hoveredTraceIndex != hoveredTraceIndex;

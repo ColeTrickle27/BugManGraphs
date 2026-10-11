@@ -85,9 +85,37 @@ class GraphAnnotationsPainter extends CustomPainter {
     };
   }
 
+  static bool containsPoint(GraphAnnotation annotation, Offset point, LabelPresentation labels) {
+    final zoom = labels.zoom.clamp(0.001, 100.0);
+    if (annotation.kind == GraphAnnotationKind.text) {
+      return textBounds(annotation, labels).inflate(6 / zoom).contains(point);
+    }
+    if ((annotation.point.offset - point).distance <= math.max(22 / zoom, 19 * annotation.size)) {
+      return true;
+    }
+    if (annotation.kind != GraphAnnotationKind.marker) return false;
+    final base = (12 * annotation.size).clamp(9.0, 22.0);
+    final font = labels.fontSize(base);
+    final text = TextPainter(text: TextSpan(text: annotation.label, style: TextStyle(fontSize: font, fontWeight: FontWeight.w800)),
+      textDirection: TextDirection.ltr)..layout(maxWidth: 240 * font / base);
+    final top = annotation.point.y + 17 * annotation.size + (2.5 * annotation.size).clamp(2.0, 8.0);
+    return Rect.fromLTWH(annotation.point.x - text.width / 2 - 8, top, text.width + 16, text.height + 8).inflate(6 / zoom).contains(point);
+  }
+
+  static Rect textBounds(GraphAnnotation annotation, LabelPresentation labels) {
+    final text = TextPainter(text: TextSpan(text: annotation.label, style: TextStyle(
+      fontSize: labels.fontSize(annotation.fontSize),
+      fontWeight: annotation.bold ? FontWeight.w800 : FontWeight.w500,
+      fontStyle: annotation.italic ? FontStyle.italic : FontStyle.normal)),
+      textDirection: TextDirection.ltr)..layout(maxWidth: 240 * labels.fontSize(annotation.fontSize) / annotation.fontSize);
+    return Rect.fromCenter(center: annotation.point.offset, width: text.width + (labels.bounded ? 16 / labels.zoom : 16), height: text.height + (labels.bounded ? 8 / labels.zoom : 8));
+  }
+
   void _drawSelectionBox(Canvas canvas, GraphAnnotation annotation) {
     final center = annotation.point.offset;
-    final rect = Rect.fromCenter(center: center, width: 84, height: 66);
+    final rect = annotation.kind == GraphAnnotationKind.text
+        ? textBounds(annotation, labels)
+        : Rect.fromCenter(center: center, width: 84, height: 66);
     final selectedPaint = Paint()
       ..color = const Color(0xFF2F80ED)
       ..style = PaintingStyle.stroke
@@ -103,8 +131,8 @@ class GraphAnnotationsPainter extends CustomPainter {
     ]) {
       final handle = Rect.fromCenter(
         center: handleCenter,
-        width: 10,
-        height: 10,
+        width: labels.bounded ? 10 / labels.zoom : 10,
+        height: labels.bounded ? 10 / labels.zoom : 10,
       );
       canvas.drawRect(handle, Paint()..color = Colors.white);
       canvas.drawRect(handle, selectedPaint);
@@ -345,6 +373,11 @@ class GraphAnnotationsPainter extends CustomPainter {
     double horizontalPadding = 8,
     double verticalPadding = 4,
   }) {
+    if (labels.bounded) {
+      horizontalPadding /= labels.zoom;
+      verticalPadding /= labels.zoom;
+    }
+    final baseFontSize = fontSize;
     fontSize = labels.fontSize(fontSize);
     final textPainter = TextPainter(
       text: TextSpan(
@@ -357,7 +390,7 @@ class GraphAnnotationsPainter extends CustomPainter {
         ),
       ),
       textDirection: TextDirection.ltr,
-    )..layout(maxWidth: 150);
+    )..layout(maxWidth: 240 * fontSize / baseFontSize);
     final iconPainter = leadingIcon == null
         ? null
         : (TextPainter(

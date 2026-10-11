@@ -204,7 +204,7 @@ class GraphShapesPainter extends CustomPainter {
             : bounds.center,
         background: shape.isStructure,
         fontSize: (shape.extraProperties['textSize'] as num?)?.toDouble() ?? 15,
-        maxWidth: shape.isStructure ? 220 : math.max(24, bounds.width - 16),
+        maxWidth: shape.isStructure ? 220 : math.max(160, bounds.width - 16),
       );
 
       if (i == hoveredShapeIndex && i != selectedShapeIndex) {
@@ -293,8 +293,8 @@ class GraphShapesPainter extends CustomPainter {
     for (final handleCenter in handleCenters) {
       final handle = Rect.fromCenter(
         center: handleCenter,
-        width: 12,
-        height: 12,
+        width: labels.bounded ? 12 / labels.zoom : 12,
+        height: labels.bounded ? 12 / labels.zoom : 12,
       );
       canvas.drawRect(handle, Paint()..color = Colors.white);
       canvas.drawRect(handle, selectedPaint);
@@ -303,15 +303,15 @@ class GraphShapesPainter extends CustomPainter {
     if (RectangleGeometry.isRectangle(shapeSegments)) {
       for (final segment in shapeSegments) {
         final center = (segment.start.offset + segment.end.offset) / 2;
-        canvas.drawCircle(center, 7, Paint()..color = Colors.white);
-        canvas.drawCircle(center, 7, selectedPaint);
+        canvas.drawCircle(center, labels.bounded ? 7 / labels.zoom : 7, Paint()..color = Colors.white);
+        canvas.drawCircle(center, labels.bounded ? 7 / labels.zoom : 7, selectedPaint);
       }
     }
 
-    final rotationHandleCenter = bounds.topCenter - const Offset(0, 28);
+    final rotationHandleCenter = bounds.topCenter - Offset(0, labels.bounded ? 28 / labels.zoom : 28);
     canvas.drawLine(bounds.topCenter, rotationHandleCenter, selectedPaint);
-    canvas.drawCircle(rotationHandleCenter, 6, Paint()..color = Colors.white);
-    canvas.drawCircle(rotationHandleCenter, 6, selectedPaint);
+    canvas.drawCircle(rotationHandleCenter, labels.bounded ? 6 / labels.zoom : 6, Paint()..color = Colors.white);
+    canvas.drawCircle(rotationHandleCenter, labels.bounded ? 6 / labels.zoom : 6, selectedPaint);
   }
 
   List<WallSegment> _segmentsForShape(GraphShape shape) {
@@ -543,7 +543,9 @@ class GraphShapesPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant GraphShapesPainter oldDelegate) {
-    return oldDelegate.shapes != shapes ||
+    return oldDelegate.labels.zoom != labels.zoom ||
+        oldDelegate.labels.textScale != labels.textScale ||
+        oldDelegate.shapes != shapes ||
         oldDelegate.segments != segments ||
         oldDelegate.selectedShapeIndex != selectedShapeIndex ||
         oldDelegate.hoveredShapeIndex != hoveredShapeIndex;
