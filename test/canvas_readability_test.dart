@@ -1,6 +1,8 @@
 import 'package:bugman_graphs/editor/label_presentation.dart';
 import 'package:bugman_graphs/models/graph_annotation.dart';
 import 'package:bugman_graphs/models/graph_point.dart';
+import 'package:bugman_graphs/models/graph_shape.dart';
+import 'package:bugman_graphs/models/wall_segment.dart';
 import 'package:bugman_graphs/widgets/graph_annotations_painter.dart';
 import 'package:bugman_graphs/widgets/trace_geometry_painter.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +15,44 @@ import 'support/crowded_canvas_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final vertical in [false, true]) {
+    for (final length in [200.0, 4.0, 0.0]) {
+      testWidgets('Measure endpoint edits ${vertical ? "vertical" : "horizontal"} length $length', (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(390, 844);
+        addTearDown(tester.view.reset);
+        const start = GraphPoint(x: 900, y: 900);
+        final end = GraphPoint(x: 900 + (vertical ? 0 : length), y: 900 + (vertical ? length : 0));
+        final document = crowdedCanvasFixture()..replaceAnnotations([])..replaceTraces([]);
+        final shape = document.shapes.first.copyWith(name: 'Measure', preset: GraphDrawingPreset.measurementLine,
+          closed: false, segmentIndexes: [0]);
+        document.replaceWallSegments([WallSegment(start: start, end: end)]);
+        document.replaceShapes([shape]);
+        await tester.pumpWidget(MaterialApp(home: GraphCanvasScreen(document: document)));
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+        final finder = find.byType(InteractiveViewer);
+        final viewer = tester.widget<InteractiveViewer>(finder);
+        final viewportCenter = tester.getSize(finder).center(Offset.zero);
+        final center = (start.offset + end.offset) / 2;
+        viewer.transformationController!.value = Matrix4.identity()
+          ..setTranslationRaw(viewportCenter.dx - center.dx, viewportCenter.dy - center.dy, 0);
+        await tester.pump();
+        await tester.tapAt(tester.getTopLeft(finder) + viewportCenter);
+        await tester.pump();
+        final endpoint = tester.getTopLeft(finder) + viewportCenter + end.offset - center;
+        final nearby = length > 4 ? (vertical ? const Offset(2, 0) : const Offset(0, 2)) : Offset.zero;
+        await tester.dragFrom(endpoint + nearby, const Offset(32, 24));
+        await tester.pumpAndSettle();
+        final moved = document.wallSegments.single;
+        expect(moved.end.x.isFinite && moved.end.y.isFinite, isTrue);
+        expect((moved.end.offset - end.offset).distance, greaterThan(0));
+        expect(moved.start.offset, start.offset, reason: 'Endpoint edit must not translate the whole Measure');
+        expect(moved.lengthFeet, isNot(closeTo(WallSegment(start: start, end: end).lengthFeet, 0.00001)));
+      });
+    }
+  }
+
   const marker = GraphAnnotation(
     id: 'synthetic',
     kind: GraphAnnotationKind.marker,

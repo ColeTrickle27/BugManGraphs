@@ -2739,9 +2739,17 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
 
   // Preserve a body region when screen-sized targets crowd a small object.
   // Initial selection always moves; only previously visible handles edit.
-  double _handleDistanceForBounds(Rect? bounds) => bounds == null
-      ? _handleHitDistance
-      : math.min(_handleHitDistance, bounds.shortestSide / 4);
+  double _handleDistanceForBounds(Rect? bounds) {
+    if (bounds == null) return _handleHitDistance;
+    // Axis-aligned paths have no area: use endpoint spacing on their usable
+    // axis, retaining a center region. Coincident points have no body to reserve.
+    final spacing = bounds.shortestSide > 0
+        ? bounds.shortestSide
+        : bounds.longestSide;
+    return spacing > 0
+        ? math.min(_handleHitDistance, spacing / 4)
+        : _handleHitDistance;
+  }
 
   _DragTarget? _nearestTraceVertexTarget(int traceIndex, GraphPoint point) {
     if (traceIndex < 0 || traceIndex >= _traces.length) return null;
