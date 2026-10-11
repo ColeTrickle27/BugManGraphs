@@ -143,6 +143,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   String _canvasStatus = 'Draw Structure: tap corners or drag a rectangle';
   _Selection? _selection;
   _Selection? _explicitOverlapSelection;
+  Offset? _explicitOverlapPoint;
   bool _gridVisible = true;
   bool _snapToGrid = true;
   static const bool _snapToObjects = false;
@@ -756,11 +757,14 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       }
       final pointerPoint = GraphPoint.fromOffset(sceneOffset);
       final currentSelection = _selection;
-      final selectedTarget = currentSelection == null
+      final overlapChoice = _overlapChoiceAt(pointerPoint);
+      // A chooser preference belongs to one gesture at the chosen point.
+      _explicitOverlapSelection = null;
+      _explicitOverlapPoint = null;
+      final selectedTarget = currentSelection == null || overlapChoice != null
           ? null
           : _dragTargetForSelection(currentSelection, pointerPoint);
-      if ((_explicitOverlapSelection == currentSelection ||
-           _nearestAnnotationIndex(pointerPoint) == null) &&
+      if (_nearestAnnotationIndex(pointerPoint) == null &&
           (selectedTarget?.kind == _DragKind.wallEndpoint ||
           selectedTarget?.kind == _DragKind.traceVertex ||
           selectedTarget?.kind == _DragKind.traceRotation ||
@@ -771,7 +775,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         return;
       }
       _pointerDownHitSelection = _selectedTool == CanvasTool.select
-          ? _selectionAt(pointerPoint)
+          ? overlapChoice ?? _selectionAt(pointerPoint)
           : null;
 
       final hitSelection = _pointerDownHitSelection;
@@ -783,7 +787,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         });
         if (_isSelectionEditable(hitSelection)) {
           _startDragForSelection(
-              hitSelection, GraphPoint.fromOffset(sceneOffset));
+              hitSelection, GraphPoint.fromOffset(sceneOffset),
+              allowHandles: overlapChoice == null && hitSelection == currentSelection);
         }
         return;
       }
@@ -1491,6 +1496,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     setState(() {
       _selection = chosen;
       _explicitOverlapSelection = chosen;
+      _explicitOverlapPoint = sceneOffset;
       _interaction.setSelected(_interactionReference(chosen));
       _canvasStatus = _selectionStatus(chosen);
     });
@@ -2415,11 +2421,19 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         selection.index,
       );
 
-  _Selection? _selectionAt(GraphPoint point) {
-    final explicit = _explicitOverlapSelection;
-    if (explicit != null && _selection == explicit && _objectsAt(point.offset).contains(explicit)) {
-      return explicit;
+  _Selection? _overlapChoiceAt(GraphPoint point) {
+    final choice = _explicitOverlapSelection;
+    final origin = _explicitOverlapPoint;
+    if (choice == null || origin == null || _selection != choice ||
+        (point.offset - origin).distance * _labels.zoom > _tapMovementLimit) {
+      return null;
     }
+    return _objectsAt(point.offset).contains(choice) ? choice : null;
+  }
+
+  _Selection? _selectionAt(GraphPoint point) {
+    final choice = _overlapChoiceAt(point);
+    if (choice != null) return choice;
     final annotationIndex = _nearestAnnotationIndex(point);
     if (annotationIndex != null) {
       return _Selection.annotation(annotationIndex);
@@ -2657,8 +2671,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     return path;
   }
 
-  void _startDragForSelection(_Selection selection, GraphPoint point) {
-    final target = _dragTargetForSelection(selection, point);
+  void _startDragForSelection(_Selection selection, GraphPoint point,
+      {bool allowHandles = true}) {
+    final target = _dragTargetForSelection(selection, point, allowHandles: allowHandles);
     if (target == null) {
       return;
     }
@@ -2678,8 +2693,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
 
   _DragTarget? _dragTargetForSelection(
     _Selection selection,
-    GraphPoint point,
-  ) {
+    GraphPoint point, {
+    bool allowHandles = true,
+  }) {
     if (!_isSelectionEditable(selection)) {
       return null;
     }
@@ -2690,9 +2706,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
           distance: _annotations[selection.index].point.distanceTo(point),
         ),
       _SelectionKind.shape =>
-        _nearestShapeVertexTarget(selection.index, point) ??
+        (allowHandles ? _nearestShapeVertexTarget(selection.index, point) ??
             _nearestShapeResizeTarget(selection.index, point) ??
-            _nearestShapeRotationTarget(selection.index, point) ??
+            _nearestShapeRotationTarget(selection.index, point) : null) ??
             _DragTarget.shape(
               shapeIndex: selection.index,
               distance: 0,
@@ -2703,15 +2719,17 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
           distance: 0,
           originalPoint: point,
         ),
-      _SelectionKind.segment => _nearestEndpointTarget(point) ??
+      _SelectionKind.segment => (allowHandles ? _nearestEndpointTarget(point,
+          hitDistance: math.min(_handleHitDistance,
+            (_wallSegments[selection.index].end.offset - _wallSegments[selection.index].start.offset).distance / 4)) : null) ??
           _DragTarget.segment(
             segmentIndex: selection.index,
             distance: _distanceToSegment(point, _wallSegments[selection.index]),
             originalPoint: point,
           ),
       _SelectionKind.trace =>
-        _nearestTraceVertexTarget(selection.index, point) ??
-            _nearestTraceRotationTarget(selection.index, point) ??
+        (allowHandles ? _nearestTraceVertexTarget(selection.index, point) ??
+            _nearestTraceRotationTarget(selection.index, point) : null) ??
             _DragTarget.traceMove(
               traceIndex: selection.index,
               originalPoint: point,
@@ -2719,11 +2737,16 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     };
   }
 
+  // Preserve a body region when screen-sized targets crowd a small object.
+  // Initial selection always moves; only previously visible handles edit.
+  double _handleDistanceForBounds(Rect? bounds) => bounds == null
+      ? _handleHitDistance
+      : math.min(_handleHitDistance, bounds.shortestSide / 4);
+
   _DragTarget? _nearestTraceVertexTarget(int traceIndex, GraphPoint point) {
     if (traceIndex < 0 || traceIndex >= _traces.length) return null;
     final trace = _traces[traceIndex];
-    var nearestDistance =
-        _handleHitDistance;
+    var nearestDistance = _handleDistanceForBounds(TraceGeometryPainter.canvasBounds(trace));
     int? nearestVertexIndex;
     for (var i = 0; i < trace.canvasPoints.length; i += 1) {
       final distance = trace.canvasPoints[i].distanceTo(point);
@@ -2776,7 +2799,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     }
 
     GraphPoint? nearest;
-    var nearestDistance = _handleHitDistance;
+    var nearestDistance = _handleDistanceForBounds(_shapeBounds(shape));
     for (final segmentIndex in _uniqueShapeSegmentIndexes(shape)) {
       if (segmentIndex < 0 || segmentIndex >= _wallSegments.length) continue;
       final segment = _wallSegments[segmentIndex];
@@ -2841,7 +2864,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
 
     for (var i = 0; i < handles.length; i += 1) {
       final distance = (point.offset - handles[i]).distance;
-      if (distance <= _handleHitDistance) {
+      if (distance <= _handleDistanceForBounds(bounds)) {
         return _DragTarget.shapeResize(
           shapeIndex: selectedShapeIndex,
           distance: distance,
@@ -2910,13 +2933,13 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         !legacyName.startsWith('ellipse');
   }
 
-  _DragTarget? _nearestEndpointTarget(GraphPoint point) {
+  _DragTarget? _nearestEndpointTarget(GraphPoint point, {double? hitDistance}) {
     if (!_isLayerVisible(_GraphLayer.structure)) {
       return null;
     }
 
     GraphPoint? nearestPoint;
-    var nearestDistance = _handleHitDistance;
+    var nearestDistance = hitDistance ?? _handleHitDistance;
 
     for (final endpoint in _allMoveableEndpoints) {
       final distance = endpoint.distanceTo(point);
