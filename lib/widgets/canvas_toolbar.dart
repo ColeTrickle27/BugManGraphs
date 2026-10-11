@@ -430,7 +430,9 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
 }
 
 class CanvasQuickToolbar extends StatelessWidget {
+  final bool showHistory;
   const CanvasQuickToolbar({
+    this.showHistory = true,
     required this.actions,
     required this.selectedTool,
     required this.selectedMarkerType,
@@ -518,14 +520,14 @@ class CanvasQuickToolbar extends StatelessWidget {
                           onPressed: () => onActionSelected(action),
                         ),
                       ),
-                    const SizedBox(height: 34, child: VerticalDivider()),
-                    _QuickUtilityButton(
+                    if (showHistory) const SizedBox(height: 34, child: VerticalDivider()),
+                    if (showHistory) _QuickUtilityButton(
                       icon: Icons.undo,
                       tooltip: 'Quick undo',
                       selected: false,
                       onPressed: onUndo,
                     ),
-                    _QuickUtilityButton(
+                    if (showHistory) _QuickUtilityButton(
                       icon: Icons.redo,
                       tooltip: 'Quick redo',
                       selected: false,
