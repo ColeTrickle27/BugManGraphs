@@ -282,16 +282,20 @@ class GraphDocument extends ChangeNotifier {
   // no-op risk there is negligible next to the perf cost.
   bool _sameJson(Object? a, Object? b) => jsonEncode(a) == jsonEncode(b);
 
+  void _remapSerializationRows<T>(String key, List<T> previous, List<T> next) {
+    final objects = _serializationSource['graphObjects'];
+    final source = objects is Map ? objects[key] : null;
+    if (objects is Map && source is List) {
+      final indexes = Map<T, int>.identity();
+      for (var i = 0; i < previous.length; i++) { indexes[previous[i]] = i; }
+      objects[key] = [for (var i = 0; i < next.length; i++)
+        _serializationRow(source, indexes[next[i]] ?? (next.length == previous.length ? i : -1))];
+    }
+  }
+
   void replaceWallSegments(Iterable<WallSegment> value) {
     final next = List<WallSegment>.of(value);
-    final objects = _serializationSource['graphObjects'];
-    final source = objects is Map ? objects['wallSegments'] : null;
-    if (objects is Map && source is List) {
-      final indexes = Map<WallSegment, int>.identity();
-      for (var i = 0; i < _wallSegments.length; i++) { indexes[_wallSegments[i]] = i; }
-      objects['wallSegments'] = [for (var i = 0; i < next.length; i++)
-        _serializationRow(source, indexes[next[i]] ?? (next.length == _wallSegments.length ? i : -1))];
-    }
+    _remapSerializationRows('wallSegments', _wallSegments, next);
     _wallSegments = next;
     _changed();
   }
@@ -302,12 +306,16 @@ class GraphDocument extends ChangeNotifier {
   }
 
   void replaceShapes(Iterable<GraphShape> value) {
-    _shapes = List<GraphShape>.of(value);
+    final next = List<GraphShape>.of(value);
+    _remapSerializationRows('shapes', _shapes, next);
+    _shapes = next;
     _changed();
   }
 
   void replaceFreehandStrokes(Iterable<FreehandStroke> value) {
-    _freehandStrokes = List<FreehandStroke>.of(value);
+    final next = List<FreehandStroke>.of(value);
+    _remapSerializationRows('freehandStrokes', _freehandStrokes, next);
+    _freehandStrokes = next;
     _changed();
   }
 

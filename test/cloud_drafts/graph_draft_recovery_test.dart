@@ -20,6 +20,20 @@ class FailingStore extends MemoryGraphDraftStore {
 
 void main() {
   test(
+      'removing an id-less shape does not transfer its future fields to the next shape',
+      () {
+    final json = doc().toJson();
+    final shapes = (json['graphObjects'] as Map)['shapes'] as List;
+    (shapes[0] as Map)['futureRemovedShape'] = true;
+    (shapes[1] as Map)['futureSurvivorShape'] = true;
+    final model = GraphDocument.fromJson(json);
+    model.replaceShapes(model.shapes.skip(1));
+    final result = (model.toJson()['graphObjects'] as Map)['shapes'] as List;
+    expect((result.first as Map)['futureRemovedShape'], isNull);
+    expect((result.first as Map)['futureSurvivorShape'], isTrue);
+  });
+
+  test(
       'deleting an id-less wall does not move its future fields to a surviving wall',
       () {
     final json = doc().toJson();
