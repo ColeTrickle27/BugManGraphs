@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -29,6 +30,28 @@ class FakeFile implements PreparedGraphFile {
 }
 
 void main() {
+  for (final action in [GraphFileAction.savePng, GraphFileAction.savePdf]) {
+    testWidgets(
+        'desktop $action offers download even when native sharing exists',
+        (tester) async {
+      final file = FakeFile(), document = crowdedCanvasFixture();
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: GraphFileHandoffDialog(
+                  action: action,
+                  document: document,
+                  revision: () => 0,
+                  prepare: () async => PreparedGraphExport(file, 0)))));
+      await tester.pumpAndSettle();
+      expect(find.text('Open share sheet'), findsNothing);
+      await tester.tap(find.text(
+          action == GraphFileAction.savePng ? 'Download PNG' : 'Download PDF'));
+      await tester.pumpAndSettle();
+      expect(file.downloads, 1);
+      expect(file.shares, 0);
+      expect(find.textContaining('Download requested'), findsOneWidget);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+  }
   testWidgets(
       'preparation failures show the reason and provide no incomplete file',
       (tester) async {
