@@ -30,6 +30,7 @@ import '../services/graph_image_export.dart';
 import '../services/measurement_format.dart';
 import '../services/measurement_service.dart';
 import '../services/graph_pdf_export.dart';
+import '../services/graph_pdf_photos.dart';
 import '../services/graph_photo_optimizer_factory.dart';
 import '../services/graph_photo_service.dart';
 import '../services/graph_photo_picker_factory.dart';
@@ -6006,35 +6007,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     );
   }
 
-  Future<List<GraphPdfPhoto>> _buildPdfPhotos([GraphDocument? snapshot]) async {
-    final source = snapshot ?? _document;
-    final result = <GraphPdfPhoto>[];
-    final visiblePhotoIds = source.annotations
-        .where((item) => item.kind == GraphAnnotationKind.photo)
-        .expand((item) => item.attachmentIds)
-        .toSet();
-    for (final attachment in source.attachments) {
-      if (!visiblePhotoIds.contains(attachment.id)) continue;
-      final bytes = _pendingPhotoBlobs[attachment.blobKey] ??
-          await _repository.loadBlob(attachment.blobKey);
-      if (bytes == null) continue;
-      result.add(
-        GraphPdfPhoto(
-          referenceLabel: attachment.referenceLabel.isEmpty
-              ? 'Photo'
-              : attachment.referenceLabel,
-          filename: attachment.name,
-          caption: source.annotations
-                  .where((a) => a.attachmentIds.contains(attachment.id))
-                  .map((a) => a.note)
-                  .firstOrNull ??
-              '',
-          bytes: bytes,
-        ),
-      );
-    }
-    return result;
-  }
+  Future<List<GraphPdfPhoto>> _buildPdfPhotos([GraphDocument? snapshot]) =>
+      loadGraphPdfPhotos(snapshot ?? _document,
+          loadBlob: (key) async => _pendingPhotoBlobs[key] ?? await _repository.loadBlob(key));
 
   List<GraphMeasurementSummary> _buildExportMeasurementSummary() {
     final summaries = <GraphMeasurementSummary>[];

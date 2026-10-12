@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
@@ -235,6 +236,13 @@ void main() {
               .asUint8List(),
           photos: photos);
       expect(doc.toJson(), before);
+      expect(
+          RegExp(r'/Type\s*/Page\b').allMatches(latin1.decode(bytes)).length,
+          count == 0
+              ? 1
+              : count == 1
+                  ? 2
+                  : 3);
       final out = Platform.environment['GRAPH_PDF_QA_OUT'];
       if (out != null) await File('$out/photos-$count.pdf').writeAsBytes(bytes);
     });

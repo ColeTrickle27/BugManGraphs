@@ -12,9 +12,13 @@ import '../models/graph_document.dart';
 import '../models/graph_annotation.dart';
 import '../models/graph_shape.dart';
 import '../widgets/graph_marker_visual.dart';
-import '../widgets/graph_shapes_painter.dart' show shapeExportMeasurements;
+import '../widgets/graph_shapes_painter.dart'
+    show shapeExportMeasurements, shapeMeasurementSummary;
 import 'graph_export_legend.dart';
 import 'graph_pdf_diagram.dart';
+import 'measurement_service.dart';
+import 'measurement_format.dart';
+import '../models/trace_geometry.dart';
 
 class GraphPdfPhoto {
   const GraphPdfPhoto(
@@ -28,13 +32,68 @@ class GraphPdfPhoto {
 
 class GraphMeasurementSummary {
   const GraphMeasurementSummary(
-      {required this.label, required this.measurements});
+      {required this.label,
+      required this.measurements,
+      this.isMainStructure = false});
+  final bool isMainStructure;
   final String label;
   final List<String> measurements;
 }
 
 class GraphPdfExport {
   const GraphPdfExport._();
+  static bool isReadablePhoto(Uint8List bytes) {
+    try {
+      return bytes.isNotEmpty && img.decodeImage(bytes) != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static List<GraphMeasurementSummary> summariesForDocument(
+      GraphDocument source) {
+    final result = <GraphMeasurementSummary>[];
+    for (final shape in source.shapes) {
+      if (!source.layer('structure').visible ||
+          !source.layer('shapes').visible ||
+          (shape.preset == GraphDrawingPreset.treatmentArea &&
+              !source.layer('treatment').visible)) {
+        continue;
+      }
+      final segments = [
+        for (final i in shape.segmentIndexes)
+          if (i >= 0 && i < source.wallSegments.length) source.wallSegments[i]
+      ];
+      final measurements =
+          shape.preset == GraphDrawingPreset.propertyLine && shape.closed
+              ? shapeMeasurementSummary(shape, segments)
+                  .split(' • ')
+                  .where((s) => s.isNotEmpty)
+                  .toList()
+              : shapeExportMeasurements(shape, segments);
+      if (measurements.isEmpty) continue;
+      result.add(GraphMeasurementSummary(
+          isMainStructure: shape.preset == GraphDrawingPreset.mainStructure,
+          label: shape.text.trim().isEmpty ? shape.name : shape.text,
+          measurements: measurements));
+    }
+    if (source.layer('trace').visible) {
+      for (final trace in source.traces) {
+        if (trace.geoPoints.length < 2) continue;
+        final m = MeasurementService.measureTrace(trace,
+            status: MeasurementAccuracyStatus.estimated);
+        result.add(GraphMeasurementSummary(label: trace.label, measurements: [
+          MeasurementFormat.linearFeet(m.linearFeet),
+          if (trace.closed) ...[
+            MeasurementFormat.squareFeet(m.squareFeet),
+            MeasurementFormat.acres(m.acres)
+          ]
+        ]));
+      }
+    }
+    return result;
+  }
+
   static Future<void>? _materialFont;
   static Future<Map<String, Uint8List>> _icons(GraphDocument source) async {
     final markers = source.annotations.where((a) =>
@@ -109,6 +168,12 @@ class GraphPdfExport {
     final metrics = PdfTtfFont(document.document, regular);
     final logo = brandingLogo == null ? null : pw.MemoryImage(brandingLogo);
     final symbols = graph == null ? <String, Uint8List>{} : await _icons(graph);
+    for (final photo in photos) {
+      if (img.decodeImage(photo.bytes) == null) {
+        throw StateError(
+            'PDF not exported: photo "${photo.filename}" could not be read.');
+      }
+    }
     final groups = <List<GraphPdfPhoto>>[];
     for (var i = 0; i < photos.length;) {
       final photo = img.decodeImage(photos[i].bytes);
@@ -190,19 +255,14 @@ class GraphPdfExport {
             inspectionsVisible: graph.layer('inspections').visible,
             treatmentVisible: graph.layer('treatment').visible);
     final entries = effectiveLegend.expand((s) => s.entries).toList();
+    final allTotals =
+        graph == null ? measurementSummary : summariesForDocument(graph);
     final totals = graph == null
-        ? measurementSummary
-        : [
-            for (final shape in graph.shapes
-                .where((s) => s.preset == GraphDrawingPreset.mainStructure))
-              GraphMeasurementSummary(
-                  label: shape.text.trim().isEmpty ? shape.name : shape.text,
-                  measurements: shapeExportMeasurements(shape, [
-                    for (final i in shape.segmentIndexes)
-                      if (i >= 0 && i < graph.wallSegments.length)
-                        graph.wallSegments[i]
-                  ])),
-          ];
+        ? allTotals
+        : allTotals.where((s) => s.isMainStructure).toList();
+    final detailTotals = graph == null
+        ? <GraphMeasurementSummary>[]
+        : allTotals.where((s) => !s.isMainStructure).toList();
     final format = graph != null && _tall(graph)
         ? PdfPageFormat.letter
         : PdfPageFormat.letter.landscape;
@@ -257,6 +317,18 @@ class GraphPdfExport {
                                     ])),
                         ]));
                   })),
+                  if (detailTotals.isNotEmpty)
+                    pw.Padding(
+                        padding: const pw.EdgeInsets.only(top: 6),
+                        child: pw.Wrap(spacing: 12, runSpacing: 3, children: [
+                          for (final item in detailTotals)
+                            pw.SizedBox(
+                                width: (format.width - 60) / 2,
+                                child: pw.Text(
+                                    '${item.label}: ${item.measurements.join('  |  ')}',
+                                    style: const pw.TextStyle(
+                                        fontSize: 8, color: PdfColors.grey700)))
+                        ])),
                   if (entries.isNotEmpty ||
                       graph?.annotations.any((a) =>
                               a.kind == GraphAnnotationKind.photo &&

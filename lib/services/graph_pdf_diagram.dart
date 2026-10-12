@@ -10,6 +10,7 @@ import '../models/graph_shape.dart';
 import '../models/wall_segment.dart';
 import 'measurement_format.dart';
 import 'measurement_service.dart';
+import '../widgets/graph_shapes_painter.dart' show usesStyledSegmentRendering;
 
 class PdfDiagramLabel {
   const PdfDiagramLabel(this.text, this.rect, this.anchor,
@@ -357,19 +358,31 @@ class GraphPdfDiagram {
       }
       for (final segment in segments) {
         final d = segment.end.offset - segment.start.offset;
-        if (d.distance < 0.01) continue;
+        if (d.distance < 0.01 || segment.hasArrow) continue;
         var n = Offset(-d.dy, d.dx) / d.distance;
         if (shape.closed && signed > 0) n = -n;
         _label(segment.measurementLabel,
             project((segment.start.offset + segment.end.offset) / 2),
             normal: n, color: PdfColors.green900);
       }
-      if (shape.closed) {
+      final shapeLabel = shape.text.trim().isEmpty
+          ? (shape.isStructure ? shape.name : '')
+          : shape.text;
+      final foundation = shape.preset == GraphDrawingPreset.mainStructure
+          ? shape.foundationType?.label
+          : null;
+      final title = [
+        if (shapeLabel.isNotEmpty) shapeLabel,
+        if (foundation != null) foundation
+      ].join('\n');
+      if (title.isNotEmpty) {
+        final anchors = [
+          ...points,
+          if (!shape.closed) segments.last.end.offset
+        ];
         final center =
-            points.reduce((a, b) => a + b) / points.length.toDouble();
-        _label(shape.text.trim().isEmpty ? shape.name : shape.text,
-            project(center),
-            size: 9);
+            anchors.reduce((a, b) => a + b) / anchors.length.toDouble();
+        _label(title, project(center), size: 9);
       }
     }
     for (var i = 0; i < document.wallSegments.length; i++) {
@@ -377,6 +390,7 @@ class GraphPdfDiagram {
       final s = document.wallSegments[i];
       if (!visibleSegments.contains(s)) continue;
       final d = s.end.offset - s.start.offset;
+      if (s.hasArrow) continue;
       _label(s.measurementLabel, project((s.start.offset + s.end.offset) / 2),
           normal: d.distance == 0
               ? const Offset(0, -1)
@@ -425,23 +439,24 @@ class GraphPdfDiagram {
             pw.Positioned(
                 left: project(a.point.offset).dx - 6,
                 top: project(a.point.offset).dy - 6,
-                child: a.kind == GraphAnnotationKind.marker &&
-                        icons.containsKey(iconKey(a))
-                    ? pw.Image(pw.MemoryImage(icons[iconKey(a)]!),
-                        width: 12, height: 12)
-                    : pw.Container(
-                        width: 12,
-                        height: 12,
-                        alignment: pw.Alignment.center,
-                        decoration: pw.BoxDecoration(
-                            color: PdfColors.grey800,
-                            borderRadius: pw.BorderRadius.circular(2)),
-                        child: pw.Text(
-                            a.kind == GraphAnnotationKind.photo
-                                ? 'P'
-                                : a.markerType.shortLabel,
-                            style: const pw.TextStyle(
-                                fontSize: 6, color: PdfColors.white)))),
+                child: pw.Transform.rotate(
+                    angle: -a.rotationDegrees * math.pi / 180,
+                    child: icons.containsKey(iconKey(a))
+                        ? pw.Image(pw.MemoryImage(icons[iconKey(a)]!),
+                            width: 12, height: 12)
+                        : pw.Container(
+                            width: 12,
+                            height: 12,
+                            alignment: pw.Alignment.center,
+                            decoration: pw.BoxDecoration(
+                                color: PdfColors.grey800,
+                                borderRadius: pw.BorderRadius.circular(2)),
+                            child: pw.Text(
+                                a.kind == GraphAnnotationKind.photo
+                                    ? 'P'
+                                    : a.markerType.shortLabel,
+                                style: const pw.TextStyle(
+                                    fontSize: 6, color: PdfColors.white))))),
         for (final label in labels)
           pw.Positioned(
               left: label.rect.left,
@@ -499,7 +514,7 @@ class GraphPdfDiagram {
             document.wallSegments[i]
       ];
       if (segments.isEmpty) continue;
-      if (shape.closed && shape.fillColor != null) {
+      if (!usesStyledSegmentRendering(shape) && shape.fillColor != null) {
         g.saveContext();
         g.setGraphicState(PdfGraphicState(opacity: shape.fillOpacity));
         g.setFillColor(PdfColor.fromInt(shape.fillColor!.toARGB32()));
@@ -519,100 +534,113 @@ class GraphPdfDiagram {
         g.closePath();
         g.fillPath();
         g.restoreContext();
-        if (shape.pattern != GraphShapePattern.none) {
-          g.saveContext();
-          move(project(segments.first.start.offset));
-          for (final s in segments) {
-            final a = project(s.start.offset), b = project(s.end.offset);
-            if (s.controlPoint == null) {
-              line(b);
-            } else {
-              final c = project(s.controlPoint!.offset),
-                  c1 = a + (c - a) * (2 / 3),
-                  c2 = b + (c - b) * (2 / 3);
-              g.curveTo(c1.dx, height - c1.dy, c2.dx, height - c2.dy, b.dx,
-                  height - b.dy);
-            }
+      }
+      if (!usesStyledSegmentRendering(shape) &&
+          shape.pattern != GraphShapePattern.none) {
+        g.saveContext();
+        move(project(segments.first.start.offset));
+        for (final s in segments) {
+          final a = project(s.start.offset), b = project(s.end.offset);
+          if (s.controlPoint == null) {
+            line(b);
+          } else {
+            final c = project(s.controlPoint!.offset),
+                c1 = a + (c - a) * (2 / 3),
+                c2 = b + (c - b) * (2 / 3);
+            g.curveTo(c1.dx, height - c1.dy, c2.dx, height - c2.dy, b.dx,
+                height - b.dy);
           }
-          g.closePath();
-          g.clipPath();
-          g.setGraphicState(const PdfGraphicState(opacity: 0.35));
-          g.setStrokeColor(PdfColor.fromInt(shape.borderColor.toARGB32()));
-          g.setFillColor(PdfColor.fromInt(shape.borderColor.toARGB32()));
-          g.setLineWidth(0.4);
-          final points = segments
-              .expand((s) => [
-                    project(s.start.offset),
-                    project(s.end.offset),
-                    if (s.controlPoint != null) project(s.controlPoint!.offset)
-                  ])
-              .toList();
-          final left = points.map((p) => p.dx).reduce(math.min),
-              right = points.map((p) => p.dx).reduce(math.max),
-              top = points.map((p) => p.dy).reduce(math.min),
-              bottom = points.map((p) => p.dy).reduce(math.max);
-          final pattern = shape.pattern;
-          for (var y = top; y <= bottom; y += 8) {
-            if (pattern == GraphShapePattern.horizontal ||
-                pattern == GraphShapePattern.grid) {
-              g.drawLine(left, height - y, right, height - y);
-              g.strokePath();
-            }
-            for (var x = left; x <= right; x += 8) {
-              if (pattern == GraphShapePattern.dots ||
-                  pattern == GraphShapePattern.largeDots) {
-                g.drawEllipse(
-                    x,
-                    height - y,
-                    pattern == GraphShapePattern.largeDots ? 1.2 : 0.5,
-                    pattern == GraphShapePattern.largeDots ? 1.2 : 0.5);
-                g.fillPath();
-              }
-              if (pattern == GraphShapePattern.checker &&
-                  ((x - left) / 8 + (y - top) / 8).round().isEven) {
-                g.drawRect(x, height - y - 8, 8, 8);
-                g.fillPath();
-              }
-            }
-          }
-          if (pattern == GraphShapePattern.vertical ||
-              pattern == GraphShapePattern.grid) {
-            for (var x = left; x <= right; x += 8) {
-              g.drawLine(x, height - top, x, height - bottom);
-              g.strokePath();
-            }
-          }
-          if (pattern == GraphShapePattern.diagonal ||
-              pattern == GraphShapePattern.reverseDiagonal ||
-              pattern == GraphShapePattern.crossHatch) {
-            for (var x = left - (bottom - top);
-                x <= right + (bottom - top);
-                x += 8) {
-              if (pattern != GraphShapePattern.reverseDiagonal) {
-                g.drawLine(
-                    x, height - bottom, x + (bottom - top), height - top);
-                g.strokePath();
-              }
-              if (pattern != GraphShapePattern.diagonal) {
-                g.drawLine(
-                    x, height - top, x + (bottom - top), height - bottom);
-                g.strokePath();
-              }
-            }
-          }
-          g.restoreContext();
         }
+        g.closePath();
+        g.clipPath();
+        g.setGraphicState(const PdfGraphicState(opacity: 0.16));
+        g.setStrokeColor(const PdfColor.fromInt(0xff1c2b22));
+        g.setFillColor(const PdfColor.fromInt(0xff1c2b22));
+        g.setLineWidth(0.4);
+        final points = segments
+            .expand((s) => [
+                  project(s.start.offset),
+                  project(s.end.offset),
+                  if (s.controlPoint != null) project(s.controlPoint!.offset)
+                ])
+            .toList();
+        final left = points.map((p) => p.dx).reduce(math.min),
+            right = points.map((p) => p.dx).reduce(math.max),
+            top = points.map((p) => p.dy).reduce(math.min),
+            bottom = points.map((p) => p.dy).reduce(math.max);
+        final pattern = shape.pattern;
+        for (var y = top; y <= bottom; y += 8) {
+          if (pattern == GraphShapePattern.horizontal ||
+              pattern == GraphShapePattern.grid) {
+            g.drawLine(left, height - y, right, height - y);
+            g.strokePath();
+          }
+          for (var x = left; x <= right; x += 8) {
+            if (pattern == GraphShapePattern.dots ||
+                pattern == GraphShapePattern.largeDots) {
+              g.drawEllipse(
+                  x,
+                  height - y,
+                  pattern == GraphShapePattern.largeDots ? 1.2 : 0.5,
+                  pattern == GraphShapePattern.largeDots ? 1.2 : 0.5);
+              g.fillPath();
+            }
+            if (pattern == GraphShapePattern.checker &&
+                ((x - left) / 8 + (y - top) / 8).round().isEven) {
+              g.drawRect(x, height - y - 8, 8, 8);
+              g.fillPath();
+            }
+          }
+        }
+        if (pattern == GraphShapePattern.vertical ||
+            pattern == GraphShapePattern.grid) {
+          for (var x = left; x <= right; x += 8) {
+            g.drawLine(x, height - top, x, height - bottom);
+            g.strokePath();
+          }
+        }
+        if (pattern == GraphShapePattern.diagonal ||
+            pattern == GraphShapePattern.reverseDiagonal ||
+            pattern == GraphShapePattern.crossHatch) {
+          for (var x = left - (bottom - top);
+              x <= right + (bottom - top);
+              x += 8) {
+            if (pattern != GraphShapePattern.reverseDiagonal) {
+              g.drawLine(x, height - bottom, x + (bottom - top), height - top);
+              g.strokePath();
+            }
+            if (pattern != GraphShapePattern.diagonal) {
+              g.drawLine(x, height - top, x + (bottom - top), height - bottom);
+              g.strokePath();
+            }
+          }
+        }
+        g.restoreContext();
       }
     }
+    final owners = <WallSegment, GraphShape>{
+      for (final shape in visibleShapes)
+        if (!usesStyledSegmentRendering(shape) &&
+            shape.preset != GraphDrawingPreset.measurementLine)
+          for (final i in shape.segmentIndexes)
+            if (i >= 0 && i < document.wallSegments.length)
+              document.wallSegments[i]: shape
+    };
     for (final s in visibleSegments) {
       g.saveContext();
-      g.setStrokeColor(PdfColor.fromInt(s.color.toARGB32()));
-      g.setLineWidth((s.strokeWidth * scale).clamp(0.7, 2.0));
-      if (s.pattern == LinePattern.dashed) {
+      final owner = owners[s];
+      final strokeColor = owner?.borderColor ?? s.color;
+      final strokeWidth = owner?.borderWidth ?? s.strokeWidth;
+      final pattern = owner == null ? s.pattern : LinePattern.solid;
+      g.setStrokeColor(PdfColor.fromInt(strokeColor.toARGB32()));
+      g.setLineWidth(math.max(0.2, strokeWidth * scale));
+      g.setLineCap(PdfLineCap.round);
+      g.setLineJoin(PdfLineJoin.round);
+      if (pattern == LinePattern.dashed) {
         g.setLineDashPattern([5, 3]);
       }
       final a = project(s.start.offset), b = project(s.end.offset);
-      if (s.pattern == LinePattern.solid || s.pattern == LinePattern.dashed) {
+      if (pattern == LinePattern.solid || pattern == LinePattern.dashed) {
         move(a);
         if (s.controlPoint == null) {
           line(b);
@@ -625,7 +653,7 @@ class GraphPdfDiagram {
         }
         g.strokePath();
       } else {
-        g.setFillColor(PdfColor.fromInt(s.color.toARGB32()));
+        g.setFillColor(PdfColor.fromInt(strokeColor.toARGB32()));
         final c =
             s.controlPoint == null ? null : project(s.controlPoint!.offset);
         Offset at(double t) => c == null
@@ -641,12 +669,12 @@ class GraphPdfDiagram {
         final count = math.max(1, (length / 7).floor());
         for (var i = 0; i <= count; i++) {
           final p = at(i / count);
-          if (s.pattern == LinePattern.dottedSmall ||
-              s.pattern == LinePattern.dottedLarge) {
-            final r = s.pattern == LinePattern.dottedLarge ? 1.4 : 0.7;
+          if (pattern == LinePattern.dottedSmall ||
+              pattern == LinePattern.dottedLarge) {
+            final r = pattern == LinePattern.dottedLarge ? 1.4 : 0.7;
             g.drawEllipse(p.dx, height - p.dy, r, r);
             g.fillPath();
-          } else if (s.pattern == LinePattern.xMarks) {
+          } else if (pattern == LinePattern.xMarks) {
             g.drawLine(
                 p.dx - 2, height - p.dy - 2, p.dx + 2, height - p.dy + 2);
             g.drawLine(
@@ -662,7 +690,16 @@ class GraphPdfDiagram {
           }
         }
       }
-      if (s.hasArrow) _arrow(g, a, b);
+      if (s.hasArrow && owner == null) {
+        final tangentStart = s.controlPoint?.offset ?? s.start.offset;
+        final size = math.min(18.0,
+                math.max(7.0, (s.end.offset - tangentStart).distance * 0.42)) *
+            scale;
+        _arrow(g, project(tangentStart), b,
+            color: PdfColor.fromInt(strokeColor.toARGB32()),
+            length: size * math.cos(math.pi / 6),
+            halfWidth: size * math.sin(math.pi / 6));
+      }
       g.restoreContext();
     }
     if (document.layer('structure').visible) {
@@ -706,20 +743,24 @@ class GraphPdfDiagram {
       g.setLineWidth(0.75);
       g.drawLine(start.dx, height - start.dy, end.dx, height - end.dy);
       g.strokePath();
-      _arrow(g, end, start);
+      _arrow(g, end, start, color: PdfColor.fromInt(a.borderColor.toARGB32()));
     }
   }
 
-  void _arrow(PdfGraphics g, Offset from, Offset to) {
+  void _arrow(PdfGraphics g, Offset from, Offset to,
+      {PdfColor color = PdfColors.grey700,
+      double length = 6,
+      double halfWidth = 2.5}) {
     final d = to - from;
     if (d.distance < 0.01) return;
     final unit = d / d.distance, side = Offset(-unit.dy, unit.dx);
-    final a = to - unit * 6 + side * 2.5, b = to - unit * 6 - side * 2.5;
+    final a = to - unit * length + side * halfWidth,
+        b = to - unit * length - side * halfWidth;
     g.moveTo(to.dx, height - to.dy);
     g.lineTo(a.dx, height - a.dy);
     g.lineTo(b.dx, height - b.dy);
     g.closePath();
-    g.setFillColor(PdfColors.grey700);
+    g.setFillColor(color);
     g.fillPath();
   }
 }

@@ -9,7 +9,6 @@ import '../models/wall_segment.dart';
 import '../services/measurement_format.dart';
 import 'wall_segments_painter.dart';
 
-@visibleForTesting
 bool usesStyledSegmentRendering(GraphShape shape) =>
     shape.preset?.kind == GraphDrawingPresetKind.line ||
     const {'wall', 'arrow', 'curve'}
