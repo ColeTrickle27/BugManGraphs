@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../services/graph_file_handoff_factory.dart';
 import '../../services/cloud_drafts/graph_draft_workspace.dart';
+import '../../services/cloud_drafts/employee_access.dart';
 import '../../screens/cloud_drafts/graph_draft_remote_preview.dart';
 
 Future<GraphDraftEditorSession?> showGraphDraftSyncPanel(
@@ -45,6 +46,18 @@ Future<GraphDraftEditorSession?> showGraphDraftSyncPanel(
                                             vertical: 12),
                                         child: Text(session.reason!)),
                                   Wrap(spacing: 8, runSpacing: 8, children: [
+                                    if (session.phase ==
+                                            GraphDraftPhase.unavailable ||
+                                        session.phase ==
+                                            GraphDraftPhase.signInRequired)
+                                      TextButton(
+                                          onPressed: () {
+                                            try {
+                                              openGraphEmployeeAccess();
+                                            } catch (_) {}
+                                          },
+                                          child: const Text(
+                                              'Verify employee access in a new tab')),
                                     if (session.phase !=
                                         GraphDraftPhase.conflict)
                                       FilledButton.icon(

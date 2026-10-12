@@ -7,13 +7,20 @@ import '../../services/cloud_drafts/graph_draft_store_factory.dart';
 import '../../services/cloud_drafts/graph_draft_workspace.dart';
 import '../../services/cloud_drafts/graph_draft_http_service.dart';
 import 'account_graph_gallery.dart';
+import '../../services/cloud_drafts/employee_access.dart';
 
 class GraphDraftSessionScreen extends StatefulWidget {
   const GraphDraftSessionScreen(
-      {super.key, this.authentication, this.store, this.legacyRepository});
+      {super.key,
+      this.authentication,
+      this.store,
+      this.legacyRepository,
+      this.authenticatedBuilder});
   final GraphDraftAuthentication? authentication;
   final GraphDraftStore? store;
   final GraphRepository? legacyRepository;
+  final Widget Function(BuildContext, GraphDraftWorkspace, VoidCallback)?
+      authenticatedBuilder;
   @override
   State<GraphDraftSessionScreen> createState() =>
       _GraphDraftSessionScreenState();
@@ -125,6 +132,9 @@ class _GraphDraftSessionScreenState extends State<GraphDraftSessionScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (workspace?.account.active == true) {
+      if (widget.authenticatedBuilder != null) {
+        return widget.authenticatedBuilder!(context, workspace!, _logout);
+      }
       return AccountGraphGallery(
           workspace: workspace!,
           legacyRepository: widget.legacyRepository,
@@ -141,6 +151,17 @@ class _GraphDraftSessionScreenState extends State<GraphDraftSessionScreen> {
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
                       const Text(
                           'Use your existing Holloman account. Your account graphs stay separate from Customer Files.'),
+                      TextButton(
+                          onPressed: () {
+                            try {
+                              openGraphEmployeeAccess();
+                            } catch (_) {
+                              setState(() => error =
+                                  'Employee access is available on the official Graphs host.');
+                            }
+                          },
+                          child: const Text(
+                              'Verify employee access in a new tab')),
                       const SizedBox(height: 20),
                       TextField(
                           controller: username,

@@ -19,3 +19,11 @@ Backend owner must confirm migration protection, backup and successful migration
 Node relay tests, Flutter tests and Wrangler Functions compilation exercise this code. The two-browser fixture uses an in-process protocol backend with synthetic users/session tokens/data, not production credentials or real backend/migration. It verifies independent sessions, shared graph/full-photo bytes, stale revision rejection, local scoped recovery, an already-open offline canvas, and account switching. It does not prove live Access, migration, offline edits/reload, real backend end-to-end, manual customer-folder auth or physical iPhone behavior. Keep both gates off until those prerequisites are resolved.
 
 References: Cloudflare Pages Functions routing, Workers best practices and Response encodeBody documentation were retrieved before implementation. No new provider or production dependency was introduced.
+
+## Prepared Access handoff and entry guards
+
+The relay now accepts only server bindings GRAPH_OPS_ACCESS_CLIENT_ID and GRAPH_OPS_ACCESS_CLIENT_SECRET and refuses noncanonical Graphs hosts. Incoming credential headers are discarded; upstream CF_Authorization cookies never reach the browser. The user must create and enter the actual encrypted values in Cloudflare; no credential values were created or read here. The separately protected /access-ready page opens in a new tab without replacing the editor and does not claim successful upstream authentication.
+
+Authentication precedes bill-to/location lookup and shared-graph loading. Verified customer mapping remains intact. Shared Customer Files graphs require an explicit Copy to My Graphs action to become independent account drafts; opening the source preserves its existing repository. Manual Customer Files publication retains separate OpsBrain sign-in, with no relay scope expansion or cookie-domain change.
+
+Parent reports the guard-only backend release and 363 historical-host denies complete; account migration remains off. This code still requires independent review, secure user credential entry, migration confirmation and actual joint backend acceptance before activation.

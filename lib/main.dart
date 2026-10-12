@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 
 import 'models/customer_file.dart';
 import 'screens/cloud_drafts/graph_draft_session_screen.dart';
+import 'screens/cloud_drafts/graph_draft_entry_screen.dart';
 import 'services/cloud_drafts/graph_draft_workspace.dart';
+import 'services/cloud_drafts/graph_draft_authentication.dart';
+import 'services/bugman_portal_service.dart';
 import 'models/graph_document.dart';
 import 'models/job.dart';
 import 'screens/graph_canvas_screen.dart';
@@ -20,20 +23,35 @@ void main() {
 }
 
 class BugManGraphsApp extends StatefulWidget {
-  const BugManGraphsApp({super.key});
+  const BugManGraphsApp(
+      {super.key,
+      this.accountDraftsEnabled = accountGraphDraftsActivated,
+      this.authentication,
+      this.initialUri,
+      this.repository,
+      this.portalService,
+      this.customerFilesService});
+  final bool accountDraftsEnabled;
+  final GraphDraftAuthentication? authentication;
+  final Uri? initialUri;
+  final GraphRepository? repository;
+  final BugManPortalService? portalService;
+  final CustomerFilesService? customerFilesService;
 
   @override
   State<BugManGraphsApp> createState() => _BugManGraphsAppState();
 }
 
 class _BugManGraphsAppState extends State<BugManGraphsApp> {
-  late final GraphRepository _repository = createGraphRepository();
-  late final _portalService = createBugManPortalService();
+  late final GraphRepository _repository =
+      widget.repository ?? createGraphRepository();
+  late final _portalService =
+      widget.portalService ?? createBugManPortalService();
   late final CustomerFilesService _customerFilesService =
-      createCustomerFilesService();
+      widget.customerFilesService ?? createCustomerFilesService();
   late final String? _portalKey = _readPortalKey();
   late final bool _presentationMode =
-      Uri.base.queryParameters['mode'] == 'presentation';
+      (widget.initialUri ?? Uri.base).queryParameters['mode'] == 'presentation';
   late final Set<String> _presentationMarkerIds = Uri
           .base.queryParametersAll['marker']
           ?.map((value) => value.trim())
@@ -51,7 +69,7 @@ class _BugManGraphsAppState extends State<BugManGraphsApp> {
   final List<Job> _jobs = <Job>[];
 
   String? _readPortalKey() {
-    final key = Uri.base.queryParameters['graph'];
+    final key = (widget.initialUri ?? Uri.base).queryParameters['graph'];
     if (key == null || key.trim().isEmpty || !_portalService.isAvailable) {
       return null;
     }
@@ -69,7 +87,7 @@ class _BugManGraphsAppState extends State<BugManGraphsApp> {
   /// Brain's "Create New" action). Only considered when there is no
   /// `?graph=` key -- a specific saved graph link always wins.
   _JobPreselectionRequest? _readJobPreselectionRequest() {
-    final params = Uri.base.queryParameters;
+    final params = (widget.initialUri ?? Uri.base).queryParameters;
     final billTo = params['billTo']?.trim();
     final location = params['location']?.trim();
     if (billTo == null ||
@@ -120,69 +138,133 @@ class _BugManGraphsAppState extends State<BugManGraphsApp> {
     setState(() => _jobs.insert(0, job));
   }
 
+  Widget _accountEntry(BuildContext context, GraphDraftWorkspace workspace,
+      VoidCallback onSignOut) {
+    if (_portalGraph != null) {
+      return FutureBuilder<GraphDocument?>(
+          future: _portalGraph,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Scaffold(
+                  body: Center(child: CircularProgressIndicator()));
+            }
+            if (snapshot.hasError || snapshot.data == null) {
+              return const Scaffold(
+                  body: Center(
+                      child: Text(
+                          'Customer Files access could not be verified. Sign in to OpsBrain separately and retry.')));
+            }
+            return GraphDraftSharedEntryScreen(
+                workspace: workspace,
+                document: snapshot.data!,
+                repository: _repository,
+                portalKey: _portalKey!,
+                onSignOut: onSignOut);
+          });
+    }
+    if (_jobPreselection != null) {
+      return GraphDraftContextCreateScreen(
+          workspace: workspace,
+          onSignOut: onSignOut,
+          legacyRepository: _repository,
+          customerFilesService: _customerFilesService,
+          resolution: _jobPreselection.then((value) =>
+              GraphDraftEntryResolution(
+                  location: value.location, warning: value.warning)));
+    }
+    return HomeScreen(
+        jobs: _jobs, repository: _repository, cloudDraftWorkspace: workspace);
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'BugManGraphs',
       debugShowCheckedModeBanner: false,
       theme: buildBugManTheme(),
-      home: _portalGraph != null
-          ? FutureBuilder<GraphDocument?>(
-              future: _portalGraph,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState != ConnectionState.done) {
-                  return const Scaffold(
-                    body: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                if (snapshot.hasError) {
-                  return _PortalOpenError(message: snapshot.error.toString());
-                }
-                return GraphCanvasScreen(
-                  document: snapshot.data!,
-                  repository: _repository,
-                  portalKey: _portalKey,
-                  presentationMode: _presentationMode,
-                  presentationMarkerIds: _presentationMarkerIds,
-                );
-              },
-            )
-          : _jobPreselection != null
-              ? FutureBuilder<_ResolvedPreselection>(
-                  future: _jobPreselection,
+      home: widget.accountDraftsEnabled && !_presentationMode
+          ? GraphDraftSessionScreen(
+              authentication: widget.authentication,
+              legacyRepository: _repository,
+              authenticatedBuilder:
+                  (_portalKey != null || _jobPreselectionRequest != null)
+                      ? _accountEntry
+                      : null)
+          : _portalGraph != null
+              ? FutureBuilder<GraphDocument?>(
+                  future: _portalGraph,
                   builder: (context, snapshot) {
                     if (snapshot.connectionState != ConnectionState.done) {
                       return const Scaffold(
                         body: Center(child: CircularProgressIndicator()),
                       );
                     }
-                    final resolved = snapshot.data;
-                    return NewJobScreen(
-                      onCreateJob: _addJob,
-                      customerFilesService: _customerFilesService,
-                      preselectedLocation: resolved?.location,
-                      resolutionWarning: resolved?.warning,
+                    if (snapshot.hasError) {
+                      return _PortalOpenError(
+                          message: snapshot.error.toString());
+                    }
+                    return GraphCanvasScreen(
+                      document: snapshot.data!,
+                      repository: _repository,
+                      portalKey: _portalKey,
+                      presentationMode: _presentationMode,
+                      presentationMarkerIds: _presentationMarkerIds,
                     );
                   },
                 )
-              : accountGraphDraftsActivated
-                  ? GraphDraftSessionScreen(legacyRepository: _repository)
+              : _jobPreselection != null
+                  ? FutureBuilder<_ResolvedPreselection>(
+                      future: _jobPreselection,
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState != ConnectionState.done) {
+                          return const Scaffold(
+                            body: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+                        final resolved = snapshot.data;
+                        return NewJobScreen(
+                          onCreateJob: _addJob,
+                          customerFilesService: _customerFilesService,
+                          preselectedLocation: resolved?.location,
+                          resolutionWarning: resolved?.warning,
+                        );
+                      },
+                    )
                   : HomeScreen(jobs: _jobs, repository: _repository),
       routes: {
-        NewJobScreen.routeName: (context) => NewJobScreen(
-              onCreateJob: _addJob,
-              customerFilesService: _customerFilesService,
-            ),
+        NewJobScreen.routeName: (context) => widget.accountDraftsEnabled
+            ? GraphDraftSessionScreen(
+                authentication: widget.authentication,
+                legacyRepository: _repository,
+                authenticatedBuilder: (context, workspace, onSignOut) =>
+                    GraphDraftContextCreateScreen(
+                        workspace: workspace,
+                        onSignOut: onSignOut,
+                        legacyRepository: _repository,
+                        customerFilesService: _customerFilesService,
+                        resolution:
+                            Future.value(const GraphDraftEntryResolution())))
+            : NewJobScreen(
+                onCreateJob: _addJob,
+                customerFilesService: _customerFilesService,
+              ),
       },
       onGenerateRoute: (settings) {
         if (settings.name == GraphCanvasScreen.routeName) {
           final job = settings.arguments as Job;
 
           return MaterialPageRoute<void>(
-            builder: (context) => GraphCanvasScreen(
-              job: job,
-              repository: _repository,
-            ),
+            builder: (context) => widget.accountDraftsEnabled
+                ? GraphDraftSessionScreen(
+                    authentication: widget.authentication,
+                    legacyRepository: _repository,
+                    authenticatedBuilder: (context, workspace, onSignOut) =>
+                        GraphDraftPreparedJobScreen(
+                            workspace: workspace, job: job))
+                : GraphCanvasScreen(
+                    job: job,
+                    repository: _repository,
+                  ),
           );
         }
 

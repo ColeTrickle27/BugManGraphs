@@ -32,7 +32,7 @@ function validCookie(value, logout) {
   return (logout ? pieces[0]==='hob_session=' && attrs.get('max-age')==='0' : /^hob_session=[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(pieces[0])) && !attrs.has('domain') && attrs.get('path')==='/' && attrs.has('secure') && attrs.has('httponly') && attrs.get('samesite')?.toLowerCase()==='strict';
 }
 // origin/fetcher are injected only by isolated local fixtures, never by Pages bindings or requests.
-export function createGraphRelay({origin=ORIGIN,fetcher=fetch}={}) {
+export function createGraphRelay({origin=ORIGIN,fetcher=fetch,accessClientId,accessClientSecret}={}) {
   return async request => {
     const url=new URL(request.url), rule=route(url,request.method);
     if(url.origin!==origin || !rule) return fail(404,'Route unavailable.');
@@ -46,6 +46,11 @@ export function createGraphRelay({origin=ORIGIN,fetcher=fetch}={}) {
     if(size!==null && (!/^\d+$/.test(size) || +size>(rule.cap||0))) return fail(413,'Request is too large.');
     let session;try {session=cookie(request);} catch {return fail(400,'Invalid session cookie.');}
     const headers=new Headers({'Accept':'application/json','Cache-Control':'no-store','Origin':UPSTREAM,'Sec-Fetch-Site':'same-origin','Sec-Fetch-Mode':'cors','Sec-Fetch-Dest':'empty'});
+    if(accessClientId || accessClientSecret) {
+      if(!accessClientId || !accessClientSecret) return fail(503,'Employee access is not configured. Recovery remains on this device.');
+      headers.set('CF-Access-Client-Id',accessClientId);
+      headers.set('CF-Access-Client-Secret',accessClientSecret);
+    }
     if(session) headers.set('Cookie',session);
     if(rule.draft) headers.set('X-Graph-Expected-Account-Id',expected);
     let body, exceeded=false;
@@ -57,7 +62,7 @@ export function createGraphRelay({origin=ORIGIN,fetcher=fetch}={}) {
     try {upstream=await fetcher(new Request(UPSTREAM+url.pathname+url.search,{method:request.method,headers,body,redirect:'manual',duplex:'half',cache:'no-store',signal:AbortSignal.timeout(60000)}));} catch {if(exceeded) return fail(413,'Request is too large.');return fail(503,'The account service is unavailable. Recovery remains on this device.');}
     if(upstream.status>=300 && upstream.status<400 || upstream.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase()!=='application/json') {await upstream.body?.cancel();return fail(502,'Unexpected account service response.');}
     const responseHeaders=new Headers({...SECURITY,'Content-Type':'application/json; charset=utf-8'});
-    const cookies=upstream.headers.getSetCookie ? upstream.headers.getSetCookie() : upstream.headers.getAll('Set-Cookie');
+    const cookies=(upstream.headers.getSetCookie ? upstream.headers.getSetCookie() : upstream.headers.getAll('Set-Cookie')).filter(value=>!/^CF_Authorization=/i.test(value.trim()));
     if(cookies.length) {
       if(!rule.auth || cookies.length!==1 || !validCookie(cookies[0],url.pathname==='/api/logout')) {await upstream.body?.cancel();return fail(502,'Unexpected account cookie.');}
       responseHeaders.append('Set-Cookie',cookies[0]);

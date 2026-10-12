@@ -75,6 +75,7 @@ class GraphCanvasScreen extends StatefulWidget {
     this.markerDefaultsStore,
     this.fileHandoff,
     this.cloudDraftSession,
+    this.onCreateAccountGraph,
     this.presentationMode = false,
     this.completePackagePreview = false,
     this.presentationMarkerIds = const <String>{},
@@ -93,6 +94,7 @@ class GraphCanvasScreen extends StatefulWidget {
   final MarkerDefaultsStore? markerDefaultsStore;
   final GraphFileHandoff? fileHandoff;
   final GraphDraftEditorSession? cloudDraftSession;
+  final Future<void> Function(GraphDocument, Map<String, Uint8List>)? onCreateAccountGraph;
   final bool presentationMode;
   final bool completePackagePreview;
   final Set<String> presentationMarkerIds;
@@ -5606,6 +5608,17 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   // a brand new, separately-saved graph that reuses only this graph's
   // structural wall/shape geometry. Nothing about the currently open
   // document -- in memory or already saved to Ops Brain -- is modified.
+  Future<void> _openIndependentAccountGraph(GraphDocument document) async {
+    final blobs=<String,Uint8List>{};
+    for(final attachment in document.attachments) {
+      for(final key in [attachment.blobKey,if(attachment.thumbnailKey.isNotEmpty)attachment.thumbnailKey]) {
+        final bytes=_pendingPhotoBlobs[key] ?? await _repository.loadBlob(key);
+        if(bytes!=null)blobs[key]=bytes;
+      }
+    }
+    if(mounted)await widget.onCreateAccountGraph!(document,blobs);
+  }
+
   Future<void> _newGraphWithExistingStructure() async {
     if (_wallSegments.isEmpty && _shapes.isEmpty) {
       _showCanvasMessage(
@@ -5643,6 +5656,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     }
 
     final newDocument = GraphDocument.duplicateStructureFrom(_document);
+    if (widget.onCreateAccountGraph != null) { await _openIndependentAccountGraph(newDocument); return; }
     final parentSession = _cloudSession;
     final childSession = parentSession == null
         ? null
