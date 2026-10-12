@@ -1349,12 +1349,19 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     };
   }
 
-  bool _isSelectionEditable(_Selection selection) {
-    if (selection.kind == _SelectionKind.annotation &&
-        (selection.index < 0 || selection.index >= _annotations.length)) {
-      return false;
-    }
+  bool _isSelectionValid(_Selection selection) {
+    final length = switch (selection.kind) {
+      _SelectionKind.annotation => _annotations.length,
+      _SelectionKind.segment => _wallSegments.length,
+      _SelectionKind.shape => _shapes.length,
+      _SelectionKind.freehand => _freehandStrokes.length,
+      _SelectionKind.trace => _traces.length,
+    };
+    return selection.index >= 0 && selection.index < length;
+  }
 
+  bool _isSelectionEditable(_Selection selection) {
+    if (!_isSelectionValid(selection)) return false;
     if (selection.kind == _SelectionKind.shape) {
       if (_isTreatmentShape(_shapes[selection.index])) {
         return !_isLayerLocked(_GraphLayer.treatment);
@@ -1362,13 +1369,18 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       return !_isLayerLocked(_GraphLayer.shapes) &&
           !_isLayerLocked(_GraphLayer.structure);
     }
-
-    if (selection.kind == _SelectionKind.trace &&
-        (selection.index < 0 || selection.index >= _traces.length)) {
-      return false;
-    }
-
     return !_isLayerLocked(_layerForSelection(selection));
+  }
+
+  void _clearObjectInteraction() {
+    _selection = null;
+    _hoverSelection = null;
+    _explicitOverlapSelection = null;
+    _explicitOverlapPoint = null;
+    _interaction.setSelected(null);
+    _interaction.setHovered(null);
+    _clearInlineTextEditing();
+    _resetPointerGesture();
   }
 
   bool _isTreatmentShape(GraphShape shape) =>
@@ -4422,6 +4434,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
 
     _recordSnapshotUndo();
     setState(() {
+      _clearObjectInteraction();
       switch (currentSelection.kind) {
         case _SelectionKind.annotation:
           final index = currentSelection.index;
@@ -9732,6 +9745,7 @@ class _EditorSnapshot {
   final int? activePathStartSegmentIndex;
 
   void restore(_GraphCanvasScreenState state) {
+    state._clearObjectInteraction();
     state._wallSegments = wallSegments;
     state._annotations = annotations;
     state._shapes = shapes;
