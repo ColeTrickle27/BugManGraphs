@@ -20,10 +20,11 @@ class _GraphDraftEditorScreenState extends State<GraphDraftEditorScreen>
   Timer? _retryTimer;
   bool _retrying = false;
   Future<void> _retry() async {
-    if (_retrying || !widget.session.workspace.account.active) return;
+    if (_retrying || !_repository.session.workspace.account.active) return;
     _retrying = true;
     try {
-      await widget.session.retry();
+      await _repository.flushCurrent();
+      await _repository.session.retry();
     } finally {
       _retrying = false;
     }

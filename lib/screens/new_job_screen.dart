@@ -128,6 +128,28 @@ class _NewJobScreenState extends State<NewJobScreen> {
   bool get _showingSearch =>
       _searchFlowEnabled && !_manualEntryOverride && _selectedLocation == null;
 
+  String? _authorCorrection;
+  @override
+  void didUpdateWidget(covariant NewJobScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.cloudAuthors != null &&
+        widget.cloudAuthors != oldWidget.cloudAuthors) {
+      final authors = widget.cloudAuthors!.authors;
+      final previous = authors.where((a) => a.id == _cloudAuthorId).firstOrNull;
+      final replacement = previous ??
+          authors
+              .where((a) => a.id == widget.cloudAuthors!.defaultAuthorId)
+              .firstOrNull;
+      if (previous == null && _cloudAuthorId != null) {
+        _authorCorrection =
+            'The previously selected creator is no longer active. Review the updated creator before creating this graph.';
+      }
+      _cloudAuthorId = replacement?.id;
+      _createdByController.text = replacement?.name ?? '';
+      if (replacement != null) widget.onCloudAuthorChanged?.call(replacement);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -456,6 +478,8 @@ class _NewJobScreenState extends State<NewJobScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            if (_authorCorrection != null) Text(_authorCorrection!),
+            if (widget.cloudAuthors?.authors.isEmpty == true) const Text('Creator choices are unavailable while offline. Your entered details can stay on this form.'),
             if (widget.resolutionWarning != null && !_warningDismissed)
               _ResolutionWarningBanner(
                 message: widget.resolutionWarning!,

@@ -1,3 +1,4 @@
+import 'graph_draft_session_scope.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../models/cloud_graph_draft.dart';
@@ -147,6 +148,7 @@ class _AccountGraphGalleryState extends State<AccountGraphGallery>
   Future<void> _new() async {
     final workspace = widget.workspace;
     if (!workspace.account.active) return;
+    final resumeAccount = GraphDraftSessionScope.maybeOf(context)?.resume;
     await Navigator.push(
         context,
         MaterialPageRoute<void>(
@@ -154,7 +156,8 @@ class _AccountGraphGalleryState extends State<AccountGraphGallery>
                 workspace: workspace,
                 resolution: Future.value(const GraphDraftEntryResolution()),
                 legacyRepository: widget.legacyRepository,
-                recoverWorkspace: widget.recoverWorkspace)));
+                recoverWorkspace: widget.recoverWorkspace,
+                resumeAccount: resumeAccount)));
     if (mounted) _refresh();
   }
 

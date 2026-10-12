@@ -1,3 +1,5 @@
+import 'graph_draft_session_scope.dart';
+import '../../services/cloud_drafts/graph_draft_service.dart';
 import 'package:flutter/material.dart';
 import '../../services/graph_repository.dart';
 import '../../services/cloud_drafts/graph_draft_authentication.dart';
@@ -91,6 +93,18 @@ class _GraphDraftSessionScreenState extends State<GraphDraftSessionScreen> {
     }
   }
 
+  Future<GraphDraftWorkspace> _resumeForm(
+      String username, String password, String expectedAccountId) async {
+    final service = await auth.login(username, password);
+    if (service.account.id != expectedAccountId) {
+      service.account.invalidate();
+      throw const GraphDraftException(
+          409, 'Sign in to the original account to resume this form.');
+    }
+    await _accept(service);
+    return workspace!;
+  }
+
   Future<void> _logout() async {
     setState(() => busy = true);
     try {
@@ -131,15 +145,20 @@ class _GraphDraftSessionScreenState extends State<GraphDraftSessionScreen> {
     if (busy) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+    // Keep the owning entry state mounted while its pushed form is interrupted.
+    if (workspace != null && widget.authenticatedBuilder != null) {
+      return GraphDraftSessionScope(
+          resume: _resumeForm,
+          child: widget.authenticatedBuilder!(context, workspace!, _logout));
+    }
     if (workspace?.account.active == true) {
-      if (widget.authenticatedBuilder != null) {
-        return widget.authenticatedBuilder!(context, workspace!, _logout);
-      }
-      return AccountGraphGallery(
-          workspace: workspace!,
-          legacyRepository: widget.legacyRepository,
-          onSignOut: _logout,
-          sessionMessage: error);
+      return GraphDraftSessionScope(
+          resume: _resumeForm,
+          child: AccountGraphGallery(
+              workspace: workspace!,
+              legacyRepository: widget.legacyRepository,
+              onSignOut: _logout,
+              sessionMessage: error));
     }
     return Scaffold(
         appBar: AppBar(title: const Text('Sign in to BugMan Graphs')),

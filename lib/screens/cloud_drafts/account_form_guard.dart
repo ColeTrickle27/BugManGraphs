@@ -9,9 +9,14 @@ class AccountFormGuard extends StatefulWidget {
       required this.workspace,
       required this.child,
       required this.onRestored,
-      this.recoverWorkspace});
+      this.recoverWorkspace,
+      this.reauthenticate,
+      this.formBuilder});
   final GraphDraftWorkspace workspace;
   final Widget child;
+  final Widget Function(GraphDraftWorkspace)? formBuilder;
+  Widget get initialForm => child;
+  final Future<GraphDraftWorkspace> Function(String, String)? reauthenticate;
   final ValueChanged<GraphDraftWorkspace> onRestored;
   final Future<GraphDraftWorkspace> Function()? recoverWorkspace;
   @override
@@ -20,6 +25,7 @@ class AccountFormGuard extends StatefulWidget {
 
 class _AccountFormGuardState extends State<AccountFormGuard> {
   late GraphDraftWorkspace current = widget.workspace;
+  late Widget form = widget.initialForm;
   bool busy = false;
   String? error;
   Future<void> _resume() async {
@@ -27,62 +33,26 @@ class _AccountFormGuardState extends State<AccountFormGuard> {
     if (widget.recoverWorkspace != null) {
       next = await widget.recoverWorkspace!();
     } else {
-      final username = TextEditingController(),
-          password = TextEditingController();
-      var submitting = false;
-      try {
-        next = await showDialog<GraphDraftWorkspace>(
-            context: context,
-            barrierDismissible: false,
-            builder: (dialogContext) => AlertDialog(
-                  title: const Text('Sign in to the original account'),
-                  content: Column(mainAxisSize: MainAxisSize.min, children: [
-                    TextField(
-                        controller: username,
-                        decoration:
-                            const InputDecoration(labelText: 'Username')),
-                    TextField(
-                        controller: password,
-                        obscureText: true,
-                        decoration:
-                            const InputDecoration(labelText: 'Password')),
-                  ]),
-                  actions: [
-                    TextButton(
-                        onPressed: () async {
-                          if (submitting) return;
-                          submitting = true;
-                          final auth = createGraphDraftAuthentication();
-                          try {
-                            final service = await auth.login(
-                                username.text.trim(), password.text);
-                            final restored = GraphDraftWorkspace(
-                                account: service.account,
-                                service: service,
-                                store: current.store,
-                                onDispose: auth.close);
-                            // The HTTP service shares this client; keep it alive with the resumed workspace.
-                            if (dialogContext.mounted) {
-                              Navigator.pop(dialogContext, restored);
-                            } else {
-                              restored.dispose();
-                            }
-                          } catch (_) {
-                            if (dialogContext.mounted) {
-                              Navigator.pop(dialogContext);
-                            }
-                            auth.close();
-                          } finally {
-                            if (dialogContext.mounted) password.clear();
-                          }
-                        },
-                        child: const Text('Sign in'))
-                  ],
-                ));
-      } finally {
-        username.dispose();
-        password.dispose();
-      }
+      next = await showDialog<GraphDraftWorkspace>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => _OriginalAccountLoginDialog(
+                  authenticate: (username, password) async {
+                if (widget.reauthenticate != null)
+                  return widget.reauthenticate!(username, password);
+                final auth = createGraphDraftAuthentication();
+                try {
+                  final service = await auth.login(username, password);
+                  return GraphDraftWorkspace(
+                      account: service.account,
+                      service: service,
+                      store: current.store,
+                      onDispose: auth.close);
+                } catch (_) {
+                  auth.close();
+                  rethrow;
+                }
+              }));
     }
     if (next == null) return;
     if (!mounted) {
@@ -97,7 +67,7 @@ class _AccountFormGuardState extends State<AccountFormGuard> {
       return;
     }
     try {
-      await next.refreshAuthors();
+      await next.prepareEntryAuthors();
     } catch (_) {
       next.dispose();
       rethrow;
@@ -116,45 +86,123 @@ class _AccountFormGuardState extends State<AccountFormGuard> {
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
       animation: current.account,
-      child: widget.child,
-      builder: (context, form) => Stack(children: [
-            Offstage(
-                offstage: !current.account.active,
-                child: IgnorePointer(
-                    ignoring: !current.account.active, child: form!)),
-            if (!current.account.active)
-              Scaffold(
-                  appBar: AppBar(title: const Text('New graph interrupted')),
-                  body: Center(
-                      child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child:
-                              Column(mainAxisSize: MainAxisSize.min, children: [
-                            const Text(
-                                'Entered details are retained for the original account and hidden while signed out. Sign in to that account to resume. Going back discards this unfinished form.'),
-                            if (error != null) Text(error!),
-                            TextButton(
-                                onPressed: busy
-                                    ? null
-                                    : () async {
-                                        setState(() => busy = true);
-                                        try {
-                                          await _resume();
-                                        } catch (_) {
-                                          if (mounted) {
-                                            setState(() => error =
-                                                'Sign-in could not complete. Your form is retained.');
-                                          }
-                                        } finally {
-                                          if (mounted) {
-                                            setState(() => busy = false);
-                                          }
+      builder: (context, _) {
+        if (current.account.active && widget.formBuilder != null) {
+          form = widget.formBuilder!(current);
+        }
+        if (!current.account.active) {
+          FocusManager.instance.primaryFocus?.unfocus();
+        }
+        return Stack(children: [
+          Offstage(
+              offstage: !current.account.active,
+              child: ExcludeFocus(
+                  excluding: !current.account.active,
+                  child: IgnorePointer(
+                      ignoring: !current.account.active, child: form))),
+          if (!current.account.active)
+            Scaffold(
+                appBar: AppBar(title: const Text('New graph interrupted')),
+                body: Center(
+                    child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child:
+                            Column(mainAxisSize: MainAxisSize.min, children: [
+                          const Text(
+                              'Entered details are retained for the original account and hidden while signed out. Sign in to that account to resume. Going back discards this unfinished form.'),
+                          if (error != null) Text(error!),
+                          TextButton(
+                              onPressed: busy
+                                  ? null
+                                  : () async {
+                                      setState(() => busy = true);
+                                      try {
+                                        await _resume();
+                                      } catch (_) {
+                                        if (mounted) {
+                                          setState(() => error =
+                                              'Sign-in could not complete. Your form is retained.');
                                         }
-                                      },
-                                child: const Text('Resume original form')),
-                            TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text('Discard form and go back')),
-                          ])))),
-          ]));
+                                      } finally {
+                                        if (mounted) {
+                                          setState(() => busy = false);
+                                        }
+                                      }
+                                    },
+                              child: const Text('Resume original form')),
+                          TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Discard form and go back')),
+                        ])))),
+        ]);
+      });
+}
+
+class _OriginalAccountLoginDialog extends StatefulWidget {
+  const _OriginalAccountLoginDialog({required this.authenticate});
+  final Future<GraphDraftWorkspace> Function(String, String) authenticate;
+  @override
+  State<_OriginalAccountLoginDialog> createState() =>
+      _OriginalAccountLoginDialogState();
+}
+
+class _OriginalAccountLoginDialogState
+    extends State<_OriginalAccountLoginDialog> {
+  final username = TextEditingController(), password = TextEditingController();
+  bool busy = false;
+  String? error;
+  @override
+  void dispose() {
+    username.dispose();
+    password.dispose();
+    super.dispose();
+  }
+
+  Future<void> _login() async {
+    if (busy) return;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      final next =
+          await widget.authenticate(username.text.trim(), password.text);
+      if (mounted) Navigator.pop(context, next);
+    } catch (_) {
+      if (mounted)
+        setState(() => error =
+            'Sign in to the original account. Your entered graph details remain retained.');
+    } finally {
+      if (mounted)
+        setState(() {
+          busy = false;
+          password.clear();
+        });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+      canPop: !busy,
+      child: AlertDialog(
+        title: const Text('Sign in to the original account'),
+        scrollable: true,
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+              controller: username,
+              decoration: const InputDecoration(labelText: 'Username')),
+          TextField(
+              controller: password,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Password')),
+          if (error != null) Text(error!),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: busy ? null : () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: busy ? null : _login, child: const Text('Sign in')),
+        ],
+      ));
 }

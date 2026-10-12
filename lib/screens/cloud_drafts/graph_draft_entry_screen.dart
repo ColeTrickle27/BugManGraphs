@@ -1,3 +1,4 @@
+import 'graph_draft_session_scope.dart';
 import 'dart:async';
 import 'account_form_guard.dart';
 import 'dart:typed_data';
@@ -30,8 +31,11 @@ class GraphDraftContextCreateScreen extends StatefulWidget {
       this.onSignOut,
       this.customerFilesService,
       this.legacyRepository,
-      this.recoverWorkspace});
+      this.recoverWorkspace,
+      this.resumeAccount});
   final Future<GraphDraftWorkspace> Function()? recoverWorkspace;
+  final Future<GraphDraftWorkspace> Function(String, String, String)?
+      resumeAccount;
   final GraphDraftWorkspace workspace;
   final Future<GraphDraftEntryResolution> resolution;
   final VoidCallback? onSignOut;
@@ -56,12 +60,15 @@ class _GraphDraftContextCreateScreenState
   Future<void> _start() async {
     try {
       final selected = await widget.resolution;
-      await workspace.refreshAuthors();
+      await workspace.prepareEntryAuthors();
       if (!mounted || !workspace.account.active) return;
-      final directory = workspace.directory!;
+      final directory = workspace.directory ?? const GraphDraftAuthors('', []);
       GraphDraftAuthor? author = directory.authors
           .where((x) => x.id == directory.defaultAuthorId)
           .firstOrNull;
+      final resumeAccount = widget.resumeAccount ??
+          GraphDraftSessionScope.maybeOf(context)?.resume;
+      final originalAccountId = workspace.account.id;
       final job = await Navigator.push<Job>(
           context,
           MaterialPageRoute(
@@ -69,16 +76,31 @@ class _GraphDraftContextCreateScreenState
                   workspace: workspace,
                   onRestored: (value) => workspace = value,
                   recoverWorkspace: widget.recoverWorkspace,
-                  child: NewJobScreen(
-                      returnCreatedJob: true,
-                      onCreateJob: (_) {},
-                      customerFilesService: widget.customerFilesService,
-                      preselectedLocation: selected.location,
-                      resolutionWarning: selected.warning,
-                      cloudAuthors: directory,
-                      cloudHistoricalAuthor: author,
-                      cloudInitialAuthorId: author?.id,
-                      onCloudAuthorChanged: (value) => author = value))));
+                  reauthenticate: resumeAccount == null
+                      ? null
+                      : (username, password) =>
+                          resumeAccount(username, password, originalAccountId),
+                  child: const SizedBox(),
+                  formBuilder: (current) {
+                    final refreshed = current.directory;
+                    author = refreshed?.authors
+                            .where((a) => a.id == author?.id)
+                            .firstOrNull ??
+                        refreshed?.authors
+                            .where((a) => a.id == refreshed.defaultAuthorId)
+                            .firstOrNull;
+                    return NewJobScreen(
+                        returnCreatedJob: true,
+                        onCreateJob: (_) {},
+                        customerFilesService: widget.customerFilesService,
+                        preselectedLocation: selected.location,
+                        resolutionWarning: selected.warning,
+                        cloudAuthors: current.directory ??
+                            const GraphDraftAuthors('', []),
+                        cloudHistoricalAuthor: author,
+                        cloudInitialAuthorId: author?.id,
+                        onCloudAuthorChanged: (value) => author = value);
+                  })));
       if (!mounted || job == null || !workspace.account.active) {
         if (mounted) setState(() => busy = false);
         return;
@@ -180,7 +202,8 @@ class GraphDraftSharedEntryScreen extends StatelessWidget {
                                                 (GraphDocument next,
                                                     Map<String, Uint8List>
                                                         blobs) async {
-                                              await workspace.refreshAuthors();
+                                              await workspace
+                                                  .prepareEntryAuthors();
                                               final session =
                                                   await workspace.create(next,
                                                       blobs: blobs,
@@ -206,7 +229,7 @@ class GraphDraftSharedEntryScreen extends StatelessWidget {
                         child: const Text('Open Customer Files graph')),
                     FilledButton(
                         onPressed: () async {
-                          await workspace.refreshAuthors();
+                          await workspace.prepareEntryAuthors();
                           final copy = await workspace.importCopy(document,
                               loadBlob: repository.loadBlob);
                           if (context.mounted && workspace.account.active) {

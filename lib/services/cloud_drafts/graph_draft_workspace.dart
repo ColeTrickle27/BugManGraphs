@@ -67,6 +67,22 @@ class GraphDraftWorkspace extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Network loss must not discard an already verified ownership/directory scope.
+  Future<void> prepareEntryAuthors() async {
+    _requireAccess();
+    try {
+      await refreshAuthors();
+    } catch (error) {
+      _requireAccess();
+      if (error is GraphDraftException &&
+          (error.status == 409 || error.status == 428 || error.status == 403)) {
+        rethrow;
+      }
+      // Cached active choices remain scoped to this immutable account. With no
+      // cache the form explains that creator choices are unavailable.
+    }
+  }
+
   Future<List<GraphDraftSummary>> remoteGraphs() async {
     if (!account.active) {
       throw const GraphDraftException(

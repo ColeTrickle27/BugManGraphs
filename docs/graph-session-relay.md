@@ -33,3 +33,9 @@ Parent reports the guard-only backend release and 363 historical-host denies com
 Ordinary gallery creation and verified customer entry now share the same guarded creation route. The original form controllers stay mounted but hidden after account invalidation. A fresh verified original-account session may resume them; a different account is rejected without rebinding or submission. Explicit discard explains the unfinished-form loss. Recovered workspaces retain the original storage scope and own their authentication client lifecycle.
 
 Shared copy and structure-derived creation refresh the minimal active author directory before creating a draft. Account editors initiate queued upload on opening and retry every 30 seconds or app resume, independently of gallery visibility. Existing session serialization prevents parallel writes. No activation gate or live configuration changed.
+
+## Owning-route recovery and current-fork retry
+
+The session wrapper retains its authenticated entry subtree through invalidation. Pushed forms capture an owning-session resume delegate before navigation; verified original-account sign-in updates that owner without disposing the retained form. Locked forms unfocus and exclude keyboard focus, hide their input, and refresh active creator options on recovery while retaining the same controllers. A deactivated selection receives an explicit correction; submission uses a current active creator or no guessed identity.
+
+Entry author refresh retains verified cached choices through connection failure; without a cache the form remains usable with an explicit unavailable-choices message. Confirmed ownership/permission failures are propagated. Editor retry waits for repository transitions and retries the current session, including Keep Both forks, rather than the original constructor session.

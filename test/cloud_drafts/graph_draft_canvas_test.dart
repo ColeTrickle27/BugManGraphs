@@ -328,6 +328,51 @@ void main() {
   });
 
   testWidgets(
+      'open editor reconnect retries current Keep Both fork, not original conflict',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1400, 900);
+    addTearDown(tester.view.reset);
+    final api = FixtureDraftService()..failCode = 409;
+    final store = MemoryGraphDraftStore();
+    final w = workspace(api, store), document = doc();
+    api.remote = RemoteGraphDraft(
+        GraphDraftPackage.fromJson({
+          'type': 'bugman-graph',
+          'version': 1,
+          'document': document.toJson(),
+          'blobs': <String, String>{}
+        }),
+        'a' * 32,
+        const GraphDraftAuthor('employee-1', 'Synthetic'));
+    final original = await w.create(document);
+    await original.retry();
+    await tester.pumpWidget(
+        MaterialApp(home: GraphDraftEditorScreen(session: original)));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.byTooltip('Saved on this device · cloud copy differs'));
+    await tester.pumpAndSettle();
+    api.failCode = 503;
+    await tester.tap(find.text('Keep both copies'));
+    await tester.pumpAndSettle();
+    final repository = tester
+        .widget<GraphCanvasScreen>(find.byType(GraphCanvasScreen))
+        .repository as GraphDraftEditorRepository;
+    final fork = repository.session;
+    expect(fork.id, isNot(original.id));
+    expect(fork.hasQueuedEdits, isTrue);
+    api.failCode = null;
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpAndSettle();
+    expect(fork.hasQueuedEdits, isFalse);
+    expect(original.recovery.errorCode, 409);
+    expect((await store.read(ownerA, fork.id))!.revision, isNotNull);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    w.dispose();
+  });
+
+  testWidgets(
       'Keep Both close checks active fork and blocks exit when its recovery fails',
       (tester) async {
     tester.view.devicePixelRatio = 1;
