@@ -21,7 +21,16 @@ void main() {
           pestPacBillToNumber: 'TEST-BILL',
           pestPacLocationNumber: 'TEST-LOC',
           serviceType: 'Inspection',
-          createdBy: 'Regression fixture'));
+          createdBy: 'Regression fixture',
+          intakeDetails: {
+            'company': 'Synthetic customer',
+            'leadType': 'Existing Customer',
+            'streetAddress': '',
+            'locationAddress': 'Synthetic training site',
+            'locationName': 'Synthetic location',
+            'customerLocationId': 'TEST-LOCATION-ID',
+            'billToId': 'TEST-BILL-ID',
+          }));
       final original = document.toJson();
       await tester
           .pumpWidget(MaterialApp(home: GraphCanvasScreen(document: document)));
@@ -33,6 +42,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(Dialog), findsOneWidget);
       expect(find.byType(InteractiveViewer), findsOneWidget);
+      expect(
+          tester.widget<TextField>(field('Location Address')).controller!.text,
+          'Synthetic training site');
       await tester.ensureVisible(field('Company'));
       await tester.enterText(field('Company'), 'Changed synthetic customer');
       await tester.tap(find.byTooltip('Cancel edits'));
@@ -60,6 +72,12 @@ void main() {
       expect(document.customer.name, startsWith('A long synthetic customer'));
       expect(document.customer.pestPacBillToNumber, 'TEST-BILL');
       expect(document.customer.pestPacLocationNumber, 'TEST-LOC');
+      expect(document.customer.serviceAddress, 'Synthetic training site');
+      expect(document.customer.intakeDetails['locationAddress'],
+          'Synthetic training site');
+      expect(document.customer.intakeDetails['customerLocationId'],
+          'TEST-LOCATION-ID');
+      expect(document.customer.intakeDetails['billToId'], 'TEST-BILL-ID');
       expect(document.createdAt.toIso8601String(), original['createdAt']);
       expect(document.toJson()['graphObjects'], original['graphObjects']);
       expect(document.toJson()['traces'], original['traces']);

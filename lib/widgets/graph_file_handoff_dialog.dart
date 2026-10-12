@@ -118,8 +118,9 @@ class _GraphFileHandoffDialogState extends State<GraphFileHandoffDialog> {
                             Text('Preparing file…')
                           ])
                         else if (!current)
-                          const Text(
-                              'The file could not be prepared. Close this panel and try again.')
+                          Text(snapshot.hasError
+                              ? 'The file could not be prepared: ${snapshot.error}. Close this panel and try again.'
+                              : 'The file could not be prepared. Close this panel and try again.')
                         else ...[
                           if (!export.file.canShare)
                             const Text(

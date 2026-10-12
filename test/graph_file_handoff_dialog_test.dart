@@ -29,6 +29,26 @@ class FakeFile implements PreparedGraphFile {
 }
 
 void main() {
+  testWidgets(
+      'preparation failures show the reason and provide no incomplete file',
+      (tester) async {
+    final doc = crowdedCanvasFixture();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: GraphFileHandoffDialog(
+                action: GraphFileAction.emailPdf,
+                document: doc,
+                revision: () => 0,
+                prepare: () => Future.error(StateError(
+                    'PDF not exported: photo synthetic.jpg is unavailable'))))));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('photo synthetic.jpg is unavailable'),
+        findsOneWidget);
+    expect(find.text('Download PDF'), findsNothing);
+    expect(find.text('Open share sheet'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final result in FileHandoffResult.values) {
     testWidgets(
         'email PDF handoff $result never silently downloads or claims sent',

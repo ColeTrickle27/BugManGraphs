@@ -22,6 +22,7 @@ import '../models/trace_geometry.dart';
 import '../models/wall_segment.dart';
 import 'trace_workspace_screen.dart';
 import '../services/graph_file_handoff_factory.dart';
+import '../services/graph_file_handoff.dart';
 import 'new_job_screen.dart';
 import '../widgets/graph_file_handoff_dialog.dart';
 import '../services/export_bounds_calculator.dart';
@@ -64,6 +65,7 @@ class GraphCanvasScreen extends StatefulWidget {
     this.onPortalSignIn,
     this.portalKey,
     this.markerDefaultsStore,
+    this.fileHandoff,
     this.presentationMode = false,
     this.presentationMarkerIds = const <String>{},
     super.key,
@@ -79,6 +81,7 @@ class GraphCanvasScreen extends StatefulWidget {
   final ValueChanged<String>? onPortalSignIn;
   final String? portalKey;
   final MarkerDefaultsStore? markerDefaultsStore;
+  final GraphFileHandoff? fileHandoff;
   final bool presentationMode;
   final Set<String> presentationMarkerIds;
 
@@ -94,6 +97,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     for (final annotation in _annotations) {
       if (GraphAnnotationsPainter.isCallout(annotation)) {
         bounds = bounds.expandToInclude(GraphAnnotationsPainter.calloutBounds(annotation, _labels));
+        bounds = bounds.expandToInclude(Rect.fromCircle(center:Offset(
+          (annotation.extraProperties['calloutTipX'] as num).toDouble(),
+          (annotation.extraProperties['calloutTipY'] as num).toDouble()),radius:16/_labels.zoom));
       }
     }
     return bounds;
@@ -146,8 +152,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   final List<_UndoEntry> _undoStack = <_UndoEntry>[];
   final List<_RedoEntry> _redoStack = <_RedoEntry>[];
   int _fileRevision = 0;
-  final Map<GraphFileKind, Future<PreparedGraphExport?>> _filePreparations = {};
-  final _fileHandoff = createGraphFileHandoff();
+  late final _fileHandoff = widget.fileHandoff ?? createGraphFileHandoff();
   bool _applyingHistory = false;
   GraphPoint? _activeWallStart;
   GraphPoint? _activePathStartPoint;
@@ -359,7 +364,6 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
 
   void _handleDocumentChanged() {
     _fileRevision += 1;
-    _filePreparations.clear();
     if (!_applyingHistory && _document.isDirty && _redoStack.isNotEmpty) {
       _redoStack.clear();
     }
@@ -5971,19 +5975,17 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     setState((){_document.updateJob(edited);_canvasStatus='Graph information updated';});
   }
 
-  Future<PreparedGraphExport?> _prepareFileHandoff(GraphFileKind kind) =>
-      _filePreparations.putIfAbsent(kind, () async {
+  // Prepare afresh for each panel: failed attempts and presentation changes
+  // must never reuse a previous render. The dialog keeps its own active future.
+  Future<PreparedGraphExport?> _prepareFileHandoff(GraphFileKind kind) async {
         final revision = _fileRevision;
         final name = buildGraphFileName(_document.customer, _document.createdAt, kind);
-        try {
           final bytes = await _renderExportBytes(kind);
           if (bytes == null || !mounted || revision != _fileRevision) return null;
           return PreparedGraphExport(_fileHandoff.prepare(bytes, name,
             kind == GraphFileKind.pngExport ? 'image/png' : 'application/pdf'), revision);
-        } catch (_) {
-          return null;
-        }
-      });
+
+      }
 
   Future<void> _openFileHandoff(GraphFileAction action) async {
     final kind = action == GraphFileAction.savePng ? GraphFileKind.pngExport : GraphFileKind.pdfExport;
@@ -6014,6 +6016,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     final bounds = ExportBoundsCalculator.forDocument(
       _document,
       canvasSize: _canvasSize,
+      labels: _labels,
+      sceneBounds: _sceneBounds,
       structureVisible: _isLayerVisible(_GraphLayer.structure),
       shapesVisible: _isLayerVisible(_GraphLayer.structure) &&
           _isLayerVisible(_GraphLayer.shapes),

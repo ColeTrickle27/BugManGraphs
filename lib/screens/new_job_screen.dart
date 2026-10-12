@@ -151,8 +151,12 @@ class _NewJobScreenState extends State<NewJobScreen> {
           billToId: details['billToId'] ?? '',
         );
       }
-      _locationAddressController.text =
-          details['streetAddress'] ?? initialJob.serviceAddress;
+      final addressField = _selectedLocation == null
+          ? details['streetAddress']
+          : details['locationAddress'];
+      _locationAddressController.text = addressField?.trim().isNotEmpty == true
+          ? addressField!
+          : initialJob.serviceAddress;
       _serviceType = NewJobScreen.serviceTypes.contains(initialJob.serviceType)
           ? initialJob.serviceType
           : 'Inspection';

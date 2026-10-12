@@ -6,6 +6,7 @@ import 'package:bugman_graphs/models/graph_annotation.dart';
 import 'package:bugman_graphs/models/graph_point.dart';
 import 'package:bugman_graphs/screens/graph_canvas_screen.dart';
 import 'package:bugman_graphs/widgets/graph_annotations_painter.dart';
+import 'package:bugman_graphs/widgets/graph_scene_boundary.dart';
 import 'support/crowded_canvas_fixture.dart';
 
 const callout = GraphAnnotation(
@@ -19,6 +20,33 @@ const callout = GraphAnnotation(
     extraProperties: {'calloutTipX': 1400.0, 'calloutTipY': 1200.0});
 
 void main() {
+  testWidgets(
+      'paint bounds include a distant boundary callout arrow at low zoom',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
+    final note = callout.copyWith(
+        extraProperties: {'calloutTipX': -1900.0, 'calloutTipY': -2000.0});
+    final doc = crowdedCanvasFixture()..replaceAnnotations([note]);
+    final before = doc.toJson();
+    await tester
+        .pumpWidget(MaterialApp(home: GraphCanvasScreen(document: doc)));
+    await tester.pumpAndSettle();
+    final viewer =
+        tester.widget<InteractiveViewer>(find.byType(InteractiveViewer));
+    viewer.transformationController!.value =
+        Matrix4.diagonal3Values(0.03, 0.03, 1);
+    await tester.pumpAndSettle();
+    final bounds = tester
+        .widget<GraphSceneBoundary>(find.byType(GraphSceneBoundary))
+        .sceneBounds;
+    expect(bounds.contains(const Offset(-1900, -2000)), isTrue);
+    expect(bounds.contains(const Offset(-1900 - 15 / 0.03, -2000)), isTrue);
+    expect(bounds.contains(const Offset(-1900, -2000 - 15 / 0.03)), isTrue);
+    expect(doc.toJson(), before);
+  });
+
   test('callout wraps whole words with bounded touch-sized frame', () {
     for (final zoom in [0.03, 0.15, 1.0, 4.0]) {
       final labels = LabelPresentation(zoom: zoom, bounded: true);
