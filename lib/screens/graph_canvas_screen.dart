@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:async';
 
 import 'package:flex_color_picker/flex_color_picker.dart';
 import 'package:flutter/gestures.dart';
@@ -23,6 +24,10 @@ import '../models/wall_segment.dart';
 import 'trace_workspace_screen.dart';
 import '../services/graph_file_handoff_factory.dart';
 import '../services/graph_file_handoff.dart';
+import '../services/cloud_drafts/graph_draft_workspace.dart';
+import '../services/cloud_drafts/graph_draft_editor_repository.dart';
+import '../widgets/cloud_drafts/graph_draft_sync_panel.dart';
+import '../models/cloud_graph_draft.dart';
 import 'new_job_screen.dart';
 import '../widgets/graph_file_handoff_dialog.dart';
 import '../services/export_bounds_calculator.dart';
@@ -67,6 +72,7 @@ class GraphCanvasScreen extends StatefulWidget {
     this.portalKey,
     this.markerDefaultsStore,
     this.fileHandoff,
+    this.cloudDraftSession,
     this.presentationMode = false,
     this.presentationMarkerIds = const <String>{},
     super.key,
@@ -83,6 +89,7 @@ class GraphCanvasScreen extends StatefulWidget {
   final String? portalKey;
   final MarkerDefaultsStore? markerDefaultsStore;
   final GraphFileHandoff? fileHandoff;
+  final GraphDraftEditorSession? cloudDraftSession;
   final bool presentationMode;
   final Set<String> presentationMarkerIds;
 
@@ -302,13 +309,16 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   void initState() {
     super.initState();
     _document = widget.document ?? GraphDocument.forJob(widget.job!);
-    _repository = widget.repository ?? MemoryGraphRepository();
+    _repository = widget.cloudDraftSession==null?widget.repository ?? MemoryGraphRepository():GraphDraftEditorRepository(widget.cloudDraftSession!);
     _photoPicker = widget.photoPicker ?? createGraphPhotoPicker();
     _portalService = widget.portalService ?? createBugManPortalService();
     _portalKey = widget.portalKey;
     _interaction = EditorInteractionController();
     _transformationController.addListener(_viewportChanged);
     _document.addListener(_handleDocumentChanged);
+    _observedCloudSession=_cloudSession;
+    _cloudSession?.addListener(_cloudChanged);
+    if(_cloudSession?.hasQueuedEdits==true)_scheduleCloudCapture();
     _markerDefaultsStore =
         widget.markerDefaultsStore ?? createMarkerDefaultsStore();
     _loadPersistedMarkerDefaults();
@@ -363,7 +373,37 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     _markerDefaultsStore.save(serialized);
   }
 
+  bool _cloudCaptureScheduled=false;
+  GraphDraftEditorSession? _observedCloudSession;
+  GraphDraftEditorSession? get _cloudSession=>_repository is GraphDraftEditorRepository?_repository.session:null;
+  void _cloudChanged(){if(mounted)setState((){});}
+  void _scheduleCloudCapture() {
+    if(_cloudSession==null || _cloudCaptureScheduled)return;
+    _cloudCaptureScheduled=true;
+    Future<void>.microtask(() async {
+      _cloudCaptureScheduled=false;
+      if(!mounted)return;
+      final repository=_repository as GraphDraftEditorRepository;
+      final session=await repository.ensureSession(_document,blobs:_pendingPhotoBlobs);
+      if(!mounted)return;
+      if(_observedCloudSession!=session){_observedCloudSession?.removeListener(_cloudChanged);session.addListener(_cloudChanged);}
+      _observedCloudSession=session;
+      session.capture(_document.toJson(),pendingBlobs:_pendingPhotoBlobs,deletedBlobKeys:_deletedPhotoBlobKeys,portalKey:_portalKey);
+    });
+  }
+  Future<void> _showCloudSync() async {
+    final session=_cloudSession;if(session==null)return;
+    final fork=await showGraphDraftSyncPanel(context,session);
+    if(!mounted || fork==null)return;
+    final repository=_repository as GraphDraftEditorRepository;
+    session.removeListener(_cloudChanged);repository.session=fork;fork.addListener(_cloudChanged);_observedCloudSession=fork;
+    final old=_document;old.removeListener(_handleDocumentChanged);
+    setState((){_document=GraphDocument.fromJson(fork.documentJson);_document.addListener(_handleDocumentChanged);_portalKey=null;});
+    old.dispose();_scheduleCloudCapture();
+  }
+
   void _handleDocumentChanged() {
+    _scheduleCloudCapture();
     _fileRevision += 1;
     if (!_applyingHistory && _document.isDirty && _redoStack.isNotEmpty) {
       _redoStack.clear();
@@ -373,6 +413,13 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   @override
   void dispose() {
     _stopPresentationExport?.call();
+    final cloud=_cloudSession;
+    cloud?.removeListener(_cloudChanged);
+    _observedCloudSession?.removeListener(_cloudChanged);
+    if(cloud!=null && cloud.id==_document.id) {
+      cloud.capture(_document.toJson(),pendingBlobs:_pendingPhotoBlobs,deletedBlobKeys:_deletedPhotoBlobKeys,portalKey:_portalKey);
+      unawaited(cloud.flushLocal());
+    }
     _document.removeListener(_handleDocumentChanged);
     _document.dispose();
     _interaction.dispose();
@@ -1314,6 +1361,15 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     _initialCanvasCentered = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      if (_cloudSession!=null && (_wallSegments.isNotEmpty || _traces.isNotEmpty || _annotations.isNotEmpty)) {
+        final bounds=ExportBoundsCalculator.forDocument(_document,structureVisible:_isLayerVisible(_GraphLayer.structure),shapesVisible:_isLayerVisible(_GraphLayer.shapes),inspectionsVisible:_isLayerVisible(_GraphLayer.inspections),treatmentVisible:_isLayerVisible(_GraphLayer.treatment),photosVisible:_isLayerVisible(_GraphLayer.photos),traceVisible:_traceLayerVisible);
+        final left=_mainToolbarCollapsed?0.0:120.0;
+        final usable=Rect.fromLTWH(left,72,math.max(1,viewportSize.width-left),math.max(1,viewportSize.height-154));
+        final scale=math.min(math.max(1,usable.width-48)/math.max(bounds.width,1),math.max(1,usable.height-48)/math.max(bounds.height,1)).clamp(0.01,4.0);
+        _transformationController.value=Matrix4.identity()..setEntry(0,0,scale)..setEntry(1,1,scale)..setEntry(2,2,scale)
+          ..setEntry(0,3,usable.center.dx-bounds.center.dx*scale)..setEntry(1,3,usable.center.dy-bounds.center.dy*scale);
+        return;
+      }
       if (_traceLayerVisible && _traces.isNotEmpty) {
         _fitTraceInViewport(_traces.last, viewportSize: viewportSize);
         return;
@@ -5258,6 +5314,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     _document.addListener(_handleDocumentChanged);
     old.dispose();
     _portalKey = null;
+    _scheduleCloudCapture();
   }
 
   bool _isGraphNotFoundError(Object error) =>
@@ -5322,7 +5379,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       }
       if (!mounted) return false;
       setState(() {
-        if (portalResult != null) _portalKey = portalResult.key;
+        if (portalResult != null) {
+          _portalKey = portalResult.key;
+          if(_cloudSession!=null)unawaited(_cloudSession!.updatePortalKey(portalResult.key));
+        }
         _document.markClean();
         _pendingPhotoBlobs.clear();
         _deletedPhotoBlobKeys.clear();
@@ -5968,11 +6028,16 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       serviceAddress:customer.serviceAddress,pestPacLocationNumber:customer.pestPacLocationNumber,
       pestPacBillToNumber:customer.pestPacBillToNumber,serviceType:customer.serviceType,
       createdBy:customer.createdBy,createdDate:_document.createdAt,intakeDetails:customer.intakeDetails);
+    GraphDraftAuthor? changedCreator;
+    final cloud=_cloudSession;
     final edited = await showDialog<Job>(context:context,builder:(context)=>Dialog(
       insetPadding:const EdgeInsets.symmetric(horizontal:12,vertical:24),
       child:SizedBox(width:720,height:MediaQuery.sizeOf(context).height*0.86,
-        child:NewJobScreen(initialJob:initial,editOnly:true,asDialog:true,onCreateJob:(_){ }))));
+        child:NewJobScreen(initialJob:initial,editOnly:true,asDialog:true,onCreateJob:(_){ },
+          cloudCreatorMode:cloud!=null,cloudAuthors:cloud?.workspace.directory,cloudHistoricalAuthor:cloud?.displayedAuthor,
+          cloudInitialAuthorId:cloud?.displayedAuthor?.id,onCloudAuthorChanged:(a)=>changedCreator=a))));
     if(!mounted || edited==null)return;
+    if(changedCreator!=null)cloud?.selectAuthor(changedCreator!);
     setState((){_document.updateJob(edited);_canvasStatus='Graph information updated';});
   }
 
@@ -7000,11 +7065,12 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 40,
+        toolbarHeight: _cloudSession==null?40:48,
         title: Text(
-          _document.isDirty ? '$documentTitle • Unsaved' : documentTitle,
+          (_cloudSession==null?_document.isDirty:_cloudSession!.hasUnpersistedEdits) ? '$documentTitle • Unsaved' : documentTitle,
         ),
         actions: [
+          if(_cloudSession!=null)IconButton(tooltip:_cloudSession!.statusText,onPressed:_showCloudSync,icon:Icon(_cloudSession!.phase==GraphDraftPhase.synced?Icons.cloud_done_outlined:Icons.cloud_sync_outlined)),
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'about') {
