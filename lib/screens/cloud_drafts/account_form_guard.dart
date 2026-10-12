@@ -38,8 +38,9 @@ class _AccountFormGuardState extends State<AccountFormGuard> {
           barrierDismissible: false,
           builder: (_) => _OriginalAccountLoginDialog(
                   authenticate: (username, password) async {
-                if (widget.reauthenticate != null)
+                if (widget.reauthenticate != null) {
                   return widget.reauthenticate!(username, password);
+                }
                 final auth = createGraphDraftAuthentication();
                 try {
                   final service = await auth.login(username, password);
@@ -169,15 +170,17 @@ class _OriginalAccountLoginDialogState
           await widget.authenticate(username.text.trim(), password.text);
       if (mounted) Navigator.pop(context, next);
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() => error =
             'Sign in to the original account. Your entered graph details remain retained.');
+      }
     } finally {
-      if (mounted)
+      if (mounted) {
         setState(() {
           busy = false;
           password.clear();
         });
+      }
     }
   }
 
