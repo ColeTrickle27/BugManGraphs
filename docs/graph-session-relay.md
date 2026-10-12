@@ -27,3 +27,9 @@ The relay now accepts only server bindings GRAPH_OPS_ACCESS_CLIENT_ID and GRAPH_
 Authentication precedes bill-to/location lookup and shared-graph loading. Verified customer mapping remains intact. Shared Customer Files graphs require an explicit Copy to My Graphs action to become independent account drafts; opening the source preserves its existing repository. Manual Customer Files publication retains separate OpsBrain sign-in, with no relay scope expansion or cookie-domain change.
 
 Parent reports the guard-only backend release and 363 historical-host denies complete; account migration remains off. This code still requires independent review, secure user credential entry, migration confirmation and actual joint backend acceptance before activation.
+
+## Review follow-up: forms and entry lifecycle
+
+Ordinary gallery creation and verified customer entry now share the same guarded creation route. The original form controllers stay mounted but hidden after account invalidation. A fresh verified original-account session may resume them; a different account is rejected without rebinding or submission. Explicit discard explains the unfinished-form loss. Recovered workspaces retain the original storage scope and own their authentication client lifecycle.
+
+Shared copy and structure-derived creation refresh the minimal active author directory before creating a draft. Account editors initiate queued upload on opening and retry every 30 seconds or app resume, independently of gallery visibility. Existing session serialization prevents parallel writes. No activation gate or live configuration changed.

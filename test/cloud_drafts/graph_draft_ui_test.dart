@@ -1,3 +1,6 @@
+import 'package:bugman_graphs/models/job.dart';
+import 'package:bugman_graphs/screens/cloud_drafts/graph_draft_entry_screen.dart';
+import 'package:bugman_graphs/screens/cloud_drafts/graph_draft_editor_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:bugman_graphs/models/cloud_graph_draft.dart';
@@ -20,6 +23,70 @@ import 'graph_draft_sync_test.dart'
         doc;
 
 void main() {
+  for (final deepLink in [false, true]) {
+    testWidgets(
+        'populated ${deepLink ? "deep-link" : "gallery"} form rejects account B and resumes original account A',
+        (tester) async {
+      final api = FixtureDraftService(), store = MemoryGraphDraftStore();
+      final w = workspace(api, store);
+      final b = workspace(FixtureDraftService(), store, scope: ownerB);
+      final restored = workspace(api, store);
+      var attempts = 0;
+      Future<GraphDraftWorkspace> recover() async =>
+          attempts++ == 0 ? b : restored;
+      await tester.pumpWidget(MaterialApp(
+          home: deepLink
+              ? GraphDraftContextCreateScreen(
+                  workspace: w,
+                  resolution: Future.value(const GraphDraftEntryResolution()),
+                  recoverWorkspace: recover)
+              : AccountGraphGallery(workspace: w, recoverWorkspace: recover)));
+      await tester.pumpAndSettle();
+      if (!deepLink) {
+        await tester.tap(find.text('New Graph'));
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.text('New Customer'));
+      await tester.pumpAndSettle();
+      final field = find.byWidgetPredicate(
+          (w) => w is TextField && w.decoration?.labelText == 'Company');
+      await tester.enterText(field, 'Synthetic unfinished company');
+      final controller = tester.widget<TextField>(field).controller!;
+      w.account.invalidate();
+      await tester.pumpAndSettle();
+      expect(find.text('New graph interrupted'), findsOneWidget);
+      expect(find.byType(NewJobScreen), findsNothing);
+      expect(controller.text, 'Synthetic unfinished company');
+      await tester.tap(find.text('Resume original form'));
+      await tester.pumpAndSettle();
+      expect(
+          find.textContaining('This is a different account'), findsOneWidget);
+      expect(find.byType(NewJobScreen), findsNothing);
+      expect(await store.list(ownerB), isEmpty);
+      await tester.tap(find.text('Resume original form'));
+      await tester.pumpAndSettle();
+      expect(find.byType(NewJobScreen), findsOneWidget);
+      expect(tester.widget<TextField>(field).controller, same(controller));
+      expect(controller.text, 'Synthetic unfinished company');
+      Navigator.of(tester.element(find.byType(NewJobScreen))).pop(Job(
+          pestPacLocationNumber: 'TEST-LOC',
+          pestPacBillToNumber: 'TEST-BILL',
+          customerName: 'Synthetic',
+          serviceAddress: 'Synthetic training site',
+          serviceType: 'Inspection',
+          createdBy: 'Synthetic',
+          createdDate: DateTime.utc(2026, 10, 12)));
+      await tester.pumpAndSettle();
+      final editor = tester
+          .widget<GraphDraftEditorScreen>(find.byType(GraphDraftEditorScreen));
+      expect(editor.session.workspace, same(restored));
+      expect(editor.session.workspace.account.id, ownerA);
+      expect(await store.list(ownerB), isEmpty);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      w.dispose();
+    });
+  }
+
   testWidgets(
       'account invalidation hides gallery and blocks recovery reopening without deleting stored work',
       (tester) async {

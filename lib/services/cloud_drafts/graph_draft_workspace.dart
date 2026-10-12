@@ -31,7 +31,8 @@ class GraphDraftWorkspace extends ChangeNotifier {
       {required this.account,
       required this.service,
       required this.store,
-      this.debounce = const Duration(milliseconds: 700)}) {
+      this.debounce = const Duration(milliseconds: 700),
+      this.onDispose}) {
     account.addListener(_accountChanged);
   }
   void _accountChanged() {
@@ -50,6 +51,7 @@ class GraphDraftWorkspace extends ChangeNotifier {
   final GraphDraftService service;
   final GraphDraftStore store;
   final Duration debounce;
+  final VoidCallback? onDispose;
   GraphDraftAuthors? directory;
   final _sessions = <String, GraphDraftEditorSession>{};
   final _creating = <String, Future<GraphDraftEditorSession>>{};
@@ -257,6 +259,7 @@ class GraphDraftWorkspace extends ChangeNotifier {
     for (final session in _sessions.values) {
       session.close();
     }
+    onDispose?.call();
     super.dispose();
   }
 }

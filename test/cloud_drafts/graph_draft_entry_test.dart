@@ -17,7 +17,7 @@ import 'package:bugman_graphs/screens/cloud_drafts/graph_draft_editor_screen.dar
 import 'package:bugman_graphs/services/graph_repository_stub.dart';
 import 'package:bugman_graphs/services/cloud_drafts/graph_draft_store.dart';
 import 'graph_draft_sync_test.dart'
-    show FixtureDraftService, workspace, ownerA, doc;
+    show FixtureDraftService, workspace, ownerA, doc, otherCreator, moved;
 
 void main() {
   testWidgets(
@@ -33,7 +33,8 @@ void main() {
         repository: MemoryGraphRepository(),
         customerFilesService: EntryCustomerService(events)));
     await tester.pumpAndSettle();
-    expect(find.byType(GraphDraftContextCreateScreen, skipOffstage: false), findsOneWidget);
+    expect(find.byType(GraphDraftContextCreateScreen, skipOffstage: false),
+        findsOneWidget);
     expect(find.byType(NewJobScreen), findsOneWidget);
     expect(events.indexOf('context'), lessThan(events.indexOf('customer')));
     final form = tester.widget<NewJobScreen>(find.byType(NewJobScreen));
@@ -138,10 +139,45 @@ void main() {
         .widget<GraphDraftEditorScreen>(find.byType(GraphDraftEditorScreen));
     expect(editor.session.id, isNot(source.id));
     expect(editor.session.portalKey, isNull);
+    expect(api.writes, hasLength(1));
+    expect(w.directory!.authors, contains(otherCreator));
+    editor.session.selectAuthor(otherCreator);
+    await editor.session.retry();
+    expect(api.writes.last['authorId'], otherCreator.id);
     expect((await repo.loadGraph(source.id))!.toJson(), before);
     expect(source.toJson(), before);
     await tester.pumpWidget(const MaterialApp(home: SizedBox()));
     await editor.session.flushLocal();
+    w.dispose();
+  });
+  testWidgets('offline shared copy edits retry in the open editor without Home',
+      (tester) async {
+    final api = FixtureDraftService()..failCode = 503;
+    final store = MemoryGraphDraftStore(), repo = MemoryGraphRepository();
+    final w = workspace(api, store), source = doc();
+    await tester.pumpWidget(MaterialApp(
+        home: GraphDraftSharedEntryScreen(
+            workspace: w,
+            document: source,
+            repository: repo,
+            portalKey: 'synthetic/shared.bgraph')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Copy to My Graphs'));
+    await tester.pumpAndSettle();
+    final session = tester
+        .widget<GraphDraftEditorScreen>(find.byType(GraphDraftEditorScreen))
+        .session;
+    session.capture(moved(session));
+    await session.flushLocal();
+    expect(session.hasQueuedEdits, isTrue);
+    api.failCode = null;
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpAndSettle();
+    expect(session.hasQueuedEdits, isFalse);
+    expect(api.writes.length, greaterThanOrEqualTo(2));
+    expect(
+        (await store.read(ownerA, session.id))!.document, session.documentJson);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
     w.dispose();
   });
   testWidgets(
@@ -178,6 +214,10 @@ void main() {
         .widget<GraphDraftEditorScreen>(find.byType(GraphDraftEditorScreen));
     expect(copied.session.workspace, same(scoped));
     expect(copied.session.id, isNot(source.id));
+    expect(scoped.directory!.authors, contains(otherCreator));
+    copied.session.selectAuthor(otherCreator);
+    await copied.session.retry();
+    expect(copied.session.displayedAuthor?.id, otherCreator.id);
     scoped.account.invalidate();
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('graph-canvas-paint')), findsNothing);
@@ -196,12 +236,14 @@ GraphDraftAuthentication entryAuth(List<String> events) =>
             events.add('context');
             return http.Response(jsonEncode({'accountId': ownerA}), 200);
           }
-          if (r.url.path.endsWith('/authors'))
+          if (r.url.path.endsWith('/authors')) {
             return http.Response(
                 '{"defaultAuthorId":"employee-1","authors":[{"id":"employee-1","name":"Synthetic"}]}',
                 200);
-          if (r.url.path == '/api/graph-drafts')
+          }
+          if (r.url.path == '/api/graph-drafts') {
             return http.Response('{"drafts":[],"nextCursor":null}', 200);
+          }
           return http.Response('{"user":{"name":"Synthetic"}}', 200);
         }));
 

@@ -15,7 +15,41 @@ class GraphDraftEditorScreen extends StatefulWidget {
   State<GraphDraftEditorScreen> createState() => _GraphDraftEditorScreenState();
 }
 
-class _GraphDraftEditorScreenState extends State<GraphDraftEditorScreen> {
+class _GraphDraftEditorScreenState extends State<GraphDraftEditorScreen>
+    with WidgetsBindingObserver {
+  Timer? _retryTimer;
+  bool _retrying = false;
+  Future<void> _retry() async {
+    if (_retrying || !widget.session.workspace.account.active) return;
+    _retrying = true;
+    try {
+      await widget.session.retry();
+    } finally {
+      _retrying = false;
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _retryTimer =
+        Timer.periodic(const Duration(seconds: 30), (_) => unawaited(_retry()));
+    unawaited(_retry());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_retry());
+  }
+
+  @override
+  void dispose() {
+    _retryTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   late final GraphDocument _document =
       GraphDocument.fromJson(widget.session.documentJson);
   late final _repository = GraphDraftEditorRepository(widget.session);

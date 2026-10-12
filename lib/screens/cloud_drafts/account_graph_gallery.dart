@@ -1,13 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../models/cloud_graph_draft.dart';
-import '../../models/graph_document.dart';
-import '../../models/job.dart';
 import '../../services/graph_repository.dart';
 import '../../services/cloud_drafts/graph_draft_recovery.dart';
 import '../../services/cloud_drafts/graph_draft_workspace.dart';
-import '../new_job_screen.dart';
 import 'graph_draft_editor_screen.dart';
+import 'graph_draft_entry_screen.dart';
 
 class AccountGraphGallery extends StatefulWidget {
   const AccountGraphGallery(
@@ -15,7 +13,9 @@ class AccountGraphGallery extends StatefulWidget {
       required this.workspace,
       this.legacyRepository,
       this.onSignOut,
-      this.sessionMessage});
+      this.sessionMessage,
+      this.recoverWorkspace});
+  final Future<GraphDraftWorkspace> Function()? recoverWorkspace;
   final GraphDraftWorkspace workspace;
   final GraphRepository? legacyRepository;
   final VoidCallback? onSignOut;
@@ -145,29 +145,16 @@ class _AccountGraphGalleryState extends State<AccountGraphGallery>
   }
 
   Future<void> _new() async {
-    final workspace = widget.workspace, directory = workspace.directory;
-    if (directory == null) return;
-    GraphDraftAuthor? creator = directory.authors
-        .where((a) => a.id == directory.defaultAuthorId)
-        .firstOrNull;
-    final job = await Navigator.push<Job>(
-        context,
-        MaterialPageRoute(
-            builder: (_) => NewJobScreen(
-                returnCreatedJob: true,
-                cloudAuthors: directory,
-                cloudHistoricalAuthor: creator,
-                cloudInitialAuthorId: creator?.id,
-                onCloudAuthorChanged: (a) => creator = a,
-                onCreateJob: (_) {})));
-    if (job == null || !mounted || workspace != widget.workspace) return;
-    final session =
-        await workspace.create(GraphDocument.forJob(job), author: creator);
-    if (!mounted) return;
+    final workspace = widget.workspace;
+    if (!workspace.account.active) return;
     await Navigator.push(
         context,
         MaterialPageRoute<void>(
-            builder: (_) => GraphDraftEditorScreen(session: session)));
+            builder: (_) => GraphDraftContextCreateScreen(
+                workspace: workspace,
+                resolution: Future.value(const GraphDraftEntryResolution()),
+                legacyRepository: widget.legacyRepository,
+                recoverWorkspace: widget.recoverWorkspace)));
     if (mounted) _refresh();
   }
 
