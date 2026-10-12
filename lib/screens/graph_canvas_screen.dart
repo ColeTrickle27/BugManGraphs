@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flex_color_picker/flex_color_picker.dart';
 import 'package:flutter/gestures.dart';
@@ -407,9 +408,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     });
   }
   Future<void> _showCloudSync() async {
+    if (_publicationInFlight) { _showCanvasMessage('A graph save is already in progress.'); return; }
     final session=_cloudSession;if(session==null)return;
     final fork=await showGraphDraftSyncPanel(context,session);
-    if(!mounted || fork==null)return;
+    if(!mounted || fork==null || _publicationInFlight)return;
     final repository=_repository as GraphDraftEditorRepository;
     session.removeListener(_cloudChanged);repository.session=fork;fork.addListener(_cloudChanged);_observedCloudSession=fork;
     final old=_document;old.removeListener(_handleDocumentChanged);
@@ -5122,6 +5124,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => TraceWorkspaceScreen(
+          account: _cloudSession?.workspace.account,
           address: traceWorkspaceAddress(
               _traces, _document.customer.serviceAddress,
               editingTrace: initialTrace),
@@ -5132,7 +5135,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         ),
       ),
     );
-    if (!mounted || trace == null) return;
+    if (!mounted || trace == null || _cloudSession?.workspace.account.active == false) return;
     _recordSnapshotUndo();
     setState(() {
       final nextTraces = <TraceGeometry>[..._traces];
@@ -5268,7 +5271,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   // to Holloman Ops Brain, a subsequent Save must ask whether to
   // overwrite that existing file or save the changes as a new file,
   // rather than silently overwriting.
+  bool _publicationInFlight = false;
   Future<void> _handleGraphFileSaveTapped() async {
+    if (_publicationInFlight) { _showCanvasMessage('A graph save is already in progress.'); return; }
     if (!_document.isDirty && _cloudSession == null) {
       _showCanvasMessage(
         'No changes to save',
@@ -5278,7 +5283,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     }
     if (_portalKey != null) {
       final choice = await _confirmOverwriteOrSaveAsNew();
-      if (choice == null || choice == _SaveConflictChoice.cancel) return;
+      if (choice == null || choice == _SaveConflictChoice.cancel || _publicationInFlight) return;
       if (choice == _SaveConflictChoice.saveAsNew) {
         _replaceDocumentWithNewIdentity();
       }
@@ -5337,6 +5342,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       error.toString().contains('Saved graph not found.');
 
   Future<bool> _saveDocument() async {
+    if (_publicationInFlight) { _showCanvasMessage('A graph save is already in progress.'); return false; }
+    _publicationInFlight = true;
+    GraphDocument? publishingDocument;
+    GraphDraftEditorSession? publishingSession;
     var savedOnDevice = false;
     try {
       if (_cloudSession?.workspace.account.active == false) throw StateError('Sign in to the original account to publish this graph.');
@@ -5368,12 +5377,14 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       );
       savedOnDevice = true;
       if (_cloudSession?.workspace.account.active == false) throw StateError('Sign in to the original account to publish this graph.');
+      publishingDocument = GraphDocument.fromJson(_document.toJson());
+      publishingSession = _cloudSession;
       PortalUploadResult? portalResult;
       var recoveredAsNew = false;
       if (_portalService.isAvailable) {
         try {
           portalResult = await _portalService.saveGraph(
-            _document,
+            publishingDocument,
             portalBlobs,
             existingKey: _portalKey,
           );
@@ -5390,8 +5401,11 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
               if (_repository.session.hasUnpersistedEdits) throw StateError('Recovery could not be saved on this device.');
               if (!_repository.session.workspace.account.active) throw StateError('Sign in to the original account to publish this graph.');
             }
+            publishingDocument.dispose();
+            publishingDocument = GraphDocument.fromJson(_document.toJson());
+            publishingSession = _cloudSession;
             portalResult = await _portalService.saveGraph(
-              _document,
+              publishingDocument,
               portalBlobs,
               existingKey: null,
             );
@@ -5401,19 +5415,21 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
           }
         }
       }
-      if (!mounted) return false;
-      if (portalResult != null && _repository is GraphDraftEditorRepository) {
-        final publishedSession = await _repository.ensureSession(_document, blobs: _pendingPhotoBlobs);
-        await publishedSession.updatePortalKey(portalResult.key);
+      if (portalResult != null && publishingSession != null) {
+        await publishingSession.updatePortalKey(portalResult.key);
       }
+      if (!mounted || _document.id != publishingDocument.id) return false;
+      final unchanged = jsonEncode(_document.toJson()) == jsonEncode(publishingDocument.toJson());
       setState(() {
         if (portalResult != null) {
           _portalKey = portalResult.key;
 
         }
-        _document.markClean();
-        _pendingPhotoBlobs.clear();
-        _deletedPhotoBlobKeys.clear();
+        if (unchanged) {
+          _document.markClean();
+          _pendingPhotoBlobs.clear();
+          _deletedPhotoBlobKeys.clear();
+        }
         _canvasStatus = portalResult?.message ?? 'Saved on this device';
       });
       if (portalResult != null) notifySalesBrainGraphSaved(portalResult.key);
@@ -5468,6 +5484,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         severity: _CanvasMessageSeverity.error,
       );
       return false;
+    } finally {
+      publishingDocument?.dispose();
+      _publicationInFlight = false;
     }
   }
 

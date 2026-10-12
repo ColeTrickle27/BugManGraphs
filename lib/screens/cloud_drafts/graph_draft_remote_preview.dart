@@ -10,9 +10,9 @@ import '../graph_canvas_screen.dart';
 /// A complete remote package preview. No editing or publication actions exist.
 class GraphDraftRemotePreview extends StatefulWidget {
   const GraphDraftRemotePreview(
-      {super.key, required this.remote, this.account});
+      {super.key, required this.remote, required this.account});
   final RemoteGraphDraft remote;
-  final GraphDraftAccount? account;
+  final GraphDraftAccount account;
   @override
   State<GraphDraftRemotePreview> createState() =>
       _GraphDraftRemotePreviewState();
@@ -27,7 +27,7 @@ class _GraphDraftRemotePreviewState extends State<GraphDraftRemotePreview> {
   @override
   void initState() {
     super.initState();
-    widget.account?.addListener(_accountChanged);
+    widget.account.addListener(_accountChanged);
   }
 
   void _accountChanged() {
@@ -36,12 +36,12 @@ class _GraphDraftRemotePreviewState extends State<GraphDraftRemotePreview> {
 
   @override
   void dispose() {
-    widget.account?.removeListener(_accountChanged);
+    widget.account.removeListener(_accountChanged);
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => widget.account?.active == false
+  Widget build(BuildContext context) => widget.account.active == false
       ? Scaffold(
           appBar: AppBar(title: const Text('Sign in required')),
           body: const Center(

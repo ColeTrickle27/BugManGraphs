@@ -65,7 +65,10 @@ Future<GraphDraftEditorSession?> showGraphDraftSyncPanel(
                                                 MaterialPageRoute<void>(
                                                     builder: (_) =>
                                                         GraphDraftRemotePreview(
-                                                            remote: cloud)));
+                                                            remote: cloud,
+                                                            account: session
+                                                                .workspace
+                                                                .account)));
                                           }),
                                     if (session.phase ==
                                         GraphDraftPhase.conflict)

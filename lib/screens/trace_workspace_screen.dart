@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../models/graph_document.dart';
+import '../services/cloud_drafts/graph_draft_service.dart';
 import '../models/trace_geometry.dart';
 import '../services/address_suggestion_service.dart';
 import '../services/address_suggestion_service_factory.dart';
@@ -20,6 +21,7 @@ class TraceWorkspaceScreen extends StatefulWidget {
     required this.address,
     required this.canvasSize,
     required this.traceLabel,
+    this.account,
     this.provider,
     this.addressService,
     this.initialTrace,
@@ -28,6 +30,7 @@ class TraceWorkspaceScreen extends StatefulWidget {
     super.key,
   });
 
+  final GraphDraftAccount? account;
   final String address;
   final Size canvasSize;
   final String traceLabel;
@@ -64,6 +67,7 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
   @override
   void initState() {
     super.initState();
+    widget.account?.addListener(_accountChanged);
     _provider = widget.provider ?? createTraceMapProvider();
     _addressService = widget.addressService ?? createAddressSuggestionService();
     _addressController = TextEditingController(text: widget.address);
@@ -73,21 +77,31 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
     _initializeWorkspace();
   }
 
+  void _accountChanged() {
+    if (widget.account?.active == false) {
+      _searchDebounce?.cancel();
+      ++_searchRequest;
+    }
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    widget.account?.removeListener(_accountChanged);
     _searchDebounce?.cancel();
     _addressController.dispose();
     super.dispose();
   }
 
   Future<void> _initializeWorkspace() async {
+    if (widget.account?.active == false) return;
     try {
       await _provider.initialize();
-      if (!mounted) return;
+      if (!mounted || widget.account?.active == false) return;
       setState(() => _initializingMap = false);
       _scheduleSuggestionSearch(immediate: true);
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || widget.account?.active == false) return;
       setState(() {
         _initializingMap = false;
         _error = _messageFor(error);
@@ -137,7 +151,9 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
         query,
         sessionToken: sessionToken,
       );
-      if (!mounted || request != _searchRequest) return;
+      if (!mounted ||
+          request != _searchRequest ||
+          widget.account?.active == false) return;
       _signInUrl = null;
       if (_shouldAutoSelectJobAddress(query, suggestions)) {
         setState(() {
@@ -155,7 +171,9 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
             : null;
       });
     } catch (error) {
-      if (!mounted || request != _searchRequest) return;
+      if (!mounted ||
+          request != _searchRequest ||
+          widget.account?.active == false) return;
       setState(() {
         _searching = false;
         _suggestions = const <AddressSuggestion>[];
@@ -176,6 +194,7 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
       suggestions.length == 1;
 
   Future<void> _selectAddress(AddressSuggestion suggestion) async {
+    if (widget.account?.active == false) return;
     _searchDebounce?.cancel();
     final request = ++_searchRequest;
     final sessionToken = _sessionToken;
@@ -190,7 +209,9 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
         suggestion,
         sessionToken: sessionToken,
       );
-      if (!mounted || request != _searchRequest) return;
+      if (!mounted ||
+          request != _searchRequest ||
+          widget.account?.active == false) return;
       setState(() {
         _selecting = false;
         _selectedAddress = selection;
@@ -202,7 +223,9 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
             : null;
       });
     } catch (error) {
-      if (!mounted || request != _searchRequest) return;
+      if (!mounted ||
+          request != _searchRequest ||
+          widget.account?.active == false) return;
       setState(() {
         _selecting = false;
         _signInUrl =
@@ -238,6 +261,7 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
   }
 
   void _finish() {
+    if (widget.account?.active == false) return;
     if (_points.length < 3) return;
     final projection = TraceProjectionService.projectToCanvas(
       _points,
@@ -261,6 +285,13 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.account?.active == false) {
+      return Scaffold(
+          appBar: AppBar(title: const Text('Sign in required')),
+          body: const Center(
+              child: Text(
+                  'Sign in to the original account to access this trace. Recovery remains stored on this device.')));
+    }
     final measurement = _measurement;
     final editingTrace = widget.initialTrace != null;
     return Scaffold(

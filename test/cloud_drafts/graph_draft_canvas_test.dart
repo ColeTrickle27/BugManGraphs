@@ -1,6 +1,9 @@
 import 'dart:typed_data';
 import 'dart:convert';
 import 'dart:async';
+import 'package:bugman_graphs/services/cloud_drafts/graph_draft_service.dart';
+import 'package:bugman_graphs/widgets/cloud_drafts/graph_draft_sync_panel.dart';
+import 'package:bugman_graphs/screens/trace_workspace_screen.dart';
 import 'package:bugman_graphs/services/cloud_drafts/graph_draft_recovery.dart';
 import 'package:bugman_graphs/screens/cloud_drafts/graph_draft_remote_preview.dart';
 import 'package:bugman_graphs/models/cloud_graph_draft.dart';
@@ -21,6 +24,140 @@ import 'graph_draft_sync_test.dart'
     show FixtureDraftService, workspace, ownerA, doc, moved;
 
 void main() {
+  testWidgets(
+      'held overwrite rejects a second identity switch and binds the late key only to its captured session',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1400, 900);
+    addTearDown(tester.view.reset);
+    final store = MemoryGraphDraftStore();
+    final scoped = workspace(FixtureDraftService(), store);
+    final session = await scoped.create(doc());
+    await session.retry();
+    await session.updatePortalKey('original/key.bgraph');
+    final portal = HeldPublicationPortal();
+    await tester.pumpWidget(MaterialApp(
+        home: GraphDraftEditorScreen(session: session, portalService: portal)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Save and share'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save Graph to BugMan Graphs'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Overwrite Existing'));
+    await tester.pumpAndSettle();
+    expect(portal.documents, hasLength(1));
+    await tester.tap(find.byTooltip('Save and share'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save Graph to BugMan Graphs'));
+    await tester.pumpAndSettle();
+    expect(find.text('Save As New'), findsNothing);
+    expect(find.text('A graph save is already in progress.'), findsOneWidget);
+    final canvas =
+        tester.widget<GraphCanvasScreen>(find.byType(GraphCanvasScreen));
+    final active = (canvas.repository as GraphDraftEditorRepository).session;
+    expect(active, same(session));
+    final edited = canvas.document!;
+    final segments = edited.wallSegments.toList();
+    segments[0] = segments[0].copyWith(start: const GraphPoint(x: 750, y: 800));
+    edited.replaceWallSegments(segments);
+    await tester.pump();
+    portal.release.complete(const PortalUploadResult(
+        key: 'original/returned.bgraph', message: 'Graph saved'));
+    await tester.pumpAndSettle();
+    await session.flushLocal();
+    expect(session.portalKey, 'original/returned.bgraph');
+    expect(
+        (await store.read(ownerA, session.id))!.portalKey, session.portalKey);
+    expect(await store.list(ownerA), hasLength(1));
+    expect(portal.documents, hasLength(1));
+    expect(edited.isDirty, isTrue);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await session.flushLocal();
+    scoped.dispose();
+  });
+
+  testWidgets(
+      'actual sync-panel preview locks when its owning account invalidates',
+      (tester) async {
+    final api = FixtureDraftService()..failCode = 409;
+    final store = MemoryGraphDraftStore();
+    final scoped = workspace(api, store), document = doc();
+    api.remote = RemoteGraphDraft(
+        GraphDraftPackage.fromJson({
+          'type': 'bugman-graph',
+          'version': 1,
+          'document': document.toJson(),
+          'blobs': <String, String>{}
+        }),
+        'a' * 32,
+        const GraphDraftAuthor('employee-1', 'Synthetic'));
+    final session = await scoped.create(document);
+    await session.retry();
+    await tester.pumpWidget(MaterialApp(
+        home: Builder(
+            builder: (context) => Scaffold(
+                body: TextButton(
+                    onPressed: () => showGraphDraftSyncPanel(context, session),
+                    child: const Text('Status'))))));
+    await tester.tap(find.text('Status'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Review cloud copy'));
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<GraphDraftRemotePreview>(
+                find.byType(GraphDraftRemotePreview))
+            .account,
+        same(scoped.account));
+    expect(find.byType(GraphCanvasScreen), findsOneWidget);
+    scoped.account.invalidate();
+    await tester.pumpAndSettle();
+    expect(find.byType(GraphCanvasScreen), findsNothing);
+    expect(
+        find.textContaining('Sign in to the original account'), findsOneWidget);
+    expect(await store.read(ownerA, session.id), isNotNull);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('Download recovery copy'), findsNothing);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    scoped.dispose();
+  });
+  testWidgets(
+      'open trace route hides address and trace controls on confirmed account mismatch',
+      (tester) async {
+    final account = GraphDraftAccount(id: ownerA, displayName: 'Synthetic');
+    await tester.pumpWidget(MaterialApp(
+        home: Builder(
+            builder: (context) => TextButton(
+                onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                        builder: (_) => TraceWorkspaceScreen(
+                            account: account,
+                            address: 'Synthetic private site',
+                            canvasSize: const Size(3000, 3000),
+                            traceLabel: 'Synthetic private trace',
+                            initialTrace: doc().traces.first,
+                            autoSelectJobAddress: false))),
+                child: const Text('Trace')))));
+    await tester.tap(find.text('Trace'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsWidgets);
+    account.invalidate();
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('Synthetic private site'), findsNothing);
+    expect(
+        find.textContaining('Sign in to the original account'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(TraceWorkspaceScreen), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    account.dispose();
+  });
+
   testWidgets(
       'confirmed account change locks current canvas without deleting recovery',
       (tester) async {
@@ -166,8 +303,10 @@ void main() {
                 onPressed: () => Navigator.push(
                     context,
                     MaterialPageRoute<void>(
-                        builder: (_) =>
-                            GraphDraftRemotePreview(remote: remote))),
+                        builder: (_) => GraphDraftRemotePreview(
+                            remote: remote,
+                            account: GraphDraftAccount(
+                                id: ownerA, displayName: 'Synthetic')))),
                 child: const Text('Review')))));
     await tester.tap(find.text('Review'));
     await tester.pumpAndSettle();
@@ -440,5 +579,20 @@ class MissingOriginalPortal extends RecordingDraftPortal {
     attempts++;
     if (existingKey != null) throw StateError('Saved graph not found.');
     return super.saveGraph(document, blobs, existingKey: existingKey);
+  }
+}
+
+class HeldPublicationPortal extends RecordingDraftPortal {
+  final release = Completer<PortalUploadResult>();
+  final documents = <Map<String, Object?>>[];
+  @override
+  Future<PortalUploadResult> saveGraph(
+      GraphDocument document, Map<String, Uint8List> blobs,
+      {String? existingKey}) {
+    documents.add(document.toJson());
+    if (documents.length > 1) {
+      throw StateError('Synthetic second publication fails');
+    }
+    return release.future;
   }
 }
