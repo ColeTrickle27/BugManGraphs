@@ -5611,7 +5611,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (context) => childSession != null
-            ? GraphDraftEditorScreen(session: childSession)
+            ? GraphDraftEditorScreen(session: childSession, portalService: _portalService)
             : GraphCanvasScreen(
           document: newDocument,
           repository: _repository,
