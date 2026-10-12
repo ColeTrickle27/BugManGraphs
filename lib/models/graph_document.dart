@@ -103,7 +103,7 @@ class GraphDocument extends ChangeNotifier {
       measurementCalibration: source.measurementCalibration,
       metadata: source.metadata,
       extraProperties: source.extraProperties,
-    );
+    ).._serializationSource = (jsonDecode(jsonEncode(source.toJson())) as Map).cast<String, Object?>();
   }
 
   /// Reads both the document format and the original flat graph payload.
@@ -168,7 +168,9 @@ class GraphDocument extends ChangeNotifier {
       }),
       createdAt: _date(json['createdAt']),
       updatedAt: _date(json['updatedAt']),
-    )..markClean();
+    )
+      .._serializationSource = (jsonDecode(jsonEncode(json)) as Map).cast<String, Object?>()
+      ..markClean();
   }
 
   static const int schemaVersion = 5;
@@ -197,6 +199,11 @@ class GraphDocument extends ChangeNotifier {
   MeasurementCalibration _measurementCalibration;
   Map<String, Object?> _metadata;
   Map<String, Object?> _extraProperties;
+  Map<String, Object?> _serializationSource = {};
+  Map<String, Object?> get serializationState => (jsonDecode(jsonEncode(_serializationSource)) as Map).cast<String, Object?>();
+  void restoreSerializationState(Map<String, Object?> snapshot) {
+    _serializationSource = (jsonDecode(jsonEncode(snapshot)) as Map).cast<String, Object?>();
+  }
   bool _isDirty = false;
   int _revision = 0;
 
@@ -279,8 +286,21 @@ class GraphDocument extends ChangeNotifier {
   // no-op risk there is negligible next to the perf cost.
   bool _sameJson(Object? a, Object? b) => jsonEncode(a) == jsonEncode(b);
 
+  void _remapSerializationRows<T>(String key, List<T> previous, List<T> next) {
+    final objects = _serializationSource['graphObjects'];
+    final source = objects is Map ? objects[key] : null;
+    if (objects is Map && source is List) {
+      final indexes = Map<T, int>.identity();
+      for (var i = 0; i < previous.length; i++) { indexes[previous[i]] = i; }
+      objects[key] = [for (var i = 0; i < next.length; i++)
+        _serializationRow(source, indexes[next[i]] ?? (next.length == previous.length ? i : -1))];
+    }
+  }
+
   void replaceWallSegments(Iterable<WallSegment> value) {
-    _wallSegments = List<WallSegment>.of(value);
+    final next = List<WallSegment>.of(value);
+    _remapSerializationRows('wallSegments', _wallSegments, next);
+    _wallSegments = next;
     _changed();
   }
 
@@ -290,12 +310,16 @@ class GraphDocument extends ChangeNotifier {
   }
 
   void replaceShapes(Iterable<GraphShape> value) {
-    _shapes = List<GraphShape>.of(value);
+    final next = List<GraphShape>.of(value);
+    _remapSerializationRows('shapes', _shapes, next);
+    _shapes = next;
     _changed();
   }
 
   void replaceFreehandStrokes(Iterable<FreehandStroke> value) {
-    _freehandStrokes = List<FreehandStroke>.of(value);
+    final next = List<FreehandStroke>.of(value);
+    _remapSerializationRows('freehandStrokes', _freehandStrokes, next);
+    _freehandStrokes = next;
     _changed();
   }
 
@@ -377,12 +401,13 @@ class GraphDocument extends ChangeNotifier {
     notifyListeners();
   }
 
-  Map<String, Object?> toJson() => {
+  Map<String, Object?> toJson() {
+    final result = <String, Object?>{
         ..._extraProperties,
         'id': id,
         'schemaVersion': schemaVersion,
         'customer': customer.toJson(),
-        'graphObjects': {
+        'graphObjects': <String, Object?>{
           'wallSegments': _wallSegments.map(_wallSegmentToJson).toList(),
           'annotations': _annotations.map(_annotationToJson).toList(),
           'shapes': _shapes.map(_shapeToJson).toList(),
@@ -396,6 +421,11 @@ class GraphDocument extends ChangeNotifier {
         'createdAt': createdAt.toIso8601String(),
         'updatedAt': updatedAt.toIso8601String(),
       };
+    for (final key in ['customer', 'attachments', 'graphObjects', 'layers', 'traces', 'measurementCalibration']) {
+      result[key] = _preserveNestedFields(_serializationSource[key], result[key]);
+    }
+    return result;
+  }
 
   void _changed() {
     _isDirty = true;
@@ -515,9 +545,9 @@ class GraphAttachment {
         blobKey: _string(json['blobKey']).isEmpty
             ? _string(json['id'])
             : _string(json['blobKey']),
-        thumbnailKey: _string(json['thumbnailKey']).isEmpty
-            ? '${_string(json['id'])}-thumb'
-            : _string(json['thumbnailKey']),
+        thumbnailKey: json.containsKey('thumbnailKey')
+            ? _string(json['thumbnailKey'])
+            : '${_string(json['id'])}-thumb',
         uri: json['uri'] as String?,
       );
 
@@ -837,3 +867,27 @@ FreehandStroke _freehandFromJson(Map<String, Object?> json) => FreehandStroke(
       strokeWidth: _double(json['strokeWidth'], 4),
       opacity: _double(json['opacity'], 0.85),
     );
+
+// Overlay modeled values while retaining future fields. Current lists determine
+// membership: deleted objects are never resurrected. Stable IDs match attachments
+// and annotations even after reorder; id-less geometry retains positional data.
+Object? _preserveNestedFields(Object? source, Object? current) {
+  if (source is Map && current is Map) {
+    return <String, Object?>{
+      for (final entry in source.entries) entry.key as String: entry.value,
+      for (final entry in current.entries)
+        entry.key as String: _preserveNestedFields(source[entry.key], entry.value),
+    };
+  }
+  if (source is List && current is List) {
+    return [for (var index = 0; index < current.length; index++)
+      _preserveNestedFields(
+        current[index] is Map && (current[index] as Map)['id'] != null
+          ? source.whereType<Map>().where((item) => item['id'] == (current[index] as Map)['id']).firstOrNull
+          : index < source.length ? source[index] : null,
+        current[index])];
+  }
+  return current;
+}
+
+Object? _serializationRow(List source, int index) => index >= 0 && index < source.length ? source[index] : null;

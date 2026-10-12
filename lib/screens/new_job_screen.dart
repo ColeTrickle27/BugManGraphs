@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../models/customer_file.dart';
 import '../models/job.dart';
+import '../models/cloud_graph_draft.dart';
+import '../widgets/cloud_drafts/graph_creator_picker.dart';
 import '../services/customer_files_service.dart';
 import '../services/customer_files_service_factory.dart';
 import '../services/bugman_portal_service.dart';
@@ -22,6 +24,12 @@ class NewJobScreen extends StatefulWidget {
     this.resolutionWarning,
     this.customerFilesService,
     this.authenticatedNameLoader,
+    this.cloudAuthors,
+    this.cloudHistoricalAuthor,
+    this.cloudInitialAuthorId,
+    this.onCloudAuthorChanged,
+    this.cloudCreatorMode=false,
+    this.returnCreatedJob=false,
     super.key,
   });
 
@@ -55,6 +63,12 @@ class NewJobScreen extends StatefulWidget {
   /// Ops-Brain-backed implementation is used.
   final CustomerFilesService? customerFilesService;
   final Future<String?> Function()? authenticatedNameLoader;
+  final GraphDraftAuthors? cloudAuthors;
+  final GraphDraftAuthor? cloudHistoricalAuthor;
+  final String? cloudInitialAuthorId;
+  final ValueChanged<GraphDraftAuthor>? onCloudAuthorChanged;
+  final bool cloudCreatorMode;
+  final bool returnCreatedJob;
 
   @override
   State<NewJobScreen> createState() => _NewJobScreenState();
@@ -62,6 +76,8 @@ class NewJobScreen extends StatefulWidget {
 
 class _NewJobScreenState extends State<NewJobScreen> {
   final _locationNameController = TextEditingController();
+  String? _cloudAuthorId;
+  bool get _cloudCreatorMode=>widget.cloudCreatorMode || widget.cloudAuthors!=null || widget.cloudHistoricalAuthor!=null;
   final _locationAddressController = TextEditingController();
   final _pestPacLocationController = TextEditingController();
   final _pestPacBillToController = TextEditingController();
@@ -111,6 +127,28 @@ class _NewJobScreenState extends State<NewJobScreen> {
 
   bool get _showingSearch =>
       _searchFlowEnabled && !_manualEntryOverride && _selectedLocation == null;
+
+  String? _authorCorrection;
+  @override
+  void didUpdateWidget(covariant NewJobScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.cloudAuthors != null &&
+        widget.cloudAuthors != oldWidget.cloudAuthors) {
+      final authors = widget.cloudAuthors!.authors;
+      final previous = authors.where((a) => a.id == _cloudAuthorId).firstOrNull;
+      final replacement = previous ??
+          authors
+              .where((a) => a.id == widget.cloudAuthors!.defaultAuthorId)
+              .firstOrNull;
+      if (previous == null && _cloudAuthorId != null) {
+        _authorCorrection =
+            'The previously selected creator is no longer active. Review the updated creator before creating this graph.';
+      }
+      _cloudAuthorId = replacement?.id;
+      _createdByController.text = replacement?.name ?? '';
+      if (replacement != null) widget.onCloudAuthorChanged?.call(replacement);
+    }
+  }
 
   @override
   void initState() {
@@ -168,7 +206,11 @@ class _NewJobScreenState extends State<NewJobScreen> {
       _applyLocation(preselected);
     }
     _restoreContactVisibility();
-    _loadCreator();
+    _cloudAuthorId=widget.cloudInitialAuthorId ?? widget.cloudHistoricalAuthor?.id ?? widget.cloudAuthors?.defaultAuthorId;
+    if(_cloudCreatorMode && initialJob==null) {
+      _createdByController.text=widget.cloudAuthors?.authors.where((a)=>a.id==_cloudAuthorId).firstOrNull?.name ?? widget.cloudHistoricalAuthor?.name ?? '';
+    }
+    if(!_cloudCreatorMode)_loadCreator();
   }
 
   void _restoreContactVisibility() {
@@ -404,7 +446,7 @@ class _NewJobScreenState extends State<NewJobScreen> {
 
     widget.onCreateJob(job);
 
-    if (widget.editOnly) {
+    if (widget.editOnly || widget.returnCreatedJob) {
       Navigator.of(context).pop(job);
       return;
     }
@@ -436,6 +478,8 @@ class _NewJobScreenState extends State<NewJobScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            if (_authorCorrection != null) Text(_authorCorrection!),
+            if (widget.cloudAuthors?.authors.isEmpty == true) const Text('Creator choices are unavailable while offline. Your entered details can stay on this form.'),
             if (widget.resolutionWarning != null && !_warningDismissed)
               _ResolutionWarningBanner(
                 message: widget.resolutionWarning!,
@@ -507,7 +551,11 @@ class _NewJobScreenState extends State<NewJobScreen> {
               },
             ),
             const SizedBox(height: 12),
-            TextField(
+            if(_cloudCreatorMode)
+              GraphCreatorPicker(directory:widget.cloudAuthors,value:_cloudAuthorId,historicalAuthor:widget.cloudHistoricalAuthor,onChanged:(author){
+                setState((){_cloudAuthorId=author.id;_createdByController.text=author.name;});widget.onCloudAuthorChanged?.call(author);
+              })
+            else TextField(
               controller: _createdByController,
               readOnly: _authenticatedCreator,
               textInputAction: TextInputAction.done,

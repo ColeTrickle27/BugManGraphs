@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../models/job.dart';
+import '../services/cloud_drafts/graph_draft_workspace.dart';
+import 'cloud_drafts/account_graph_gallery.dart';
 import '../services/graph_repository.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ops_brain_home_button.dart';
@@ -11,11 +13,13 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({
     this.jobs = const [],
     this.repository,
+    this.cloudDraftWorkspace,
     super.key,
   });
 
   final List<Job> jobs;
   final GraphRepository? repository;
+  final GraphDraftWorkspace? cloudDraftWorkspace;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -51,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if(widget.cloudDraftWorkspace!=null)return AccountGraphGallery(workspace:widget.cloudDraftWorkspace!,legacyRepository:widget.repository);
     return Scaffold(
       backgroundColor: const Color(0xFFC20000),
       appBar: AppBar(
