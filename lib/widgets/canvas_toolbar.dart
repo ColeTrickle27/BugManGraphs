@@ -320,7 +320,7 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
                     ),
                     const SizedBox(height: 6),
                     _ActionPicker(
-                      groupLabel: 'Miscellaneous Structures',
+                      groupLabel: 'Structure Features',
                       displayedAction: _displayedAction(utilityToolbarActions),
                       actions: utilityToolbarActions,
                       selectedTool: widget.selectedTool,
@@ -431,8 +431,12 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
 
 class CanvasQuickToolbar extends StatelessWidget {
   final bool showHistory;
+  final bool canUndo;
+  final bool canRedo;
   const CanvasQuickToolbar({
     this.showHistory = true,
+    this.canUndo = true,
+    this.canRedo = true,
     required this.actions,
     required this.selectedTool,
     required this.selectedMarkerType,
@@ -468,113 +472,103 @@ class CanvasQuickToolbar extends StatelessWidget {
   final bool layersSelected;
 
   @override
-  Widget build(BuildContext context) {
-    return DragTarget<CanvasToolbarAction>(
-      onWillAcceptWithDetails: (_) => true,
-      onAcceptWithDetails: (details) => onActionAdded(details.data),
-      builder: (context, candidates, rejected) => LayoutBuilder(
-        builder: (context, constraints) {
+  Widget build(BuildContext context) => DragTarget<CanvasToolbarAction>(
+        onWillAcceptWithDetails: (_) => true,
+        onAcceptWithDetails: (details) => onActionAdded(details.data),
+        builder: (context, candidates, rejected) =>
+            LayoutBuilder(builder: (context, constraints) {
           final compact = constraints.maxWidth < 1120;
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Material(
+          return Material(
               key: const ValueKey('canvas-quick-toolbar'),
               elevation: 10,
               color:
                   candidates.isEmpty ? Colors.white : const Color(0xFFFFE7E2),
               shape: StadiumBorder(
-                side: BorderSide(
-                  color: candidates.isEmpty
-                      ? const Color(0xFF6D6E71)
-                      : const Color(0xFFCC2000),
-                ),
-              ),
+                  side: BorderSide(
+                      color: candidates.isEmpty
+                          ? const Color(0xFF6D6E71)
+                          : const Color(0xFFCC2000))),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
                     IconButton(
-                      tooltip: 'Hide quick toolbar',
-                      constraints: const BoxConstraints.tightFor(
-                        width: 36,
-                        height: 34,
-                      ),
-                      padding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                      onPressed: onCollapse,
-                      icon: const Icon(Icons.keyboard_arrow_down),
-                    ),
-                    const SizedBox(height: 34, child: VerticalDivider()),
-                    for (final action in actions)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 2),
-                        child: _QuickActionButton(
-                          action: action,
-                          compact: compact,
-                          selected: action.isSelected(
-                            selectedTool: selectedTool,
-                            selectedPreset: selectedDrawingPreset,
-                            selectedMarker: selectedMarkerType,
-                          ),
-                          onPressed: () => onActionSelected(action),
-                        ),
-                      ),
-                    if (showHistory) const SizedBox(height: 34, child: VerticalDivider()),
-                    if (showHistory) _QuickUtilityButton(
-                      icon: Icons.undo,
-                      tooltip: 'Quick undo',
-                      selected: false,
-                      onPressed: onUndo,
-                    ),
-                    if (showHistory) _QuickUtilityButton(
-                      icon: Icons.redo,
-                      tooltip: 'Quick redo',
-                      selected: false,
-                      onPressed: onRedo,
-                    ),
-                    const SizedBox(height: 34, child: VerticalDivider()),
-                    _QuickUtilityButton(
-                      icon: Icons.tune,
-                      tooltip: 'Properties panel',
-                      selected: propertiesSelected,
-                      onPressed: onToggleProperties,
-                    ),
-                    _QuickUtilityButton(
-                      icon: Icons.layers_outlined,
-                      tooltip: 'Layers panel',
-                      selected: layersSelected,
-                      onPressed: onToggleLayers,
-                    ),
-                    _QuickUtilityButton(
-                      icon: Icons.delete_outline,
-                      tooltip: 'Delete selection',
-                      selected: false,
-                      onPressed: onDeleteSelection,
-                    ),
-                    if (actions.length > 2) ...[
-                      const SizedBox(height: 34, child: VerticalDivider()),
-                      IconButton(
-                        tooltip: 'Reset quick toolbar',
+                        tooltip: 'Hide quick toolbar',
                         constraints: const BoxConstraints.tightFor(
-                          width: 36,
-                          height: 34,
-                        ),
+                            width: 44, height: 44),
                         padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                        onPressed: onReset,
-                        icon: const Icon(Icons.restart_alt),
-                      ),
+                        onPressed: onCollapse,
+                        icon: const Icon(Icons.keyboard_arrow_down)),
+                    if (showHistory) ...[
+                      IconButton(
+                          key: const ValueKey('canvas-bottom-undo'),
+                          tooltip: 'Undo',
+                          constraints: const BoxConstraints.tightFor(
+                              width: 44, height: 44),
+                          padding: EdgeInsets.zero,
+                          onPressed: canUndo ? onUndo : null,
+                          icon: const Icon(Icons.undo)),
+                      IconButton(
+                          key: const ValueKey('canvas-bottom-redo'),
+                          tooltip: 'Redo',
+                          constraints: const BoxConstraints.tightFor(
+                              width: 44, height: 44),
+                          padding: EdgeInsets.zero,
+                          onPressed: canRedo ? onRedo : null,
+                          icon: const Icon(Icons.redo)),
                     ],
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
+                    const SizedBox(height: 44, child: VerticalDivider()),
+                    Flexible(
+                        child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child:
+                                Row(mainAxisSize: MainAxisSize.min, children: [
+                              for (final action in actions)
+                                Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 2),
+                                    child: _QuickActionButton(
+                                        action: action,
+                                        compact: compact,
+                                        selected: action.isSelected(
+                                            selectedTool: selectedTool,
+                                            selectedPreset:
+                                                selectedDrawingPreset,
+                                            selectedMarker: selectedMarkerType),
+                                        onPressed: () =>
+                                            onActionSelected(action))),
+                              const SizedBox(
+                                  height: 44, child: VerticalDivider()),
+                              _QuickUtilityButton(
+                                  icon: Icons.edit_note,
+                                  tooltip: 'Object properties',
+                                  selected: propertiesSelected,
+                                  onPressed: onToggleProperties),
+                              _QuickUtilityButton(
+                                  icon: Icons.layers_outlined,
+                                  tooltip: 'Layers panel',
+                                  selected: layersSelected,
+                                  onPressed: onToggleLayers),
+                              _QuickUtilityButton(
+                                  icon: Icons.delete_outline,
+                                  tooltip: 'Delete selection',
+                                  selected: false,
+                                  onPressed: onDeleteSelection),
+                              if (actions.length > 2) ...[
+                                const SizedBox(
+                                    height: 44, child: VerticalDivider()),
+                                IconButton(
+                                    tooltip: 'Reset quick toolbar',
+                                    constraints: const BoxConstraints.tightFor(
+                                        width: 44, height: 44),
+                                    padding: EdgeInsets.zero,
+                                    onPressed: onReset,
+                                    icon: const Icon(Icons.restart_alt)),
+                              ],
+                            ]))),
+                  ])));
+        }),
+      );
 }
 
 class _ActionPicker extends StatelessWidget {
@@ -717,7 +711,7 @@ class _QuickUtilityButton extends StatelessWidget {
   Widget build(BuildContext context) => Tooltip(
         message: tooltip,
         child: IconButton(
-          constraints: const BoxConstraints.tightFor(width: 38, height: 34),
+          constraints: const BoxConstraints.tightFor(width: 44, height: 44),
           padding: EdgeInsets.zero,
           visualDensity: VisualDensity.compact,
           color: selected ? const Color(0xFFCC2000) : Colors.black87,

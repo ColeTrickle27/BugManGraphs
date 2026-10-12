@@ -99,7 +99,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(CanvasToolbar), findsNothing);
-    expect(find.byTooltip('File actions'), findsNothing);
+    expect(find.byTooltip('Save and share'), findsNothing);
     expect(find.byType(InteractiveViewer), findsOneWidget);
     final annotations =
         _graphOverlayPainter(tester).annotations as List<dynamic>;
@@ -412,7 +412,7 @@ void main() {
       'Zoom out',
       'Zoom in',
       'Canvas options',
-      'File actions'
+      'Save and share'
     ]) {
       final rect = tester.getRect(find.byTooltip(tooltip));
       expect(rect.left, greaterThanOrEqualTo(0));
@@ -721,7 +721,7 @@ void main() {
 
     expect(find.text('Properties'), findsNothing);
     expect(find.text('Layers'), findsNothing);
-    expect(find.byTooltip('Properties panel'), findsOneWidget);
+    expect(find.byTooltip('Object properties'), findsOneWidget);
     expect(find.byTooltip('Layers panel'), findsOneWidget);
     expect(find.byTooltip('Delete selection'), findsOneWidget);
 
@@ -736,7 +736,7 @@ void main() {
     expect(find.text('Shapes'), findsNothing);
     expect(tester.getSize(find.byType(InteractiveViewer)).width, viewerWidth);
 
-    await tester.tap(find.byTooltip('Properties panel'));
+    await tester.tap(find.byTooltip('Object properties'));
     await tester.pump();
     expect(find.text('Properties'), findsWidgets);
     expect(tester.getSize(find.byType(InteractiveViewer)).width, viewerWidth);
@@ -759,32 +759,35 @@ void main() {
 
     expect(find.byTooltip('Undo'), findsOneWidget);
     expect(find.byTooltip('Redo'), findsOneWidget);
-    expect(find.text('Graph File'), findsNothing);
-    expect(find.text('Export PDF'), findsNothing);
+    expect(find.text('Save Graph to BugMan Graphs'), findsNothing);
+    expect(find.text('Save PDF to OpsBrain'), findsNothing);
     expect(find.text('20:1'), findsNothing);
 
-    await tester.tap(find.byTooltip('File actions'));
+    await tester.tap(find.byTooltip('Save and share'));
     await tester.pumpAndSettle();
     expect(find.text('SAVE TO OPS BRAIN'), findsOneWidget);
-    expect(find.text('Graph File'), findsOneWidget);
+    expect(find.text('Save Graph to BugMan Graphs'), findsOneWidget);
     expect(find.text('PDF File'), findsNothing);
     expect(find.text('PNG File'), findsNothing);
-    expect(find.text('Save & Open Inspection Workflow'), findsOneWidget);
+    expect(find.text('Save & Open Inspection Workflow'), findsNothing);
+    expect(find.text('Save PNG…'), findsOneWidget);
+    expect(find.text('Save PDF…'), findsOneWidget);
+    expect(find.text('Email PDF…'), findsOneWidget);
     expect(find.text('EXPORT FILE'), findsOneWidget);
-    expect(find.text('Export PDF'), findsOneWidget);
-    expect(find.text('Export PNG'), findsOneWidget);
+    expect(find.text('Save PDF to OpsBrain'), findsOneWidget);
+    expect(find.text('Save PNG to OpsBrain'), findsOneWidget);
     expect(find.text('Copy Structure to New Graph'), findsOneWidget);
 
     // No BugMan Graphs portal is wired up for a bare _pumpEditor() session,
     // so a "Save to Ops Brain" action warns instead of silently no-op-ing.
-    await tester.tap(find.text('Graph File'));
+    await tester.tap(find.text('Save Graph to BugMan Graphs'));
     await tester.pump();
     expect(find.text('No changes to save'), findsOneWidget);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('File actions'));
+    await tester.tap(find.byTooltip('Save and share'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Export PDF'));
+    await tester.tap(find.text('Save PDF to OpsBrain'));
     await tester.pumpAndSettle();
     expect(
       find.text(
@@ -811,9 +814,10 @@ void main() {
   });
 
   Future<void> chooseFileAction(WidgetTester tester, String label) async {
-    await tester.tap(find.byTooltip('File actions'));
+    await tester.tap(find.byTooltip('Save and share'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text(label));
+    await tester.ensureVisible(find.text(label));
+  await tester.tap(find.text(label));
     await tester.pumpAndSettle();
   }
 
@@ -847,13 +851,13 @@ void main() {
     await tester.pumpAndSettle();
 
     // A brand new, untouched graph has nothing to save yet.
-    await chooseFileAction(tester, 'Graph File');
+    await chooseFileAction(tester, 'Save Graph to BugMan Graphs');
     expect(find.text('No changes to save'), findsOneWidget);
     expect(portal.saveCallCount, 0);
 
     // Dirty the document, then Save creates the first Ops Brain file.
     document.setLayer('trace', const GraphLayerState(visible: true));
-    await chooseFileAction(tester, 'Graph File');
+    await chooseFileAction(tester, 'Save Graph to BugMan Graphs');
     expect(portal.saveExistingKeys, [null]);
     final openFolderAction = find.widgetWithText(SnackBarAction, 'Open folder');
     expect(openFolderAction, findsOneWidget);
@@ -865,9 +869,9 @@ void main() {
     // just created this save round is re-saved with the same key... but
     // once _portalKey is already set, a second dirty save must prompt).
     document.setLayer('trace', const GraphLayerState(visible: false));
-    await tester.tap(find.byTooltip('File actions'));
+    await tester.tap(find.byTooltip('Save and share'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Graph File'));
+    await tester.tap(find.text('Save Graph to BugMan Graphs'));
     await tester.pumpAndSettle();
     expect(find.text('Save changes'), findsOneWidget);
     await tester.tap(find.text('Overwrite Existing'));
@@ -904,7 +908,7 @@ void main() {
     await tester.pumpAndSettle();
 
     document.setLayer('trace', const GraphLayerState(visible: true));
-    await chooseFileAction(tester, 'Graph File');
+    await chooseFileAction(tester, 'Save Graph to BugMan Graphs');
     expect(find.text('Save changes'), findsOneWidget);
     await tester.tap(find.text('Save As New'));
     await tester.pumpAndSettle();
@@ -943,7 +947,7 @@ void main() {
     await tester.pumpAndSettle();
 
     document.setLayer('trace', const GraphLayerState(visible: true));
-    await chooseFileAction(tester, 'Graph File');
+    await chooseFileAction(tester, 'Save Graph to BugMan Graphs');
     expect(find.text('Save changes'), findsOneWidget);
     await tester.tap(find.text('Overwrite Existing'));
     await tester.pumpAndSettle();
@@ -960,9 +964,10 @@ void main() {
     String label,
   ) async {
     await tester.runAsync(() async {
-      await tester.tap(find.byTooltip('File actions'));
+      await tester.tap(find.byTooltip('Save and share'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text(label));
+      await tester.ensureVisible(find.text(label));
+  await tester.tap(find.text(label));
       await tester.pump();
       // The PDF/PNG render pipeline (image capture + PDF assembly) does
       // real async work that only progresses under runAsync's real
@@ -1003,7 +1008,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await chooseFileActionAndAwaitAsyncWork(tester, 'Export PDF');
+    await chooseFileActionAndAwaitAsyncWork(tester, 'Save PDF to OpsBrain');
     expect(portal.saveExistingKeys, [null]);
     expect(portal.uploadExportCalls, hasLength(1));
     expect(portal.uploadExportCalls.single['contentType'], 'application/pdf');
@@ -1020,7 +1025,7 @@ void main() {
     tester.widget<SnackBarAction>(openFolderAction).onPressed();
     expect(openedUrls, [portal.customerFolderUrl]);
 
-    await chooseFileActionAndAwaitAsyncWork(tester, 'Export PNG');
+    await chooseFileActionAndAwaitAsyncWork(tester, 'Save PNG to OpsBrain');
     expect(portal.saveExistingKeys, [null, portal.savedKey]);
     expect(portal.uploadExportCalls, hasLength(2));
     expect(portal.uploadExportCalls.last['contentType'], 'image/png');
@@ -1088,7 +1093,7 @@ void main() {
     await tester.tapAt(const Offset(500, 250));
     final beforeSave = document.toJson();
 
-    await chooseFileAction(tester, 'Graph File');
+    await chooseFileAction(tester, 'Save Graph to BugMan Graphs');
     expect(find.text('Sign in to save online'), findsOneWidget);
     expect(find.textContaining('saved on this device'), findsOneWidget);
     expect((await repository.loadGraph(document.id))!.toJson(), beforeSave);
@@ -1101,7 +1106,7 @@ void main() {
     expect(_wallCount(tester), 1);
 
     portal.saveError = null;
-    await chooseFileAction(tester, 'Graph File');
+    await chooseFileAction(tester, 'Save Graph to BugMan Graphs');
     expect(portal.saveCallCount, 2);
     expect(portal.savedDocuments, [beforeSave, beforeSave]);
     expect(portal.savedBlobKeys, [
@@ -1144,7 +1149,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await chooseFileAction(tester, 'Export PNG');
+    await chooseFileAction(tester, 'Save PNG to OpsBrain');
 
     expect(portal.saveCallCount, 1);
     expect(portal.uploadExportCalls, isEmpty);
@@ -1175,7 +1180,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await chooseFileAction(tester, 'Export PNG');
+    await chooseFileAction(tester, 'Save PNG to OpsBrain');
     expect(
       find.text(
         'Exporting PDF/PNG files to Holloman Ops Brain is available when '
@@ -1186,76 +1191,12 @@ void main() {
     expect(portal.uploadExportCalls, isEmpty);
   });
 
-  testWidgets(
-      'Save & Open Inspection Workflow saves the graph then opens the '
-      'resolved inspection workflow (item 14)', (tester) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(1400, 900);
-    addTearDown(tester.view.reset);
-    final portal = _FakeBugManPortalService();
-    final job = Job(
-      customerName: 'Sales Brain Handoff Test',
-      serviceAddress: '1 Handoff Way',
-      pestPacLocationNumber: 'LOC-42',
-      pestPacBillToNumber: 'BILL-77',
-      serviceType: 'Inspection',
-      createdBy: 'Widget Test',
-      createdDate: DateTime(2026, 8, 6),
-    );
-    final document = GraphDocument.forJob(job);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: GraphCanvasScreen(document: document, portalService: portal),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    // A never-yet-saved graph still gets its first Ops Brain save before
-    // navigating, even though isDirty may be false for a freshly created
-    // document -- "no Ops Brain key yet" is not the same thing as
-    // "nothing to save".
-    await tester.runAsync(() async {
-      await chooseFileAction(tester, 'Save & Open Inspection Workflow');
-    });
-
-    expect(portal.saveCallCount, 1);
-    expect(portal.saveExistingKeys, [null]);
-  });
-
-  testWidgets(
-      'Save & Open Inspection Workflow warns instead of navigating when '
-      'PestPac identifiers are missing (item 14)', (tester) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(1400, 900);
-    addTearDown(tester.view.reset);
-    final portal = _FakeBugManPortalService();
-    final job = Job(
-      customerName: 'No PestPac IDs Test',
-      serviceAddress: '',
-      pestPacLocationNumber: '',
-      pestPacBillToNumber: '',
-      serviceType: 'Inspection',
-      createdBy: 'Widget Test',
-      createdDate: DateTime(2026, 8, 6),
-    );
-    final document = GraphDocument.forJob(job);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: GraphCanvasScreen(document: document, portalService: portal),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await chooseFileAction(tester, 'Save & Open Inspection Workflow');
-
-    expect(portal.saveCallCount, 0);
-    expect(
-      find.textContaining(
-        'needs a customer with a Bill-To and Location before opening the '
-        'inspection workflow',
-      ),
-      findsOneWidget,
-    );
+  testWidgets('save menu removes inspection workflow without removing graph save or copy', (tester) async {
+    await _pumpEditor(tester);
+    await tester.tap(find.byTooltip('Save and share'));await tester.pumpAndSettle();
+    expect(find.text('Save & Open Inspection Workflow'),findsNothing);
+    expect(find.text('Save Graph to BugMan Graphs'),findsOneWidget);
+    expect(find.text('Copy Structure to New Graph'),findsOneWidget);
   });
 
   testWidgets('drawing ratio leaves viewport zoom and geometry unchanged',
@@ -2166,6 +2107,7 @@ Future<void> _selectBasicShape(WidgetTester tester, String label) async {
   await tester.pumpAndSettle();
   await tester.tap(find.text('Basic Shapes'));
   await tester.pumpAndSettle();
+  await tester.ensureVisible(find.text(label));
   await tester.tap(find.text(label));
   await tester.pumpAndSettle();
 }

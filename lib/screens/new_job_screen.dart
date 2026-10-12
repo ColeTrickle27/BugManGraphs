@@ -17,6 +17,7 @@ class NewJobScreen extends StatefulWidget {
     required this.onCreateJob,
     this.initialJob,
     this.editOnly = false,
+    this.asDialog = false,
     this.preselectedLocation,
     this.resolutionWarning,
     this.customerFilesService,
@@ -36,6 +37,7 @@ class NewJobScreen extends StatefulWidget {
   final ValueChanged<Job> onCreateJob;
   final Job? initialJob;
   final bool editOnly;
+  final bool asDialog;
 
   /// A Bill-To/Location already resolved against Ops Brain (e.g. by a
   /// Sales Brain "Create New" deep link). When set, the customer identity
@@ -413,8 +415,18 @@ class _NewJobScreenState extends State<NewJobScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.editOnly ? 'Edit Job' : 'New Job'),
-        actions: const [OpsBrainHomeButton()],
+        title: Text(widget.asDialog
+            ? 'Edit Graph Information'
+            : widget.editOnly
+                ? 'Edit Job'
+                : 'New Job'),
+        leading: widget.asDialog
+            ? IconButton(
+                tooltip: 'Cancel edits',
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(context))
+            : null,
+        actions: widget.asDialog ? const [] : const [OpsBrainHomeButton()],
       ),
       body: SafeArea(
         child: ListView(
@@ -431,11 +443,14 @@ class _NewJobScreenState extends State<NewJobScreen> {
               ChoiceChip(
                   label: const Text('Existing Customer'),
                   selected: !_manualEntryOverride,
-                  onSelected: (_) => _toggleManualEntry(false)),
+                  onSelected: widget.asDialog
+                      ? null
+                      : (_) => _toggleManualEntry(false)),
               ChoiceChip(
                   label: const Text('New Customer'),
                   selected: _manualEntryOverride,
-                  onSelected: (_) => _toggleManualEntry(true)),
+                  onSelected:
+                      widget.asDialog ? null : (_) => _toggleManualEntry(true)),
             ]),
             const SizedBox(height: 12),
             Text(
@@ -450,15 +465,20 @@ class _NewJobScreenState extends State<NewJobScreen> {
               key: const ValueKey('job-date-field'),
               controller: _dateController,
               readOnly: true,
-              onTap: _pickDate,
-              decoration: const InputDecoration(
+              onTap: widget.asDialog ? null : _pickDate,
+              decoration: InputDecoration(
                 labelText: 'Date',
-                prefixIcon: Icon(Icons.calendar_today_outlined),
-                suffixIcon: Icon(Icons.edit_calendar_outlined),
+                helperText:
+                    widget.asDialog ? 'Original graph creation date' : null,
+                prefixIcon: const Icon(Icons.calendar_today_outlined),
+                suffixIcon: widget.asDialog
+                    ? null
+                    : const Icon(Icons.edit_calendar_outlined),
               ),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _serviceType,
               decoration: const InputDecoration(
                 labelText: 'Service Type',
@@ -528,11 +548,12 @@ class _NewJobScreenState extends State<NewJobScreen> {
                     style: Theme.of(context).textTheme.labelLarge,
                   ),
                   const Spacer(),
-                  TextButton(
-                    key: const ValueKey('change-customer-button'),
-                    onPressed: _changeCustomer,
-                    child: const Text('Change'),
-                  ),
+                  if (!widget.asDialog)
+                    TextButton(
+                      key: const ValueKey('change-customer-button'),
+                      onPressed: _changeCustomer,
+                      child: const Text('Change'),
+                    ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -695,6 +716,7 @@ class _NewJobScreenState extends State<NewJobScreen> {
                     padding: EdgeInsets.all(12),
                     child: Text('+ Add Contact')))),
         DropdownButtonFormField<String>(
+            isExpanded: true,
             key: ValueKey('customer-type-$_customerType'),
             initialValue: _customerType,
             decoration: const InputDecoration(labelText: 'Customer Type'),
