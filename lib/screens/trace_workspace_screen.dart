@@ -153,7 +153,9 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
       );
       if (!mounted ||
           request != _searchRequest ||
-          widget.account?.active == false) return;
+          widget.account?.active == false) {
+        return;
+      }
       _signInUrl = null;
       if (_shouldAutoSelectJobAddress(query, suggestions)) {
         setState(() {
@@ -173,7 +175,9 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
     } catch (error) {
       if (!mounted ||
           request != _searchRequest ||
-          widget.account?.active == false) return;
+          widget.account?.active == false) {
+        return;
+      }
       setState(() {
         _searching = false;
         _suggestions = const <AddressSuggestion>[];
@@ -211,7 +215,9 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
       );
       if (!mounted ||
           request != _searchRequest ||
-          widget.account?.active == false) return;
+          widget.account?.active == false) {
+        return;
+      }
       setState(() {
         _selecting = false;
         _selectedAddress = selection;
@@ -225,7 +231,9 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
     } catch (error) {
       if (!mounted ||
           request != _searchRequest ||
-          widget.account?.active == false) return;
+          widget.account?.active == false) {
+        return;
+      }
       setState(() {
         _selecting = false;
         _signInUrl =
