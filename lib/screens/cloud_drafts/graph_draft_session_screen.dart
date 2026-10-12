@@ -147,9 +147,15 @@ class _GraphDraftSessionScreenState extends State<GraphDraftSessionScreen> {
     }
     // Keep the owning entry state mounted while its pushed form is interrupted.
     if (workspace != null && widget.authenticatedBuilder != null) {
-      return GraphDraftSessionScope(
-          resume: _resumeForm,
-          child: widget.authenticatedBuilder!(context, workspace!, _logout));
+      return Stack(children: [
+        Offstage(
+            offstage: !workspace!.account.active,
+            child: GraphDraftSessionScope(
+                resume: _resumeForm,
+                child: widget.authenticatedBuilder!(
+                    context, workspace!, _logout))),
+        if (!workspace!.account.active) _signIn(),
+      ]);
     }
     if (workspace?.account.active == true) {
       return GraphDraftSessionScope(
@@ -160,47 +166,49 @@ class _GraphDraftSessionScreenState extends State<GraphDraftSessionScreen> {
               onSignOut: _logout,
               sessionMessage: error));
     }
-    return Scaffold(
-        appBar: AppBar(title: const Text('Sign in to BugMan Graphs')),
-        body: Center(
-            child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      const Text(
-                          'Use your existing Holloman account. Your account graphs stay separate from Customer Files.'),
-                      TextButton(
-                          onPressed: () {
-                            try {
-                              openGraphEmployeeAccess();
-                            } catch (_) {
-                              setState(() => error =
-                                  'Employee access is available on the official Graphs host.');
-                            }
-                          },
-                          child: const Text(
-                              'Verify employee access in a new tab')),
-                      const SizedBox(height: 20),
-                      TextField(
-                          controller: username,
-                          autofillHints: const [AutofillHints.username],
-                          decoration:
-                              const InputDecoration(labelText: 'Username')),
-                      TextField(
-                          controller: password,
-                          obscureText: true,
-                          enableSuggestions: false,
-                          autocorrect: false,
-                          decoration:
-                              const InputDecoration(labelText: 'Password')),
-                      if (error != null)
-                        Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            child: Text(error!)),
-                      const SizedBox(height: 16),
-                      FilledButton(
-                          onPressed: _login, child: const Text('Sign in'))
-                    ])))));
+    return _signIn();
   }
+
+  Widget _signIn() => Scaffold(
+      appBar: AppBar(title: const Text('Sign in to BugMan Graphs')),
+      body: Center(
+          child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    const Text(
+                        'Use your existing Holloman account. Your account graphs stay separate from Customer Files.'),
+                    TextButton(
+                        onPressed: () {
+                          try {
+                            openGraphEmployeeAccess();
+                          } catch (_) {
+                            setState(() => error =
+                                'Employee access is available on the official Graphs host.');
+                          }
+                        },
+                        child:
+                            const Text('Verify employee access in a new tab')),
+                    const SizedBox(height: 20),
+                    TextField(
+                        controller: username,
+                        autofillHints: const [AutofillHints.username],
+                        decoration:
+                            const InputDecoration(labelText: 'Username')),
+                    TextField(
+                        controller: password,
+                        obscureText: true,
+                        enableSuggestions: false,
+                        autocorrect: false,
+                        decoration:
+                            const InputDecoration(labelText: 'Password')),
+                    if (error != null)
+                      Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Text(error!)),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                        onPressed: _login, child: const Text('Sign in'))
+                  ])))));
 }

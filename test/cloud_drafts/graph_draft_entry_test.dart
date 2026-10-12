@@ -23,24 +23,136 @@ import 'graph_draft_sync_test.dart'
     show FixtureDraftService, workspace, ownerA, doc, otherCreator, moved;
 
 void main() {
+  testWidgets(
+      'shared entry offers working sign-in after invalidation and editor close',
+      (tester) async {
+    final auth = entryAuth([]);
+    await tester.pumpWidget(BugManGraphsApp(
+        accountDraftsEnabled: true,
+        authentication: auth,
+        initialUri:
+            Uri.parse('https://fixture.invalid/?graph=synthetic-shared'),
+        repository: MemoryGraphRepository(),
+        portalService: EntryPortal([])));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Copy to My Graphs'));
+    await tester.pumpAndSettle();
+    final editor = tester
+        .widget<GraphDraftEditorScreen>(find.byType(GraphDraftEditorScreen));
+    editor.session.workspace.account.invalidate();
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(GraphDraftEditorScreen), findsNothing);
+    expect(find.text('Sign in to BugMan Graphs'), findsOneWidget);
+    await loginEntry(tester);
+    expect(find.text('Copy to My Graphs'), findsOneWidget);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    auth.close();
+  });
+  testWidgets(
+      'discarding interrupted deep-link form leaves a working root sign-in route',
+      (tester) async {
+    final auth = entryAuth([]);
+    await tester.pumpWidget(BugManGraphsApp(
+        accountDraftsEnabled: true,
+        authentication: auth,
+        initialUri: Uri.parse(
+            'https://fixture.invalid/?billTo=TEST-BILL&location=TEST-LOC'),
+        repository: MemoryGraphRepository(),
+        customerFilesService: EntryCustomerService([])));
+    await tester.pumpAndSettle();
+    tester
+        .widget<AccountFormGuard>(find.byType(AccountFormGuard))
+        .workspace
+        .account
+        .invalidate();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Discard form and go back'));
+    await tester.pumpAndSettle();
+    expect(find.text('Sign in to BugMan Graphs'), findsOneWidget);
+    await loginEntry(tester);
+    final signedIn =
+        tester.widget<AccountGraphGallery>(find.byType(AccountGraphGallery));
+    expect(signedIn.workspace.account.active, isTrue);
+    await tester.tap(find.text('New Graph'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NewJobScreen), findsOneWidget);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    auth.close();
+  });
+  testWidgets(
+      'returning from recovered gallery creation leaves root-owned workspace active',
+      (tester) async {
+    final auth = entryAuth([]);
+    await tester.pumpWidget(BugManGraphsApp(
+        accountDraftsEnabled: true,
+        authentication: auth,
+        initialUri: Uri.parse('https://fixture.invalid/'),
+        repository: MemoryGraphRepository()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New Graph'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New Customer'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byWidgetPredicate(
+            (w) => w is TextField && w.decoration?.labelText == 'Company'),
+        'Synthetic recovered root');
+    tester
+        .widget<AccountFormGuard>(find.byType(AccountFormGuard))
+        .workspace
+        .account
+        .invalidate();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Resume original form'));
+    await tester.pumpAndSettle();
+    await loginEntry(tester);
+    await tester.scrollUntilVisible(find.text('Create Graph'), 300,
+        scrollable: find
+            .descendant(
+                of: find.byType(NewJobScreen),
+                matching: find.byType(Scrollable))
+            .first);
+    await tester.tap(find.text('Create Graph'));
+    await tester.pumpAndSettle();
+    final restored = tester
+        .widget<GraphDraftEditorScreen>(find.byType(GraphDraftEditorScreen))
+        .session
+        .workspace;
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(restored.account.active, isTrue);
+    expect(
+        tester
+            .widget<AccountGraphGallery>(find.byType(AccountGraphGallery))
+            .workspace,
+        same(restored));
+    await tester.tap(find.text('New Graph'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NewJobScreen), findsOneWidget);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    auth.close();
+  });
+  testWidgets(
+      'uncached offline author directory explains choices without discarding creation form',
+      (tester) async {
+    final api = NetworkAuthorsFixture()..offline = true;
+    final w = workspace(api, MemoryGraphDraftStore());
+    await tester.pumpWidget(MaterialApp(
+        home: GraphDraftContextCreateScreen(
+            workspace: w,
+            resolution: Future.value(const GraphDraftEntryResolution()))));
+    await tester.pumpAndSettle();
+    expect(find.byType(NewJobScreen), findsOneWidget);
+    expect(find.textContaining('Creator choices are unavailable while offline'),
+        findsOneWidget);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    w.dispose();
+  });
   for (final shared in [false, true]) {
-    testWidgets(
-        'uncached offline author directory explains choices without discarding creation form',
-        (tester) async {
-      final api = NetworkAuthorsFixture()..offline = true;
-      final w = workspace(api, MemoryGraphDraftStore());
-      await tester.pumpWidget(MaterialApp(
-          home: GraphDraftContextCreateScreen(
-              workspace: w,
-              resolution: Future.value(const GraphDraftEntryResolution()))));
-      await tester.pumpAndSettle();
-      expect(find.byType(NewJobScreen), findsOneWidget);
-      expect(
-          find.textContaining('Creator choices are unavailable while offline'),
-          findsOneWidget);
-      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
-      w.dispose();
-    });
     testWidgets(
         '${shared ? "shared copy" : "gallery creation"} uses verified author cache when authors request loses network',
         (tester) async {
@@ -435,4 +547,17 @@ class NetworkAuthorsFixture extends FixtureDraftService {
     }
     return super.authors();
   }
+}
+
+Future<void> loginEntry(WidgetTester tester) async {
+  await tester.enterText(
+      find.byWidgetPredicate(
+          (w) => w is TextField && w.decoration?.labelText == 'Username'),
+      'synthetic');
+  await tester.enterText(
+      find.byWidgetPredicate(
+          (w) => w is TextField && w.decoration?.labelText == 'Password'),
+      'synthetic-fixture-only');
+  await tester.tap(find.text('Sign in'));
+  await tester.pumpAndSettle();
 }

@@ -17,7 +17,8 @@ class AccountFormGuard extends StatefulWidget {
   final Widget Function(GraphDraftWorkspace)? formBuilder;
   Widget get initialForm => child;
   final Future<GraphDraftWorkspace> Function(String, String)? reauthenticate;
-  final ValueChanged<GraphDraftWorkspace> onRestored;
+  final void Function(GraphDraftWorkspace workspace, bool locallyOwned)
+      onRestored;
   final Future<GraphDraftWorkspace> Function()? recoverWorkspace;
   @override
   State<AccountFormGuard> createState() => _AccountFormGuardState();
@@ -55,14 +56,16 @@ class _AccountFormGuardState extends State<AccountFormGuard> {
                 }
               }));
     }
+    final locallyOwned =
+        widget.recoverWorkspace != null || widget.reauthenticate == null;
     if (next == null) return;
     if (!mounted) {
-      next.dispose();
+      if (locallyOwned) next.dispose();
       return;
     }
     if (!next.account.active ||
         next.account.id != widget.workspace.account.id) {
-      next.dispose();
+      if (locallyOwned) next.dispose();
       setState(() => error =
           'This is a different account. Sign in to the original account to recover this form.');
       return;
@@ -70,14 +73,14 @@ class _AccountFormGuardState extends State<AccountFormGuard> {
     try {
       await next.prepareEntryAuthors();
     } catch (_) {
-      next.dispose();
+      if (locallyOwned) next.dispose();
       rethrow;
     }
     if (!mounted) {
-      next.dispose();
+      if (locallyOwned) next.dispose();
       return;
     }
-    widget.onRestored(next);
+    widget.onRestored(next, locallyOwned);
     setState(() {
       current = next!;
       error = null;

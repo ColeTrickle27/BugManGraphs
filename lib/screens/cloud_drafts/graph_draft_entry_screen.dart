@@ -51,6 +51,20 @@ class _GraphDraftContextCreateScreenState
   bool busy = true;
   String? error;
   late GraphDraftWorkspace workspace = widget.workspace;
+  bool _ownsWorkspace = false;
+  @override
+  void didUpdateWidget(covariant GraphDraftContextCreateScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.workspace, widget.workspace)) {
+      if (_ownsWorkspace && !identical(workspace, widget.workspace)) {
+        final previous = workspace;
+        scheduleMicrotask(previous.dispose);
+      }
+      workspace = widget.workspace;
+      _ownsWorkspace = false;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -74,7 +88,14 @@ class _GraphDraftContextCreateScreenState
           MaterialPageRoute(
               builder: (_) => AccountFormGuard(
                   workspace: workspace,
-                  onRestored: (value) => workspace = value,
+                  onRestored: (value, locallyOwned) {
+                    if (_ownsWorkspace && !identical(workspace, value)) {
+                      final previous = workspace;
+                      scheduleMicrotask(previous.dispose);
+                    }
+                    workspace = value;
+                    _ownsWorkspace = locallyOwned;
+                  },
                   recoverWorkspace: widget.recoverWorkspace,
                   reauthenticate: resumeAccount == null
                       ? null
@@ -126,7 +147,7 @@ class _GraphDraftContextCreateScreenState
 
   @override
   void dispose() {
-    if (!identical(workspace, widget.workspace)) {
+    if (_ownsWorkspace) {
       final restored = workspace;
       scheduleMicrotask(restored.dispose);
     }
