@@ -321,6 +321,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     _document.addListener(_handleDocumentChanged);
     _observedCloudSession=_cloudSession;
     _cloudSession?.addListener(_cloudChanged);
+    _cloudSession?.workspace.account.addListener(_cloudChanged);
 
     _markerDefaultsStore =
         widget.markerDefaultsStore ?? createMarkerDefaultsStore();
@@ -379,7 +380,17 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   bool _cloudCaptureScheduled=false;
   GraphDraftEditorSession? _observedCloudSession;
   GraphDraftEditorSession? get _cloudSession=>_repository is GraphDraftEditorRepository?_repository.session:null;
-  void _cloudChanged(){if(mounted)setState((){});}
+  void _cloudChanged() {
+    if (!mounted) return;
+    setState(() {});
+    if (_cloudSession?.workspace.account.active == false) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        // Remove stale action sheets without popping guarded editor pages.
+        Navigator.of(context).popUntil((route) => route is PageRoute);
+      });
+    }
+  }
   void _scheduleCloudCapture() {
     if(_cloudSession==null || _cloudCaptureScheduled)return;
     _cloudCaptureScheduled=true;
@@ -419,6 +430,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     _stopPresentationExport?.call();
     final cloud=_cloudSession;
     cloud?.removeListener(_cloudChanged);
+    cloud?.workspace.account.removeListener(_cloudChanged);
     _observedCloudSession?.removeListener(_cloudChanged);
     if(cloud!=null && cloud.id==_document.id) {
       cloud.capture(_document.toJson(),pendingBlobs:_pendingPhotoBlobs,deletedBlobKeys:_deletedPhotoBlobKeys,portalKey:_portalKey);
@@ -5327,6 +5339,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   Future<bool> _saveDocument() async {
     var savedOnDevice = false;
     try {
+      if (_cloudSession?.workspace.account.active == false) throw StateError('Sign in to the original account to publish this graph.');
       final referencedAttachmentIds =
           _annotations.expand((annotation) => annotation.attachmentIds).toSet();
       final retainedAttachments = _document.attachments
@@ -5354,6 +5367,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         deletedBlobKeys: _deletedPhotoBlobKeys,
       );
       savedOnDevice = true;
+      if (_cloudSession?.workspace.account.active == false) throw StateError('Sign in to the original account to publish this graph.');
       PortalUploadResult? portalResult;
       var recoveredAsNew = false;
       if (_portalService.isAvailable) {
@@ -5370,6 +5384,12 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
           // a renamed key by filename similarity.
           if (_portalKey != null && _isGraphNotFoundError(error)) {
             _replaceDocumentWithNewIdentity();
+            if (_repository is GraphDraftEditorRepository) {
+              await _repository.ensureSession(_document, blobs: _pendingPhotoBlobs);
+              await _repository.flushCurrent();
+              if (_repository.session.hasUnpersistedEdits) throw StateError('Recovery could not be saved on this device.');
+              if (!_repository.session.workspace.account.active) throw StateError('Sign in to the original account to publish this graph.');
+            }
             portalResult = await _portalService.saveGraph(
               _document,
               portalBlobs,
@@ -5382,10 +5402,14 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         }
       }
       if (!mounted) return false;
+      if (portalResult != null && _repository is GraphDraftEditorRepository) {
+        final publishedSession = await _repository.ensureSession(_document, blobs: _pendingPhotoBlobs);
+        await publishedSession.updatePortalKey(portalResult.key);
+      }
       setState(() {
         if (portalResult != null) {
           _portalKey = portalResult.key;
-          if(_cloudSession!=null)unawaited(_cloudSession!.updatePortalKey(portalResult.key));
+
         }
         _document.markClean();
         _pendingPhotoBlobs.clear();
@@ -7065,6 +7089,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_cloudSession != null && !_cloudSession!.workspace.account.active) {
+      return Scaffold(appBar: AppBar(title: const Text('Sign in required')), body: const Center(child: Text('Sign in to the original account to access this graph. Recovery remains stored on this device.')));
+    }
     if (widget.presentationMode) {
       return _buildPresentationView(context);
     }
@@ -9811,6 +9838,7 @@ class _Selection {
 
 class _EditorSnapshot {
   const _EditorSnapshot({
+    required this.serializationState,
     required this.wallSegments,
     required this.annotations,
     required this.shapes,
@@ -9825,6 +9853,7 @@ class _EditorSnapshot {
 
   factory _EditorSnapshot.capture(_GraphCanvasScreenState state) =>
       _EditorSnapshot(
+        serializationState: state._document.serializationState,
         wallSegments: List<WallSegment>.of(state._wallSegments),
         annotations: List<GraphAnnotation>.of(state._annotations),
         shapes: List<GraphShape>.of(state._shapes),
@@ -9837,6 +9866,7 @@ class _EditorSnapshot {
         activePathStartSegmentIndex: state._activePathStartSegmentIndex,
       );
 
+  final Map<String, Object?> serializationState;
   final List<WallSegment> wallSegments;
   final List<GraphAnnotation> annotations;
   final List<GraphShape> shapes;
@@ -9856,6 +9886,7 @@ class _EditorSnapshot {
     state._freehandStrokes = freehandStrokes;
     state._document.replaceTraces(traces);
     state._document.setMeasurementCalibration(measurementCalibration);
+    state._document.restoreSerializationState(serializationState);
     state._activeWallStart = activeWallStart;
     state._activePathStartPoint = activePathStartPoint;
     state._pendingCurveControlPoint = pendingCurveControlPoint;

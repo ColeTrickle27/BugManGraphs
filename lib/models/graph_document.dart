@@ -200,6 +200,10 @@ class GraphDocument extends ChangeNotifier {
   Map<String, Object?> _metadata;
   Map<String, Object?> _extraProperties;
   Map<String, Object?> _serializationSource = {};
+  Map<String, Object?> get serializationState => (jsonDecode(jsonEncode(_serializationSource)) as Map).cast<String, Object?>();
+  void restoreSerializationState(Map<String, Object?> snapshot) {
+    _serializationSource = (jsonDecode(jsonEncode(snapshot)) as Map).cast<String, Object?>();
+  }
   bool _isDirty = false;
   int _revision = 0;
 
@@ -417,7 +421,7 @@ class GraphDocument extends ChangeNotifier {
         'createdAt': createdAt.toIso8601String(),
         'updatedAt': updatedAt.toIso8601String(),
       };
-    for (final key in ['customer', 'attachments', 'graphObjects']) {
+    for (final key in ['customer', 'attachments', 'graphObjects', 'layers', 'traces', 'measurementCalibration']) {
       result[key] = _preserveNestedFields(_serializationSource[key], result[key]);
     }
     return result;

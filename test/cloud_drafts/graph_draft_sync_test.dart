@@ -82,6 +82,20 @@ Map<String, Object?> moved(GraphDraftEditorSession session) {
 
 Future<void> tick() async => Future<void>.delayed(Duration.zero);
 void main() {
+  test(
+      'ordinary authentication expiry preserves local opening without invalidating account context',
+      () async {
+    final api = FixtureDraftService()..failCode = 401,
+        store = MemoryGraphDraftStore();
+    final w = workspace(api, store);
+    final original = await w.create(doc());
+    await original.retry();
+    expect(w.account.active, isTrue);
+    expect(await w.open(original.id), same(original));
+    expect(await w.localGraphs(), hasLength(1));
+    w.dispose();
+  });
+
   test('full-photo-only package survives model editing, persistence and upload',
       () async {
     final w = workspace(FixtureDraftService(), MemoryGraphDraftStore());

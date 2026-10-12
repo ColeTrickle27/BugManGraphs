@@ -18,6 +18,19 @@ const creator = GraphDraftAuthor('fixture-author-1', 'Alex Synthetic');
 const other = GraphDraftAuthor('fixture-author-2', 'Jules Synthetic');
 
 class LocalFixtureApi implements GraphDraftService {
+  LocalFixtureApi(this.account);
+  final GraphDraftAccount account;
+  void _checkContext() {
+    final actual =
+        web.window.localStorage.getItem('bugman-local-fixture-account') ??
+            scope;
+    if (actual != account.id) {
+      account.invalidate();
+      throw const GraphDraftException(
+          401, 'Synthetic account context changed.');
+    }
+  }
+
   static const key = 'bugman-local-fixture-remote';
   Map<String, dynamic> get data =>
       jsonDecode(web.window.localStorage.getItem(key) ?? '{}')
@@ -25,23 +38,30 @@ class LocalFixtureApi implements GraphDraftService {
   void write(Map<String, dynamic> value) =>
       web.window.localStorage.setItem(key, jsonEncode(value));
   @override
-  Future<GraphDraftAuthors> authors() async =>
-      const GraphDraftAuthors('fixture-author-1', [creator, other]);
+  Future<GraphDraftAuthors> authors() async {
+    _checkContext();
+    return const GraphDraftAuthors('fixture-author-1', [creator, other]);
+  }
+
   @override
-  Future<GraphDraftPage> list({int limit = 100, String? cursor}) async =>
-      GraphDraftPage([
-        for (final item in data.entries)
-          GraphDraftSummary(
-              id: item.key,
-              revision: item.value['revision'] as String,
-              title: (item.value['package']['document']['customer']['name']
-                  as String),
-              updatedAt: DateTime.parse(item.value['updatedAt'] as String),
-              author: GraphDraftAuthor.fromJson(
-                  (item.value['author'] as Map).cast<String, Object?>()))
-      ], null);
+  Future<GraphDraftPage> list({int limit = 100, String? cursor}) async {
+    _checkContext();
+    return GraphDraftPage([
+      for (final item in data.entries)
+        GraphDraftSummary(
+            id: item.key,
+            revision: item.value['revision'] as String,
+            title: (item.value['package']['document']['customer']['name']
+                as String),
+            updatedAt: DateTime.parse(item.value['updatedAt'] as String),
+            author: GraphDraftAuthor.fromJson(
+                (item.value['author'] as Map).cast<String, Object?>()))
+    ], null);
+  }
+
   @override
   Future<RemoteGraphDraft> get(String id) async {
+    _checkContext();
     final row = data[id];
     if (row == null) {
       throw const GraphDraftException(404, 'Fixture graph not found');
@@ -57,6 +77,7 @@ class LocalFixtureApi implements GraphDraftService {
   @override
   Future<GraphDraftWriteResult> save(GraphDraftPackage package,
       {required String? expectedRevision, String? authorId}) async {
+    _checkContext();
     final all = data, old = all[package.id];
     if ((expectedRevision == null && old != null) ||
         (expectedRevision != null && old?['revision'] != expectedRevision)) {
@@ -87,7 +108,9 @@ class LocalFixtureApi implements GraphDraftService {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final api = LocalFixtureApi();
+  final account =
+      GraphDraftAccount(id: scope, displayName: 'Synthetic account');
+  final api = LocalFixtureApi(account);
   if (api.data.isEmpty) {
     final document = GraphDocument.forJob(Job(
         customerName: 'Synthetic cloud canvas',
@@ -133,9 +156,7 @@ Future<void> main() async {
         expectedRevision: null);
   }
   final workspace = GraphDraftWorkspace(
-      account: GraphDraftAccount(id: scope, displayName: 'Synthetic account'),
-      service: api,
-      store: createGraphDraftStore());
+      account: account, service: api, store: createGraphDraftStore());
   runApp(MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

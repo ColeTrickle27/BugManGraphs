@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 import 'dart:convert';
+import 'dart:async';
+import 'package:bugman_graphs/services/cloud_drafts/graph_draft_recovery.dart';
 import 'package:bugman_graphs/screens/cloud_drafts/graph_draft_remote_preview.dart';
 import 'package:bugman_graphs/models/cloud_graph_draft.dart';
 import 'graph_draft_recovery_test.dart' show FailingStore;
@@ -19,6 +21,73 @@ import 'graph_draft_sync_test.dart'
     show FixtureDraftService, workspace, ownerA, doc, moved;
 
 void main() {
+  testWidgets(
+      'confirmed account change locks current canvas without deleting recovery',
+      (tester) async {
+    final store = MemoryGraphDraftStore();
+    final scoped = workspace(FixtureDraftService(), store);
+    final original = await scoped.create(doc());
+    await tester.pumpWidget(
+        MaterialApp(home: GraphDraftEditorScreen(session: original)));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('graph-canvas-paint')), findsOneWidget);
+    await tester.tap(find.byTooltip('Save and share'));
+    await tester.pumpAndSettle();
+    expect(find.text('Save Graph to BugMan Graphs'), findsOneWidget);
+    scoped.account.invalidate();
+    await tester.pumpAndSettle();
+    expect(find.text('Save Graph to BugMan Graphs'), findsNothing);
+    expect(find.byKey(const ValueKey('graph-canvas-paint')), findsNothing);
+    expect(find.byTooltip('Save and share'), findsNothing);
+    expect(
+        find.textContaining('Sign in to the original account'), findsOneWidget);
+    expect(await store.read(ownerA, original.id), isNotNull);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await original.flushLocal();
+    scoped.dispose();
+  });
+
+  testWidgets(
+      '404 publication waits for delayed fork creation before binding its portal key',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1400, 900);
+    addTearDown(tester.view.reset);
+    final store = HeldForkStore();
+    final scoped = workspace(FixtureDraftService(), store);
+    final parent = await scoped.create(doc());
+    await parent.retry();
+    await parent.updatePortalKey('original/key.bgraph');
+    final portal = MissingOriginalPortal();
+    await tester.pumpWidget(MaterialApp(
+        home: GraphDraftEditorScreen(session: parent, portalService: portal)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Save and share'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save Graph to BugMan Graphs'));
+    await tester.pumpAndSettle();
+    store.hold = true;
+    await tester.tap(find.text('Overwrite Existing'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(store.started.isCompleted, isTrue);
+    expect(portal.attempts, 1);
+    expect(parent.portalKey, 'original/key.bgraph');
+    store.release.complete();
+    await tester.pumpAndSettle();
+    final active = (tester
+            .widget<GraphCanvasScreen>(find.byType(GraphCanvasScreen))
+            .repository as GraphDraftEditorRepository)
+        .session;
+    expect(active.id, isNot(parent.id));
+    expect(active.portalKey, 'synthetic/customer/graph.bgraph');
+    expect(parent.portalKey, 'original/key.bgraph');
+    expect((await store.read(ownerA, active.id))!.portalKey, active.portalKey);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    scoped.dispose();
+  });
+
   testWidgets(
       'Save As New close awaits repository transition and failed active recovery',
       (tester) async {
@@ -347,4 +416,29 @@ class RecordingDraftPortal implements BugManPortalService {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class HeldForkStore extends MemoryGraphDraftStore {
+  bool hold = false;
+  final release = Completer<void>(), started = Completer<void>();
+  @override
+  Future<void> write(GraphDraftRecovery record) async {
+    if (hold && record.id != 'synthetic-canvas-review') {
+      if (!started.isCompleted) started.complete();
+      await release.future;
+    }
+    await super.write(record);
+  }
+}
+
+class MissingOriginalPortal extends RecordingDraftPortal {
+  int attempts = 0;
+  @override
+  Future<PortalUploadResult> saveGraph(
+      GraphDocument document, Map<String, Uint8List> blobs,
+      {String? existingKey}) async {
+    attempts++;
+    if (existingKey != null) throw StateError('Saved graph not found.');
+    return super.saveGraph(document, blobs, existingKey: existingKey);
+  }
 }

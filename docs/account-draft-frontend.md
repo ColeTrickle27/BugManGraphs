@@ -32,3 +32,11 @@ Clean sessions revalidate on reopen; pending local edits win even if created dur
 Closing before debounce flushes recovery and starts sync. Home drains the queue on refresh, app resume and a30second reconnect retry while displayed. Failed attempts retain recovery. Original409 conflicts survive unchanged canvas captures. Optional explicitly empty thumbnail references remain empty, while absent legacy references retain the migration fallback. Serializers retain nested customer, attachment and graphObjects fields; deleted objects stay deleted. Manual Customer Files publication is explicit and independent of cloud acknowledgment or the loaded document's clean flag. The read-only conflict preview includes annotations, treatment, freehand and full photo bytes with a Close action.
 
 IndexedDB summaries are decoded during each cursor event rather than retaining live cursor objects until iteration ends. The injectable IndexedDB implementation is tested against the memory database client; browser QA additionally verifies actual IndexedDB navigation and refresh.
+
+## Account access and complete recovery
+
+Confirmed server-context mismatch invalidates and locks the gallery, active editor, sync sheet and remote preview. Cached rows disappear; workspace local listing/opening is denied until a fresh bootstrap verifies the original account. Stored recovery is retained under its original UUID. Ordinary offline/expired-auth errors do not invalidate that context and still permit local recovery. No production sign-in flow is added.
+
+Layer, trace and calibration extensions survive serialization along with customer, attachment and geometry fields. Undo/Redo snapshots include serialization state so deleted id-less objects regain their own future fields when restored. Keep Both and Save As New preserve package extensions. The reserved draft identities include both authors and context.
+
+A missing Customer Files graph triggers a new identity and awaits that identity's local session creation/durability before the replacement publication. Returned portal keys bind to the awaited new session, never the preceding session. The regression holds new local writes while the remote service is fast and verifies both keys independently.

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import '../../models/cloud_graph_draft.dart';
 
 class GraphDraftException implements Exception {
@@ -11,7 +12,7 @@ class GraphDraftException implements Exception {
 /// Immutable local ownership scope supplied by a verified host identity.
 /// This is distinct from editable employee attribution. The production host
 /// binding remains disabled pending account migration/session-routing approval.
-class GraphDraftAccount {
+class GraphDraftAccount extends ChangeNotifier {
   GraphDraftAccount({required this.id, required this.displayName}) {
     if (!RegExp(
             r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
@@ -22,7 +23,11 @@ class GraphDraftAccount {
   final String id, displayName;
   bool _active = true;
   bool get active => _active;
-  void invalidate() => _active = false;
+  void invalidate() {
+    if (!_active) return;
+    _active = false;
+    notifyListeners();
+  }
 }
 
 abstract class GraphDraftService {

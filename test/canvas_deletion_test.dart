@@ -21,7 +21,7 @@ void main() {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = size;
       addTearDown(tester.view.reset);
-      final document = deletionFixture('structure', false);
+      var document = deletionFixture('structure', false);
       final source = document.wallSegments.toList();
       final shape = document.shapes.single;
       document.replaceWallSegments([
@@ -38,6 +38,11 @@ void main() {
               name: 'Structure ${i + 1}',
               segmentIndexes: [for (var n = 0; n < 4; n++) i * 4 + n])
       ]);
+      final extended = document.toJson();
+      final objects = extended['graphObjects'] as Map;
+      for (final wall in objects['wallSegments'] as List) { (wall as Map)['futureWall'] = {'source': (wall['start'] as Map)['x']}; }
+      for (final shape in objects['shapes'] as List) { (shape as Map)['futureShape'] = shape['name']; }
+      document = GraphDocument.fromJson(extended);
       final original = document.toJson();
       await tester
           .pumpWidget(MaterialApp(home: GraphCanvasScreen(document: document)));

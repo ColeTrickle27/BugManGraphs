@@ -41,6 +41,7 @@ class GraphDraftEditorRepository extends ChangeNotifier
       GraphDocument document, Map<String, Uint8List> blobs) async {
     final old = session;
     session = await old.workspace.create(document,
+        packageExtras: old.recovery.packageExtras,
         blobs: {...await old.allAvailableBlobs(), ...blobs},
         author: old.workspace.directory?.authors
             .where((a) => a.id == old.workspace.directory!.defaultAuthorId)

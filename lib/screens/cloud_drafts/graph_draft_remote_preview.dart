@@ -3,13 +3,16 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../models/cloud_graph_draft.dart';
 import '../../models/graph_document.dart';
+import '../../services/cloud_drafts/graph_draft_service.dart';
 import '../../services/graph_repository_stub.dart';
 import '../graph_canvas_screen.dart';
 
 /// A complete remote package preview. No editing or publication actions exist.
 class GraphDraftRemotePreview extends StatefulWidget {
-  const GraphDraftRemotePreview({super.key, required this.remote});
+  const GraphDraftRemotePreview(
+      {super.key, required this.remote, this.account});
   final RemoteGraphDraft remote;
+  final GraphDraftAccount? account;
   @override
   State<GraphDraftRemotePreview> createState() =>
       _GraphDraftRemotePreviewState();
@@ -22,51 +25,74 @@ class _GraphDraftRemotePreviewState extends State<GraphDraftRemotePreview> {
   late final repository = MemoryGraphRepository();
   late final Future<void> ready = repository.saveGraph(document, blobs: blobs);
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Cloud copy · read only'), actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'))
-        ]),
-        body: FutureBuilder<void>(
-            future: ready,
-            builder: (context, snapshot) => snapshot.connectionState !=
-                    ConnectionState.done
-                ? const Center(child: CircularProgressIndicator())
-                : Column(children: [
-                    Expanded(
-                        child: GraphCanvasScreen(
-                            document: document,
-                            repository: repository,
-                            presentationMode: true,
-                            completePackagePreview: true)),
-                    if (document.attachments.isNotEmpty)
-                      SizedBox(
-                          height: 164,
-                          child: ListView(
-                            scrollDirection: Axis.horizontal,
-                            children: [
-                              for (final attachment in document.attachments)
-                                SizedBox(
-                                    width: 180,
-                                    child: Column(children: [
-                                      Expanded(
-                                          child: Image.memory(
-                                              blobs[attachment.blobKey] ??
-                                                  Uint8List(0),
-                                              fit: BoxFit.contain,
-                                              errorBuilder: (_, error, stack) =>
-                                                  const Center(
-                                                      child: Text(
-                                                          'Photo unavailable')))),
-                                      Text(
-                                          attachment.referenceLabel.isEmpty
-                                              ? attachment.name
-                                              : attachment.referenceLabel,
-                                          maxLines: 2),
-                                    ]))
-                            ],
-                          ))
-                  ])),
-      );
+  void initState() {
+    super.initState();
+    widget.account?.addListener(_accountChanged);
+  }
+
+  void _accountChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    widget.account?.removeListener(_accountChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.account?.active == false
+      ? Scaffold(
+          appBar: AppBar(title: const Text('Sign in required')),
+          body: const Center(
+              child: Text(
+                  'Sign in to the original account to access this graph.')))
+      : Scaffold(
+          appBar: AppBar(title: const Text('Cloud copy · read only'), actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'))
+          ]),
+          body: FutureBuilder<void>(
+              future: ready,
+              builder: (context, snapshot) => snapshot.connectionState !=
+                      ConnectionState.done
+                  ? const Center(child: CircularProgressIndicator())
+                  : Column(children: [
+                      Expanded(
+                          child: GraphCanvasScreen(
+                              document: document,
+                              repository: repository,
+                              presentationMode: true,
+                              completePackagePreview: true)),
+                      if (document.attachments.isNotEmpty)
+                        SizedBox(
+                            height: 164,
+                            child: ListView(
+                              scrollDirection: Axis.horizontal,
+                              children: [
+                                for (final attachment in document.attachments)
+                                  SizedBox(
+                                      width: 180,
+                                      child: Column(children: [
+                                        Expanded(
+                                            child: Image.memory(
+                                                blobs[attachment.blobKey] ??
+                                                    Uint8List(0),
+                                                fit: BoxFit.contain,
+                                                errorBuilder: (_, error,
+                                                        stack) =>
+                                                    const Center(
+                                                        child: Text(
+                                                            'Photo unavailable')))),
+                                        Text(
+                                            attachment.referenceLabel.isEmpty
+                                                ? attachment.name
+                                                : attachment.referenceLabel,
+                                            maxLines: 2),
+                                      ]))
+                              ],
+                            ))
+                    ])),
+        );
 }

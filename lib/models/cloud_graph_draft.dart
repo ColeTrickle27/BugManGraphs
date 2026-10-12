@@ -11,7 +11,7 @@ String draftString(Object? value, String field) {
 }
 
 void validateDraftId(String id) {
-  if (!RegExp(r'^[A-Za-z0-9_-]{1,120}$').hasMatch(id) || id == 'authors') {
+  if (!RegExp(r'^[A-Za-z0-9_-]{1,120}$').hasMatch(id) || const {'authors', 'context'}.contains(id)) {
     throw const FormatException('This graph needs a valid draft identity.');
   }
 }

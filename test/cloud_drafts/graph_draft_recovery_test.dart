@@ -19,6 +19,43 @@ class FailingStore extends MemoryGraphDraftStore {
 }
 
 void main() {
+  test('Keep Both retains package extensions and full available data',
+      () async {
+    final store = MemoryGraphDraftStore();
+    final scoped = workspace(FixtureDraftService(), store);
+    await store.write(GraphDraftRecovery(
+        accountId: ownerA,
+        document: doc().toJson(),
+        packageExtras: {
+          'futurePackage': {'version': 2}
+        }));
+    final original = await scoped.open(doc().id);
+    final fork = await scoped.keepBoth(original);
+    expect(fork.recovery.package.toJson()['futurePackage'], {'version': 2});
+    expect(original.recovery.package.toJson()['futurePackage'], {'version': 2});
+    expect(fork.id, isNot(original.id));
+    scoped.dispose();
+  });
+  test('context and authors are reserved API identities', () {
+    for (final id in ['context', 'authors']) {
+      expect(() => validateDraftId(id), throwsFormatException);
+    }
+  });
+
+  test('layer trace and calibration extensions survive ordinary model capture',
+      () {
+    final json = copyGraphJson(doc().toJson());
+    ((json['layers'] as Map)['structure'] as Map)['futureLayer'] = {'value': 1};
+    ((json['traces'] as List).first as Map)['futureTrace'] = [1, 2];
+    (json['measurementCalibration'] as Map)['futureCalibration'] = true;
+    final result = GraphDocument.fromJson(json).toJson();
+    expect(((result['layers'] as Map)['structure'] as Map)['futureLayer'],
+        {'value': 1});
+    expect(((result['traces'] as List).first as Map)['futureTrace'], [1, 2]);
+    expect(
+        (result['measurementCalibration'] as Map)['futureCalibration'], isTrue);
+  });
+
   test(
       'removing an id-less shape does not transfer its future fields to the next shape',
       () {

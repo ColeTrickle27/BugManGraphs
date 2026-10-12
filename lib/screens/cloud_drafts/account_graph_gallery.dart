@@ -46,9 +46,20 @@ class _AccountGraphGalleryState extends State<AccountGraphGallery>
 
   @override
   void dispose() {
+    widget.workspace.removeListener(_accountChanged);
     _queueTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  void _accountChanged() {
+    if (!mounted) return;
+    setState(() {
+      if (!widget.workspace.account.active) {
+        _remote = [];
+        _local = [];
+      }
+    });
   }
 
   bool _loading = true;
@@ -58,6 +69,7 @@ class _AccountGraphGalleryState extends State<AccountGraphGallery>
   @override
   void initState() {
     super.initState();
+    widget.workspace.addListener(_accountChanged);
     WidgetsBinding.instance.addObserver(this);
     _queueTimer =
         Timer.periodic(const Duration(seconds: 30), (_) => _drainQueue());
@@ -68,6 +80,8 @@ class _AccountGraphGalleryState extends State<AccountGraphGallery>
   void didUpdateWidget(covariant AccountGraphGallery old) {
     super.didUpdateWidget(old);
     if (old.workspace != widget.workspace) {
+      old.workspace.removeListener(_accountChanged);
+      widget.workspace.addListener(_accountChanged);
       _remote = [];
       _local = [];
       _refresh();
@@ -193,6 +207,13 @@ class _AccountGraphGalleryState extends State<AccountGraphGallery>
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.workspace.account.active) {
+      return const Scaffold(
+          body: SafeArea(
+              child: Center(
+                  child: Text(
+                      'Sign in to the original account to access its graphs. Recovery copies remain stored on this device.'))));
+    }
     final local = {for (final graph in _local) graph.id: graph},
         remote = {for (final graph in _remote) graph.id: graph};
     final ids = {...local.keys, ...remote.keys}.toList()

@@ -31,7 +31,21 @@ class GraphDraftWorkspace extends ChangeNotifier {
       {required this.account,
       required this.service,
       required this.store,
-      this.debounce = const Duration(milliseconds: 700)});
+      this.debounce = const Duration(milliseconds: 700)}) {
+    account.addListener(_accountChanged);
+  }
+  void _accountChanged() {
+    directory = null;
+    notifyListeners();
+  }
+
+  void _requireAccess() {
+    if (!account.active || _closed) {
+      throw const GraphDraftException(401,
+          'Sign in to the original account to access its recovery copies.');
+    }
+  }
+
   final GraphDraftAccount account;
   final GraphDraftService service;
   final GraphDraftStore store;
@@ -76,18 +90,29 @@ class GraphDraftWorkspace extends ChangeNotifier {
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
   }
 
-  Future<List<LocalGraphDraftSummary>> localGraphs() => store.list(account.id);
+  Future<List<LocalGraphDraftSummary>> localGraphs() {
+    _requireAccess();
+    return store.list(account.id).then((rows) {
+      _requireAccess();
+      return rows;
+    });
+  }
+
   Future<GraphDraftEditorSession> open(String id) async {
+    _requireAccess();
     final cached = _sessions[id];
     if (cached != null && cached.hasQueuedEdits) return cached;
     // Flush local-only metadata before replacing a clean cached editor.
     if (cached != null) await cached.flushLocal();
+    _requireAccess();
     if (cached != null && cached.hasQueuedEdits) return cached;
     var record = await store.read(account.id, id);
+    _requireAccess();
     // Pending recovery always wins over a remote refresh. Neither side is lost.
     if ((record == null || !record.dirty) && account.active && !_closed) {
       try {
         final remote = await service.get(id);
+        _requireAccess();
         // An edit made while revalidation was in flight must win.
         if (cached != null && cached.hasQueuedEdits) return cached;
         if (!account.active || _closed) {
@@ -113,6 +138,7 @@ class GraphDraftWorkspace extends ChangeNotifier {
         if (record == null) rethrow;
       }
     }
+    _requireAccess();
     if (record == null) {
       throw const GraphDraftException(
           401, 'Sign in to open this account graph.');
@@ -125,24 +151,32 @@ class GraphDraftWorkspace extends ChangeNotifier {
   /// Called only for an explicit new graph/import/fork action, never while
   /// enumerating legacy IndexedDB documents or after signing into a new account.
   Future<GraphDraftEditorSession> create(GraphDocument document,
-      {Map<String, Uint8List> blobs = const {}, GraphDraftAuthor? author}) {
+      {Map<String, Uint8List> blobs = const {},
+      Map<String, Object?> packageExtras = const {},
+      GraphDraftAuthor? author}) {
     final pending = _creating[document.id];
     if (pending != null) return pending;
-    final future = _create(document, blobs: blobs, author: author);
+    final future = _create(document,
+        blobs: blobs, packageExtras: packageExtras, author: author);
     _creating[document.id] = future;
     return future.whenComplete(() => _creating.remove(document.id));
   }
 
   Future<GraphDraftEditorSession> _create(GraphDocument document,
       {Map<String, Uint8List> blobs = const {},
+      Map<String, Object?> packageExtras = const {},
       GraphDraftAuthor? author}) async {
+    _requireAccess();
     validateDraftId(document.id);
     if (_sessions.containsKey(document.id) ||
         await store.read(account.id, document.id) != null) {
       throw StateError('This local draft already exists. Open it instead.');
     }
     final record = GraphDraftRecovery(
-        accountId: account.id, document: document.toJson(), generation: 0);
+        accountId: account.id,
+        document: document.toJson(),
+        packageExtras: packageExtras,
+        generation: 0);
     final session = GraphDraftEditorSession._(this, record);
     _sessions[document.id] = session;
     if (author != null) session.selectAuthor(author);
@@ -192,6 +226,7 @@ class GraphDraftWorkspace extends ChangeNotifier {
     final blobs = await original.allAvailableBlobs();
     final fork = await create(copy,
         blobs: blobs,
+        packageExtras: original.recovery.packageExtras,
         author: directory?.authors
             .where((a) => a.id == directory!.defaultAuthorId)
             .firstOrNull);
@@ -213,6 +248,7 @@ class GraphDraftWorkspace extends ChangeNotifier {
   @override
   void dispose() {
     _closed = true;
+    account.removeListener(_accountChanged);
     account.invalidate();
     for (final session in _sessions.values) {
       session.close();

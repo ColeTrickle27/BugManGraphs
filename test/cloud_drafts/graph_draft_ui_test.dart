@@ -21,6 +21,28 @@ import 'graph_draft_sync_test.dart'
 
 void main() {
   testWidgets(
+      'account invalidation hides gallery and blocks recovery reopening without deleting stored work',
+      (tester) async {
+    final api = FixtureDraftService(), store = MemoryGraphDraftStore();
+    final w = workspace(api, store);
+    final original = await w.create(doc());
+    await tester
+        .pumpWidget(MaterialApp(home: AccountGraphGallery(workspace: w)));
+    await tester.pumpAndSettle();
+    expect(find.text(doc().customer.displayName), findsOneWidget);
+    w.account.invalidate();
+    await tester.pumpAndSettle();
+    expect(find.text(doc().customer.displayName), findsNothing);
+    expect(
+        find.textContaining('Sign in to the original account'), findsOneWidget);
+    await expectLater(w.open(original.id), throwsA(isA<Exception>()));
+    expect(() => w.localGraphs(), throwsA(isA<Exception>()));
+    expect(await store.read(ownerA, original.id), isNotNull);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    w.dispose();
+  });
+
+  testWidgets(
       'Home drains queued recovery and retries after reconnect without reopening editor',
       (tester) async {
     final api = FixtureDraftService()..failCode = 503;
