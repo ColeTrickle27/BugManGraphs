@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../models/graph_document.dart';
 import '../services/graph_file_handoff.dart';
 
@@ -31,6 +32,10 @@ class _GraphFileHandoffDialogState extends State<GraphFileHandoffDialog> {
   String? _status;
   bool get _png => widget.action == GraphFileAction.savePng;
   String get _kind => _png ? 'PNG' : 'PDF';
+  bool get _mobile =>
+      defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.android;
+  bool get _offerShare => _mobile || widget.action == GraphFileAction.emailPdf;
   @override
   void initState() {
     super.initState();
@@ -78,6 +83,7 @@ class _GraphFileHandoffDialogState extends State<GraphFileHandoffDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+        scrollable: true,
         title: Text(switch (widget.action) {
           GraphFileAction.savePng => 'Save PNG',
           GraphFileAction.savePdf => 'Save PDF',
@@ -99,12 +105,14 @@ class _GraphFileHandoffDialogState extends State<GraphFileHandoffDialog> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(switch (widget.action) {
-                          GraphFileAction.savePng =>
-                            'On iPhone, choose Save Image in the share sheet to keep the PNG in Photos.',
-                          GraphFileAction.savePdf =>
-                            'On iPhone, choose Save to Files in the share sheet.',
+                          GraphFileAction.savePng => _mobile
+                              ? 'If Save Image is offered in the share sheet, choose it to keep the PNG in Photos. Otherwise download and save the image manually.'
+                              : 'Download the PNG. Your browser controls the save location.',
+                          GraphFileAction.savePdf => _mobile
+                              ? 'Choose Save to Files if offered in the share sheet, or download the PDF and choose its destination yourself.'
+                              : 'Download the PDF. Your browser controls the save location.',
                           GraphFileAction.emailPdf =>
-                            'Choose Gmail or your email app in the share sheet to attach this PDF, then review and send.',
+                            'Share this PDF with an available email app, then review the attachment, recipient and sending account. Gmail may not be offered.',
                         }),
                         const SizedBox(height: 12),
                         if (snapshot.connectionState != ConnectionState.done)
@@ -122,7 +130,10 @@ class _GraphFileHandoffDialogState extends State<GraphFileHandoffDialog> {
                               ? 'The file could not be prepared: ${snapshot.error}. Close this panel and try again.'
                               : 'The file could not be prepared. Close this panel and try again.')
                         else ...[
-                          if (!export.file.canShare)
+                          if (!_offerShare)
+                            const Text(
+                                'Check your browser downloads after saving.')
+                          else if (!export.file.canShare)
                             const Text(
                                 'File sharing is unavailable in this browser. Download the file and choose its destination yourself.')
                           else
@@ -130,7 +141,7 @@ class _GraphFileHandoffDialogState extends State<GraphFileHandoffDialog> {
                                 'Available destinations depend on your browser and installed apps.'),
                           const SizedBox(height: 12),
                           Wrap(spacing: 8, runSpacing: 8, children: [
-                            if (export.file.canShare)
+                            if (_offerShare && export.file.canShare)
                               FilledButton.icon(
                                   onPressed:
                                       _sharing ? null : () => _share(export),

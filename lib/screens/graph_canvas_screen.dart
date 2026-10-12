@@ -7751,20 +7751,6 @@ class _TopEditorToolbar extends StatelessWidget {
                       title: Text('Save Graph to BugMan Graphs', maxLines: 2, softWrap: true),
                     ),
                   ),
-                  PopupMenuItem(
-                    value: _EditorFileAction.exportPdf,
-                    child: ListTile(
-                      leading: Icon(Icons.ios_share),
-                      title: Text('Save PDF to OpsBrain'),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: _EditorFileAction.exportPng,
-                    child: ListTile(
-                      leading: Icon(Icons.ios_share),
-                      title: Text('Save PNG to OpsBrain'),
-                    ),
-                  ),
                   PopupMenuDivider(),
                   PopupMenuItem(
                     enabled: false,

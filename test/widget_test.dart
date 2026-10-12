@@ -774,8 +774,8 @@ void main() {
     expect(find.text('Save PDF…'), findsOneWidget);
     expect(find.text('Email PDF…'), findsOneWidget);
     expect(find.text('EXPORT FILE'), findsOneWidget);
-    expect(find.text('Save PDF to OpsBrain'), findsOneWidget);
-    expect(find.text('Save PNG to OpsBrain'), findsOneWidget);
+    expect(find.text('Save PDF to OpsBrain'), findsNothing);
+    expect(find.text('Save PNG to OpsBrain'), findsNothing);
     expect(find.text('Copy Structure to New Graph'), findsOneWidget);
 
     // No BugMan Graphs portal is wired up for a bare _pumpEditor() session,
@@ -784,26 +784,6 @@ void main() {
     await tester.pump();
     expect(find.text('No changes to save'), findsOneWidget);
     await tester.pumpAndSettle();
-
-    await tester.tap(find.byTooltip('Save and share'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Save PDF to OpsBrain'));
-    await tester.pumpAndSettle();
-    expect(
-      find.text(
-        'Exporting PDF/PNG files to Holloman Ops Brain is available when '
-        'BugManGraphs is opened through Holloman Ops Brain',
-      ),
-      findsOneWidget,
-    );
-    await tester.pump(const Duration(seconds: 2));
-    expect(
-      find.text(
-        'Exporting PDF/PNG files to Holloman Ops Brain is available when '
-        'BugManGraphs is opened through Holloman Ops Brain',
-      ),
-      findsOneWidget,
-    );
 
     await tester.tap(find.byTooltip('Canvas options'));
     await tester.pumpAndSettle();
@@ -814,6 +794,13 @@ void main() {
   });
 
   Future<void> chooseFileAction(WidgetTester tester, String label) async {
+    if (label == 'Save PDF to OpsBrain' || label == 'Save PNG to OpsBrain') {
+      // The legacy callbacks stay supported; these actions are no longer menu entries.
+      final dynamic toolbar = tester.widget(find.byWidgetPredicate((w) => w.runtimeType.toString() == '_TopEditorToolbar'));
+      if (label == 'Save PDF to OpsBrain') { toolbar.onExportPdf(); } else { toolbar.onExportPng(); }
+      await tester.pumpAndSettle();
+      return;
+    }
     await tester.tap(find.byTooltip('Save and share'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text(label));
@@ -964,10 +951,15 @@ void main() {
     String label,
   ) async {
     await tester.runAsync(() async {
-      await tester.tap(find.byTooltip('Save and share'));
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text(label));
-  await tester.tap(find.text(label));
+      if (label == 'Save PDF to OpsBrain' || label == 'Save PNG to OpsBrain') {
+        final dynamic toolbar = tester.widget(find.byWidgetPredicate((w) => w.runtimeType.toString() == '_TopEditorToolbar'));
+        if (label == 'Save PDF to OpsBrain') { toolbar.onExportPdf(); } else { toolbar.onExportPng(); }
+      } else {
+        await tester.tap(find.byTooltip('Save and share'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text(label));
+        await tester.tap(find.text(label));
+      }
       await tester.pump();
       // The PDF/PNG render pipeline (image capture + PDF assembly) does
       // real async work that only progresses under runAsync's real
@@ -980,7 +972,7 @@ void main() {
     });
   }
 
-  testWidgets('Export PDF/PNG save the graph and rendered exports to Ops Brain',
+  testWidgets('retained legacy PDF/PNG callbacks preserve OpsBrain export support',
       (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
