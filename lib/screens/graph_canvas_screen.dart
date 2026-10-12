@@ -21,6 +21,10 @@ import '../models/job.dart';
 import '../models/trace_geometry.dart';
 import '../models/wall_segment.dart';
 import 'trace_workspace_screen.dart';
+import '../services/graph_file_handoff_factory.dart';
+import '../services/graph_file_handoff.dart';
+import 'new_job_screen.dart';
+import '../widgets/graph_file_handoff_dialog.dart';
 import '../services/export_bounds_calculator.dart';
 import '../services/bugman_portal_service_factory.dart';
 import '../services/bugman_portal_service.dart';
@@ -61,6 +65,7 @@ class GraphCanvasScreen extends StatefulWidget {
     this.onPortalSignIn,
     this.portalKey,
     this.markerDefaultsStore,
+    this.fileHandoff,
     this.presentationMode = false,
     this.presentationMarkerIds = const <String>{},
     super.key,
@@ -76,6 +81,7 @@ class GraphCanvasScreen extends StatefulWidget {
   final ValueChanged<String>? onPortalSignIn;
   final String? portalKey;
   final MarkerDefaultsStore? markerDefaultsStore;
+  final GraphFileHandoff? fileHandoff;
   final bool presentationMode;
   final Set<String> presentationMarkerIds;
 
@@ -85,14 +91,26 @@ class GraphCanvasScreen extends StatefulWidget {
 
 class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   static const Size _canvasSize = Size(3600, 2600);
-  Rect get _sceneBounds => (Offset.zero & _canvasSize)
-      .expandToInclude(ExportBoundsCalculator.forDocument(_document));
+  Rect get _sceneBounds {
+    var bounds = (Offset.zero & _canvasSize)
+        .expandToInclude(ExportBoundsCalculator.forDocument(_document));
+    for (final annotation in _annotations) {
+      if (GraphAnnotationsPainter.isCallout(annotation)) {
+        bounds = bounds.expandToInclude(GraphAnnotationsPainter.calloutBounds(annotation, _labels));
+        bounds = bounds.expandToInclude(Rect.fromCircle(center:Offset(
+          (annotation.extraProperties['calloutTipX'] as num).toDouble(),
+          (annotation.extraProperties['calloutTipY'] as num).toDouble()),radius:16/_labels.zoom));
+      }
+    }
+    return bounds;
+  }
   static const double _endpointSnapDistance = 22;
   double get _gridSnapSize => _drawingScale.canonicalGridSpacing;
   DrawingScale _drawingScale = const DrawingScale();
   double _labelTextScale = 1;
   LabelPresentation get _labels => LabelPresentation(
-      zoom: _transformationController.value.getMaxScaleOnAxis() *
+      zoom: math.sqrt(math.pow(_transformationController.value.entry(0, 0), 2) +
+          math.pow(_transformationController.value.entry(1, 0), 2)) *
           _drawingScale.presentationFactor,
       textScale: _labelTextScale,
       bounded: true);
@@ -133,6 +151,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   late final EditorInteractionController _interaction;
   final List<_UndoEntry> _undoStack = <_UndoEntry>[];
   final List<_RedoEntry> _redoStack = <_RedoEntry>[];
+  int _fileRevision = 0;
+  late final _fileHandoff = widget.fileHandoff ?? createGraphFileHandoff();
   bool _applyingHistory = false;
   GraphPoint? _activeWallStart;
   GraphPoint? _activePathStartPoint;
@@ -343,6 +363,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   void _handleDocumentChanged() {
+    _fileRevision += 1;
     if (!_applyingHistory && _document.isDirty && _redoStack.isNotEmpty) {
       _redoStack.clear();
     }
@@ -1482,7 +1503,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     for (var i = _annotations.length - 1; i >= 0; i--) {
       final annotation = _annotations[i];
       if (!_isAnnotationVisible(annotation)) continue;
-      if (GraphAnnotationsPainter.containsPoint(annotation, sceneOffset, _labels)) {
+      if (GraphAnnotationsPainter.containsPoint(annotation, sceneOffset, _labels, sceneBounds: _sceneBounds)) {
         candidates.add(_Selection.annotation(i));
       }
     }
@@ -2515,7 +2536,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         continue;
       }
 
-      if (GraphAnnotationsPainter.containsPoint(_annotations[i], point.offset, _labels)) {
+      if (GraphAnnotationsPainter.containsPoint(_annotations[i], point.offset, _labels, sceneBounds: _sceneBounds)) {
         return i;
       }
     }
@@ -2716,6 +2737,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       _SelectionKind.annotation => _DragTarget.annotation(
           annotationIndex: selection.index,
           distance: _annotations[selection.index].point.distanceTo(point),
+          originalPoint: point,
         ),
       _SelectionKind.shape =>
         (allowHandles ? _nearestShapeVertexTarget(selection.index, point) ??
@@ -3209,7 +3231,12 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     }
 
     final nextAnnotations = <GraphAnnotation>[..._annotations];
-    nextAnnotations[index] = nextAnnotations[index].copyWith(point: point);
+    final source = (_dragOriginalAnnotations ?? _annotations)[index];
+    final original = target.originalPoint;
+    final movedPoint = GraphAnnotationsPainter.isCallout(source) && original != null
+        ? GraphPoint.fromOffset(source.point.offset + point.offset - original.offset)
+        : point;
+    nextAnnotations[index] = nextAnnotations[index].copyWith(point: movedPoint);
 
     setState(() {
       _annotations = nextAnnotations;
@@ -5934,6 +5961,39 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     );
   }
 
+  Future<void> _editGraphInformation() async {
+    final customer = _document.customer;
+    final initial = Job(id:_document.id,customerName:customer.name,
+      serviceAddress:customer.serviceAddress,pestPacLocationNumber:customer.pestPacLocationNumber,
+      pestPacBillToNumber:customer.pestPacBillToNumber,serviceType:customer.serviceType,
+      createdBy:customer.createdBy,createdDate:_document.createdAt,intakeDetails:customer.intakeDetails);
+    final edited = await showDialog<Job>(context:context,builder:(context)=>Dialog(
+      insetPadding:const EdgeInsets.symmetric(horizontal:12,vertical:24),
+      child:SizedBox(width:720,height:MediaQuery.sizeOf(context).height*0.86,
+        child:NewJobScreen(initialJob:initial,editOnly:true,asDialog:true,onCreateJob:(_){ }))));
+    if(!mounted || edited==null)return;
+    setState((){_document.updateJob(edited);_canvasStatus='Graph information updated';});
+  }
+
+  // Prepare afresh for each panel: failed attempts and presentation changes
+  // must never reuse a previous render. The dialog keeps its own active future.
+  Future<PreparedGraphExport?> _prepareFileHandoff(GraphFileKind kind) async {
+        final revision = _fileRevision;
+        final name = buildGraphFileName(_document.customer, _document.createdAt, kind);
+          final bytes = await _renderExportBytes(kind);
+          if (bytes == null || !mounted || revision != _fileRevision) return null;
+          return PreparedGraphExport(_fileHandoff.prepare(bytes, name,
+            kind == GraphFileKind.pngExport ? 'image/png' : 'application/pdf'), revision);
+
+      }
+
+  Future<void> _openFileHandoff(GraphFileAction action) async {
+    final kind = action == GraphFileAction.savePng ? GraphFileKind.pngExport : GraphFileKind.pdfExport;
+    await showDialog<void>(context: context, builder: (_) => GraphFileHandoffDialog(
+      action: action, document: _document, revision: () => _fileRevision,
+      prepare: () => _prepareFileHandoff(kind)));
+  }
+
   Future<void> _exportGraphPdf() =>
       _exportGraphToOpsBrain(GraphFileKind.pdfExport);
 
@@ -5956,6 +6016,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     final bounds = ExportBoundsCalculator.forDocument(
       _document,
       canvasSize: _canvasSize,
+      labels: _labels,
+      sceneBounds: _sceneBounds,
       structureVisible: _isLayerVisible(_GraphLayer.structure),
       shapesVisible: _isLayerVisible(_GraphLayer.structure) &&
           _isLayerVisible(_GraphLayer.shapes),
@@ -6873,8 +6935,11 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     )..layout(maxWidth: 260);
     final width =
         math.max(132.0, math.min(280.0, textPainter.width + 32)).toDouble();
+    final noteAnchor = GraphAnnotationsPainter.isCallout(annotation)
+        ? GraphAnnotationsPainter.textBounds(annotation, _labels, sceneBounds: _sceneBounds).center
+        : annotation.point.offset;
     final anchor = MatrixUtils.transformPoint(_transformationController.value,
-        _drawingScale.toDisplay(annotation.point.offset));
+        _drawingScale.toDisplay(noteAnchor));
     final left = (anchor.dx - (width / 2))
         .clamp(8.0, math.max(8, viewportSize.width - width - 8))
         .toDouble();
@@ -7182,9 +7247,13 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
                                               IconButton(
-                                                  tooltip: 'Undo drawing point',
+                                                  tooltip: 'Undo',
                                                   icon: const Icon(Icons.undo),
                                                   onPressed: _undoLastAction),
+                                              IconButton(
+                                                  tooltip: 'Redo',
+                                                  icon: const Icon(Icons.redo),
+                                                  onPressed: _redoStack.isEmpty ? null : _redoLastAction),
                                               IconButton(
                                                   tooltip: 'Cancel drawing',
                                                   icon: const Icon(Icons.close),
@@ -7196,7 +7265,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                                                   onPressed: _finishWallPath),
                                             ])))
                                 : CanvasQuickToolbar(
-                                    showHistory: MediaQuery.sizeOf(context).width >= 1120,
+                                    showHistory: true,
+                                    canUndo: _undoStack.isNotEmpty || _activeWallStart != null,
+                                    canRedo: _redoStack.isNotEmpty,
                                     actions: _quickToolbarActions,
                                     selectedTool: _selectedTool,
                                     selectedMarkerType: _selectedMarkerType,
@@ -7238,8 +7309,6 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                               (_labelTextScale - 0.15).clamp(0.7, 1.6)),
                           onLabelLarger: () => setState(() => _labelTextScale =
                               (_labelTextScale + 0.15).clamp(0.7, 1.6)),
-                          onUndo: _undoLastAction,
-                          onRedo: _redoLastAction,
                           onFinish: _finishWallPath,
                           finishLabel: _selectedTool == CanvasTool.structure &&
                                   _selectedStructureType ==
@@ -7250,8 +7319,12 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                                   : 'Close Shape',
                           onClear: _confirmClearGraph,
                           onSaveGraphFile: _handleGraphFileSaveTapped,
+                          onEditGraphInformation: _editGraphInformation,
                           onExportPdf: _exportGraphPdf,
                           onExportPng: _exportGraphPng,
+                          onSavePng: () => _openFileHandoff(GraphFileAction.savePng),
+                          onSavePdf: () => _openFileHandoff(GraphFileAction.savePdf),
+                          onEmailPdf: () => _openFileHandoff(GraphFileAction.emailPdf),
                           onSaveAndCreateSalesBrainReport:
                               _saveAndCreateSalesBrainReport,
                           onNewWithExistingStructure:
@@ -7488,14 +7561,16 @@ class _TopEditorToolbar extends StatelessWidget {
   const _TopEditorToolbar({
     required this.onLabelSmaller,
     required this.onLabelLarger,
-    required this.onUndo,
-    required this.onRedo,
     required this.onFinish,
     required this.finishLabel,
     required this.onClear,
     required this.onSaveGraphFile,
+    required this.onEditGraphInformation,
     required this.onExportPdf,
     required this.onExportPng,
+    required this.onSavePng,
+    required this.onSavePdf,
+    required this.onEmailPdf,
     required this.onSaveAndCreateSalesBrainReport,
     required this.onNewWithExistingStructure,
     required this.onZoomIn,
@@ -7509,16 +7584,18 @@ class _TopEditorToolbar extends StatelessWidget {
     required this.onScaleChanged,
   });
 
-  final VoidCallback onUndo;
   final VoidCallback onLabelSmaller;
   final VoidCallback onLabelLarger;
-  final VoidCallback onRedo;
   final VoidCallback onFinish;
   final String finishLabel;
   final VoidCallback onClear;
   final VoidCallback onSaveGraphFile;
+  final VoidCallback onEditGraphInformation;
   final VoidCallback onExportPdf;
   final VoidCallback onExportPng;
+  final VoidCallback onSavePng;
+  final VoidCallback onSavePdf;
+  final VoidCallback onEmailPdf;
   final VoidCallback onSaveAndCreateSalesBrainReport;
   final VoidCallback onNewWithExistingStructure;
   final VoidCallback onZoomIn;
@@ -7547,16 +7624,6 @@ class _TopEditorToolbar extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Row(
             children: [
-              _IconOnlyButton(
-                icon: Icons.undo,
-                tooltip: 'Undo',
-                onPressed: onUndo,
-              ),
-              _IconOnlyButton(
-                icon: Icons.redo,
-                tooltip: 'Redo',
-                onPressed: onRedo,
-              ),
               if (!mobile) const _ToolbarDivider(),
               if (mobile)
                 _IconOnlyButton(
@@ -7588,6 +7655,7 @@ class _TopEditorToolbar extends StatelessWidget {
                 onPressed: onZoomIn,
               ),
               if (!mobile) const _ToolbarDivider(),
+              _IconOnlyButton(icon:Icons.contact_page_outlined,tooltip:'Edit Graph Information',onPressed:onEditGraphInformation),
               PopupMenuButton<_EditorOptionAction>(
                 tooltip: 'Canvas options',
                 onSelected: (action) {
@@ -7600,8 +7668,6 @@ class _TopEditorToolbar extends StatelessWidget {
                       onClear();
                     case _EditorOptionAction.resetZoom:
                       onResetZoom();
-                    case _EditorOptionAction.redo:
-                      onRedo();
                     case _EditorOptionAction.grid:
                       onToggleGrid();
                     case _EditorOptionAction.snapGrid:
@@ -7626,8 +7692,6 @@ class _TopEditorToolbar extends StatelessWidget {
                       value: _EditorOptionAction.largerLabels,
                       child: Text('Larger labels')),
                   if (mobile) ...[
-                    const PopupMenuItem(
-                        value: _EditorOptionAction.redo, child: Text('Redo')),
                     const PopupMenuItem(
                         value: _EditorOptionAction.resetZoom,
                         child: Text('Reset zoom')),
@@ -7664,12 +7728,12 @@ class _TopEditorToolbar extends StatelessWidget {
                 ],
                 child: mobile
                     ? const SizedBox(
-                        width: 48, height: 48, child: Icon(Icons.tune))
+                        width: 48, height: 48, child: Icon(Icons.display_settings_outlined))
                     : const Padding(
                         padding: EdgeInsets.symmetric(horizontal: 4),
                         child: Row(
                           children: [
-                            Icon(Icons.tune, size: 18),
+                            Icon(Icons.display_settings_outlined, size: 18),
                             SizedBox(width: 5),
                             Text('Options'),
                             Icon(Icons.arrow_drop_down),
@@ -7678,11 +7742,14 @@ class _TopEditorToolbar extends StatelessWidget {
                       ),
               ),
               PopupMenuButton<_EditorFileAction>(
-                tooltip: 'File actions',
+                tooltip: 'Save and share',
                 onSelected: (action) => switch (action) {
                   _EditorFileAction.saveGraphFile => onSaveGraphFile(),
                   _EditorFileAction.exportPdf => onExportPdf(),
                   _EditorFileAction.exportPng => onExportPng(),
+                  _EditorFileAction.savePng => onSavePng(),
+                  _EditorFileAction.savePdf => onSavePdf(),
+                  _EditorFileAction.emailPdf => onEmailPdf(),
                   _EditorFileAction.saveAndCreateSalesBrainReport =>
                     onSaveAndCreateSalesBrainReport(),
                   _EditorFileAction.newWithExistingStructure =>
@@ -7705,14 +7772,21 @@ class _TopEditorToolbar extends StatelessWidget {
                     value: _EditorFileAction.saveGraphFile,
                     child: ListTile(
                       leading: Icon(Icons.save_outlined),
-                      title: Text('Graph File'),
+                      title: Text('Save Graph to BugMan Graphs', maxLines: 2, softWrap: true),
                     ),
                   ),
                   PopupMenuItem(
-                    value: _EditorFileAction.saveAndCreateSalesBrainReport,
+                    value: _EditorFileAction.exportPdf,
                     child: ListTile(
-                      leading: Icon(Icons.receipt_long_outlined),
-                      title: Text('Save & Open Inspection Workflow'),
+                      leading: Icon(Icons.ios_share),
+                      title: Text('Save PDF to OpsBrain'),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _EditorFileAction.exportPng,
+                    child: ListTile(
+                      leading: Icon(Icons.ios_share),
+                      title: Text('Save PNG to OpsBrain'),
                     ),
                   ),
                   PopupMenuDivider(),
@@ -7728,20 +7802,9 @@ class _TopEditorToolbar extends StatelessWidget {
                       ),
                     ),
                   ),
-                  PopupMenuItem(
-                    value: _EditorFileAction.exportPdf,
-                    child: ListTile(
-                      leading: Icon(Icons.ios_share),
-                      title: Text('Export PDF'),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: _EditorFileAction.exportPng,
-                    child: ListTile(
-                      leading: Icon(Icons.ios_share),
-                      title: Text('Export PNG'),
-                    ),
-                  ),
+                  PopupMenuItem(value: _EditorFileAction.savePng, child: ListTile(leading: Icon(Icons.image_outlined),title:Text('Save PNG…'))),
+                  PopupMenuItem(value: _EditorFileAction.savePdf, child: ListTile(leading: Icon(Icons.picture_as_pdf_outlined),title:Text('Save PDF…'))),
+                  PopupMenuItem(value: _EditorFileAction.emailPdf, child: ListTile(leading: Icon(Icons.email_outlined),title:Text('Email PDF…'))),
                   PopupMenuDivider(),
                   PopupMenuItem(
                     value: _EditorFileAction.newWithExistingStructure,
@@ -7755,12 +7818,12 @@ class _TopEditorToolbar extends StatelessWidget {
                     ? const SizedBox(
                         width: 48,
                         height: 48,
-                        child: Icon(Icons.folder_outlined))
+                        child: Icon(Icons.ios_share))
                     : const Padding(
                         padding: EdgeInsets.symmetric(horizontal: 4),
                         child: Row(
                           children: [
-                            Icon(Icons.folder_outlined, size: 18),
+                            Icon(Icons.ios_share, size: 18),
                             Icon(Icons.arrow_drop_down),
                           ],
                         ),
@@ -9818,6 +9881,9 @@ enum _EditorFileAction {
   saveGraphFile,
   exportPdf,
   exportPng,
+  savePng,
+  savePdf,
+  emailPdf,
   saveAndCreateSalesBrainReport,
   newWithExistingStructure,
 }
@@ -9827,7 +9893,6 @@ enum _EditorOptionAction {
   largerLabels,
   clearGraph,
   resetZoom,
-  redo,
   grid,
   snapGrid,
   scale1,
@@ -9876,11 +9941,13 @@ class _DragTarget {
   factory _DragTarget.annotation({
     required int annotationIndex,
     required double distance,
+    GraphPoint? originalPoint,
   }) {
     return _DragTarget._(
       kind: _DragKind.annotation,
       annotationIndex: annotationIndex,
       distance: distance,
+      originalPoint: originalPoint,
       selection: _Selection.annotation(annotationIndex),
     );
   }

@@ -5,6 +5,8 @@ import '../models/graph_annotation.dart';
 import '../models/graph_marker_catalog.dart';
 import '../models/graph_point.dart';
 import '../models/graph_shape.dart';
+import '../editor/label_presentation.dart';
+import '../widgets/graph_annotations_painter.dart';
 import 'trace_presentation.dart';
 
 class ExportBoundsCalculator {
@@ -20,6 +22,8 @@ class ExportBoundsCalculator {
     bool treatmentVisible = true,
     bool photosVisible = true,
     bool traceVisible = true,
+    LabelPresentation? labels,
+    Rect? sceneBounds,
   }) {
     final shapeSegmentIndexes = <int>{};
     final visibleShapeSegmentIndexes = <int>{};
@@ -47,8 +51,15 @@ class ExportBoundsCalculator {
           inspectionsVisible: inspectionsVisible,
           treatmentVisible: treatmentVisible,
           photosVisible: photosVisible,
-        ))
+        )) ...[
           annotation.point,
+          if (annotation.extraProperties['calloutTipX'] is num &&
+              annotation.extraProperties['calloutTipY'] is num)
+            GraphPoint(
+              x: (annotation.extraProperties['calloutTipX'] as num).toDouble(),
+              y: (annotation.extraProperties['calloutTipY'] as num).toDouble(),
+            ),
+        ],
       if (structureVisible)
         for (final stroke in document.freehandStrokes) ...stroke.points,
       if (traceVisible)
@@ -77,6 +88,31 @@ class ExportBoundsCalculator {
       right + padding,
       bottom + padding,
     );
+    if (labels != null) {
+      for (final annotation in document.annotations) {
+        if (!_annotationVisible(annotation,
+            structureVisible: structureVisible,
+            inspectionsVisible: inspectionsVisible,
+            treatmentVisible: treatmentVisible,
+            photosVisible: photosVisible)) {
+          continue;
+        }
+        if (annotation.kind == GraphAnnotationKind.text ||
+            GraphAnnotationsPainter.isCallout(annotation)) {
+          bounds = bounds.expandToInclude(GraphAnnotationsPainter.textBounds(
+                  annotation, labels,
+                  sceneBounds: sceneBounds)
+              .inflate(4 / labels.zoom));
+        }
+        if (GraphAnnotationsPainter.isCallout(annotation)) {
+          final tip = Offset(
+              (annotation.extraProperties['calloutTipX'] as num).toDouble(),
+              (annotation.extraProperties['calloutTipY'] as num).toDouble());
+          bounds = bounds.expandToInclude(
+              Rect.fromCircle(center: tip, radius: 16 / labels.zoom));
+        }
+      }
+    }
     if (traceVisible) {
       final traceBounds = TracePresentation.paintedBounds(document.traces);
       if (traceBounds != null) bounds = bounds.expandToInclude(traceBounds);
