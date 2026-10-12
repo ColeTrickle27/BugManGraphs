@@ -234,8 +234,7 @@ class GraphDraftWorkspace extends ChangeNotifier {
     return fork;
   }
 
-  Future<void> closeGracefully() async {
-    account.invalidate();
+  Future<void> flushRecovery() async {
     for (final session in _sessions.values) {
       await session.flushLocal();
       if (session.hasUnpersistedEdits) {
@@ -243,6 +242,11 @@ class GraphDraftWorkspace extends ChangeNotifier {
             'The latest recovery could not be saved. Keep the graph open.');
       }
     }
+  }
+
+  Future<void> closeGracefully() async {
+    await flushRecovery();
+    account.invalidate();
   }
 
   @override

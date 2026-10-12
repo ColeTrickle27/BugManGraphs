@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'models/customer_file.dart';
+import 'screens/cloud_drafts/graph_draft_session_screen.dart';
+import 'services/cloud_drafts/graph_draft_workspace.dart';
 import 'models/graph_document.dart';
 import 'models/job.dart';
 import 'screens/graph_canvas_screen.dart';
@@ -163,7 +165,9 @@ class _BugManGraphsAppState extends State<BugManGraphsApp> {
                     );
                   },
                 )
-              : HomeScreen(jobs: _jobs, repository: _repository),
+              : accountGraphDraftsActivated
+                  ? GraphDraftSessionScreen(legacyRepository: _repository)
+                  : HomeScreen(jobs: _jobs, repository: _repository),
       routes: {
         NewJobScreen.routeName: (context) => NewJobScreen(
               onCreateJob: _addJob,

@@ -11,9 +11,15 @@ import 'graph_draft_editor_screen.dart';
 
 class AccountGraphGallery extends StatefulWidget {
   const AccountGraphGallery(
-      {super.key, required this.workspace, this.legacyRepository});
+      {super.key,
+      required this.workspace,
+      this.legacyRepository,
+      this.onSignOut,
+      this.sessionMessage});
   final GraphDraftWorkspace workspace;
   final GraphRepository? legacyRepository;
+  final VoidCallback? onSignOut;
+  final String? sessionMessage;
   @override
   State<AccountGraphGallery> createState() => _AccountGraphGalleryState();
 }
@@ -221,6 +227,9 @@ class _AccountGraphGalleryState extends State<AccountGraphGallery>
           .compareTo(local[a]?.updatedAt ?? remote[a]!.updatedAt));
     return Scaffold(
         appBar: AppBar(title: const Text('My Graphs'), actions: [
+          if (widget.onSignOut != null)
+            TextButton(
+                onPressed: widget.onSignOut, child: const Text('Sign out')),
           IconButton(
               tooltip: 'Refresh my graphs',
               onPressed: _loading ? null : _refresh,
@@ -234,6 +243,10 @@ class _AccountGraphGalleryState extends State<AccountGraphGallery>
         body: SafeArea(
             child: Column(children: [
           if (_loading) const LinearProgressIndicator(),
+          if (widget.sessionMessage != null)
+            Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(widget.sessionMessage!)),
           if (_error != null)
             Padding(padding: const EdgeInsets.all(16), child: Text(_error!)),
           Expanded(
