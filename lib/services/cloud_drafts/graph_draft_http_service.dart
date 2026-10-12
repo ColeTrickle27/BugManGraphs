@@ -10,18 +10,45 @@ class HttpGraphDraftService implements GraphDraftService {
       required Uri currentOrigin,
       required this.account})
       : _client = client {
-    if (origin.userInfo.isNotEmpty ||
-        origin.hasQuery ||
-        origin.hasFragment ||
-        !origin.hasAuthority ||
-        !currentOrigin.hasAuthority ||
-        origin.origin != currentOrigin.origin ||
-        !(origin.scheme == 'https' ||
-            (origin.scheme == 'http' &&
-                ['localhost', '127.0.0.1', '::1'].contains(origin.host)))) {
-      throw const FormatException('A same-origin graph API is required');
-    }
+    _validateOrigin(origin, currentOrigin);
   }
+
+  /// Bootstrap a new workspace from the server-derived context. Existing
+  /// recovery may require its old scope; it is never rebound to a new account.
+  static Future<HttpGraphDraftService> connect(
+      {required http.Client client,
+      required Uri origin,
+      required Uri currentOrigin,
+      String? expectedAccountId,
+      String displayName = 'Your account'}) async {
+    _validateOrigin(origin, currentOrigin);
+    final id = await _readContext(client, origin);
+    if (expectedAccountId != null && id != expectedAccountId) {
+      throw const GraphDraftException(
+          401, 'Sign in to the original account to resume this recovery copy.');
+    }
+    return HttpGraphDraftService(
+        client: client,
+        origin: origin,
+        currentOrigin: currentOrigin,
+        account: GraphDraftAccount(id: id, displayName: displayName));
+  }
+
+  static Future<String> _readContext(http.Client client, Uri origin) async {
+    final request = http.Request(
+        'GET', Uri.parse('${origin.origin}/api/graph-drafts/context'))
+      ..followRedirects = false;
+    final response = await http.Response.fromStream(await client.send(request));
+    if (response.statusCode != 200) {
+      throw GraphDraftException(response.statusCode,
+          'Sign in to establish an account draft session.');
+    }
+    final json = (jsonDecode(response.body) as Map).cast<String, Object?>();
+    final id = draftString(json['accountId'], 'account ID');
+    GraphDraftAccount(id: id, displayName: 'Your account');
+    return id;
+  }
+
   final http.Client _client;
   final Uri origin;
   final GraphDraftAccount account;
@@ -40,7 +67,9 @@ class HttpGraphDraftService implements GraphDraftService {
     _active();
     final uri =
         Uri.parse('${origin.origin}$path').replace(queryParameters: query);
-    final request = http.Request(method, uri)..followRedirects = false;
+    final request = http.Request(method, uri)
+      ..followRedirects = false
+      ..headers['X-Graph-Expected-Account-Id'] = account.id;
     if (body != null) {
       final bytes = utf8.encode(jsonEncode(body));
       if (bytes.length > maxRequestBytes) {
@@ -61,6 +90,16 @@ class HttpGraphDraftService implements GraphDraftService {
           'Cloud sync is unavailable. Your local recovery copy is retained.');
     }
     if (!successes.contains(response.statusCode)) {
+      if (response.statusCode == 409) {
+        // Distinguish an owner-scope mismatch from a document revision conflict.
+        // No queued package is ever retried under the newly observed account.
+        final actual = await _readContext(_client, origin);
+        if (actual != account.id) {
+          account.invalidate();
+          throw const GraphDraftException(401,
+              'The signed-in account changed. Sign in to the original account; its recovery copy is retained.');
+        }
+      }
       throw GraphDraftException(
           response.statusCode >= 200 && response.statusCode < 300
               ? 503
@@ -128,5 +167,19 @@ class HttpGraphDraftService implements GraphDraftService {
         DateTime.parse(draftString(data['updatedAt'], 'updated time')),
         GraphDraftAuthor.fromJson(
             (data['author'] as Map).cast<String, Object?>()));
+  }
+}
+
+void _validateOrigin(Uri origin, Uri currentOrigin) {
+  if (origin.userInfo.isNotEmpty ||
+      origin.hasQuery ||
+      origin.hasFragment ||
+      !origin.hasAuthority ||
+      !currentOrigin.hasAuthority ||
+      origin.origin != currentOrigin.origin ||
+      !(origin.scheme == 'https' ||
+          (origin.scheme == 'http' &&
+              ['localhost', '127.0.0.1', '::1'].contains(origin.host)))) {
+    throw const FormatException('A same-origin graph API is required');
   }
 }

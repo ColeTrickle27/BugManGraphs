@@ -21,6 +21,27 @@ import 'graph_draft_sync_test.dart'
 
 void main() {
   testWidgets(
+      'Home drains queued recovery and retries after reconnect without reopening editor',
+      (tester) async {
+    final api = FixtureDraftService()..failCode = 503;
+    final store = MemoryGraphDraftStore();
+    final recoveryWorkspace = workspace(api, store);
+    final session = await recoveryWorkspace.create(doc());
+    await tester.pumpWidget(
+        MaterialApp(home: AccountGraphGallery(workspace: recoveryWorkspace)));
+    await tester.pumpAndSettle();
+    expect(session.hasQueuedEdits, isTrue);
+    api.failCode = null;
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpAndSettle();
+    expect(session.hasQueuedEdits, isFalse);
+    expect(find.textContaining('Synced'), findsOneWidget);
+    expect((await store.read(ownerA, session.id))!.revision, isNotNull);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    recoveryWorkspace.dispose();
+  });
+
+  testWidgets(
       'production gate stays closed and default home performs no cloud work',
       (tester) async {
     expect(createProductionGraphDraftWorkspace(), isNull);
@@ -74,8 +95,7 @@ void main() {
           .pumpWidget(MaterialApp(home: AccountGraphGallery(workspace: a)));
       await tester.pumpAndSettle();
       expect(find.text('Synthetic owner A only'), findsOneWidget);
-      expect(
-          find.text('Saved on this device · waiting to sync'), findsOneWidget);
+      expect(find.textContaining('Synced'), findsOneWidget);
       await tester
           .pumpWidget(MaterialApp(home: AccountGraphGallery(workspace: b)));
       await tester.pumpAndSettle();

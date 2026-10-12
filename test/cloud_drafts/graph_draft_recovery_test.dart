@@ -20,6 +20,94 @@ class FailingStore extends MemoryGraphDraftStore {
 
 void main() {
   test(
+      'deleting an id-less wall does not move its future fields to a surviving wall',
+      () {
+    final json = doc().toJson();
+    final walls = (json['graphObjects'] as Map)['wallSegments'] as List;
+    (walls[0] as Map)['futureWall'] = 'removed';
+    (walls[1] as Map)['futureWall'] = 'survivor';
+    final model = GraphDocument.fromJson(json);
+    model.replaceWallSegments(model.wallSegments.skip(1));
+    final result =
+        (model.toJson()['graphObjects'] as Map)['wallSegments'] as List;
+    expect((result.first as Map)['futureWall'], 'survivor');
+    expect(
+        result.whereType<Map>().any((wall) => wall['futureWall'] == 'removed'),
+        isFalse);
+  });
+
+  test(
+      'ack persistence failure stays nondurable and retry stores revision without uploading again',
+      () async {
+    final api = FixtureDraftService()..hold = true;
+    final store = FailingStore()..fail = false;
+    final w = workspace(api, store);
+    final e = await w.create(doc());
+    final saving = e.retry();
+    await Future<void>.delayed(Duration.zero);
+    store.fail = true;
+    api.pending.single.complete(
+        GraphDraftWriteResult(e.id, 'a' * 32, DateTime.utc(2026), creator));
+    await saving;
+    expect(e.hasUnpersistedEdits, isTrue);
+    expect(e.phase, GraphDraftPhase.localError);
+    expect((await store.read(ownerA, e.id))!.revision, isNull);
+    store.fail = false;
+    await e.retry();
+    expect(e.hasUnpersistedEdits, isFalse);
+    expect(e.phase, GraphDraftPhase.synced);
+    expect((await store.read(ownerA, e.id))!.revision, 'a' * 32);
+    expect(api.writes, hasLength(1));
+    w.dispose();
+  });
+  test(
+      'model editing retains nested future fields without resurrecting removed attachments',
+      () async {
+    final w = workspace(FixtureDraftService(), MemoryGraphDraftStore());
+    final json = doc().toJson();
+    (json['customer'] as Map)['futureCustomer'] = {'version': 2};
+    (json['graphObjects'] as Map)['futureGeometry'] = {
+      'data': [1, 2]
+    };
+    (((json['graphObjects'] as Map)['wallSegments'] as List).first
+        as Map)['futureWall'] = 'retained';
+    json['attachments'] = [
+      {
+        ...const GraphAttachment(
+                id: 'future-photo', name: 'Synthetic', blobKey: 'full')
+            .toJson(),
+        'futureAttachment': {'data': true}
+      },
+      {
+        ...const GraphAttachment(
+                id: 'removed', name: 'Removed', blobKey: 'removed')
+            .toJson(),
+        'futureAttachment': 42
+      }
+    ];
+    final loaded = GraphDocument.fromJson(json);
+    loaded.replaceAttachments([loaded.attachments.first]);
+    final e = await w.create(loaded, blobs: {
+      'full': Uint8List.fromList([1])
+    });
+    e.capture(moved(e));
+    await e.retry();
+    final result = e.recovery.package.document;
+    expect((result['customer'] as Map)['futureCustomer'], {'version': 2});
+    expect((result['graphObjects'] as Map)['futureGeometry'], {
+      'data': [1, 2]
+    });
+    expect(
+        (((result['graphObjects'] as Map)['wallSegments'] as List).first
+            as Map)['futureWall'],
+        'retained');
+    expect((result['attachments'] as List), hasLength(1));
+    expect(((result['attachments'] as List).single as Map)['futureAttachment'],
+        {'data': true});
+    w.dispose();
+  });
+
+  test(
       'storage failure retains in-memory work, does not upload or claim locally saved, and can retry',
       () async {
     final api = FixtureDraftService(),

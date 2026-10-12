@@ -1,16 +1,44 @@
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import '../../models/graph_document.dart';
 import '../graph_repository.dart';
 import 'graph_draft_workspace.dart';
 
 /// Canvas local saves and photo reads remain scoped to this explicit editor
 /// session. They never read/write the legacy unscoped graph repository.
-class GraphDraftEditorRepository implements GraphRepository {
-  GraphDraftEditorRepository(this.session);
-  GraphDraftEditorSession session;
+class GraphDraftEditorRepository extends ChangeNotifier
+    implements GraphRepository {
+  GraphDraftEditorRepository(this._session);
+  GraphDraftEditorSession _session;
+  GraphDraftEditorSession get session => _session;
+  set session(GraphDraftEditorSession value) {
+    _session = value;
+    notifyListeners();
+  }
+
+  Future<GraphDraftEditorSession>? _transition;
+  Future<void> flushCurrent() async {
+    while (_transition != null) {
+      await _transition;
+    }
+    await session.flushLocal();
+  }
+
   Future<GraphDraftEditorSession> ensureSession(GraphDocument document,
-      {Map<String, Uint8List> blobs = const {}}) async {
-    if (session.id == document.id) return session;
+      {Map<String, Uint8List> blobs = const {}}) {
+    if (session.id == document.id) return Future.value(session);
+    final pending = _transition;
+    if (pending != null) {
+      return pending.then((_) => ensureSession(document, blobs: blobs));
+    }
+    final transition = _createSession(document, blobs);
+    _transition = transition;
+    return transition.whenComplete(() {
+      if (identical(_transition, transition)) _transition = null;
+    });
+  }
+
+  Future<GraphDraftEditorSession> _createSession(
+      GraphDocument document, Map<String, Uint8List> blobs) async {
     final old = session;
     session = await old.workspace.create(document,
         blobs: {...await old.allAvailableBlobs(), ...blobs},

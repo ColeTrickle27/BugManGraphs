@@ -26,6 +26,7 @@ import '../services/graph_file_handoff_factory.dart';
 import '../services/graph_file_handoff.dart';
 import '../services/cloud_drafts/graph_draft_workspace.dart';
 import '../services/cloud_drafts/graph_draft_editor_repository.dart';
+import 'cloud_drafts/graph_draft_editor_screen.dart';
 import '../widgets/cloud_drafts/graph_draft_sync_panel.dart';
 import '../models/cloud_graph_draft.dart';
 import 'new_job_screen.dart';
@@ -74,6 +75,7 @@ class GraphCanvasScreen extends StatefulWidget {
     this.fileHandoff,
     this.cloudDraftSession,
     this.presentationMode = false,
+    this.completePackagePreview = false,
     this.presentationMarkerIds = const <String>{},
     super.key,
   }) : assert(job != null || document != null);
@@ -91,6 +93,7 @@ class GraphCanvasScreen extends StatefulWidget {
   final GraphFileHandoff? fileHandoff;
   final GraphDraftEditorSession? cloudDraftSession;
   final bool presentationMode;
+  final bool completePackagePreview;
   final Set<String> presentationMarkerIds;
 
   @override
@@ -309,7 +312,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   void initState() {
     super.initState();
     _document = widget.document ?? GraphDocument.forJob(widget.job!);
-    _repository = widget.cloudDraftSession==null?widget.repository ?? MemoryGraphRepository():GraphDraftEditorRepository(widget.cloudDraftSession!);
+    _repository = widget.repository is GraphDraftEditorRepository ? widget.repository! : widget.cloudDraftSession==null ? widget.repository ?? MemoryGraphRepository() : GraphDraftEditorRepository(widget.cloudDraftSession!);
     _photoPicker = widget.photoPicker ?? createGraphPhotoPicker();
     _portalService = widget.portalService ?? createBugManPortalService();
     _portalKey = widget.portalKey;
@@ -318,7 +321,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     _document.addListener(_handleDocumentChanged);
     _observedCloudSession=_cloudSession;
     _cloudSession?.addListener(_cloudChanged);
-    if(_cloudSession?.hasQueuedEdits==true)_scheduleCloudCapture();
+
     _markerDefaultsStore =
         widget.markerDefaultsStore ?? createMarkerDefaultsStore();
     _loadPersistedMarkerDefaults();
@@ -386,6 +389,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       final repository=_repository as GraphDraftEditorRepository;
       final session=await repository.ensureSession(_document,blobs:_pendingPhotoBlobs);
       if(!mounted)return;
+      if(session.id != _document.id) { _scheduleCloudCapture(); return; }
       if(_observedCloudSession!=session){_observedCloudSession?.removeListener(_cloudChanged);session.addListener(_cloudChanged);}
       _observedCloudSession=session;
       session.capture(_document.toJson(),pendingBlobs:_pendingPhotoBlobs,deletedBlobKeys:_deletedPhotoBlobKeys,portalKey:_portalKey);
@@ -418,7 +422,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     _observedCloudSession?.removeListener(_cloudChanged);
     if(cloud!=null && cloud.id==_document.id) {
       cloud.capture(_document.toJson(),pendingBlobs:_pendingPhotoBlobs,deletedBlobKeys:_deletedPhotoBlobKeys,portalKey:_portalKey);
-      unawaited(cloud.flushLocal());
+      unawaited(cloud.retry());
     }
     _document.removeListener(_handleDocumentChanged);
     _document.dispose();
@@ -5253,7 +5257,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   // overwrite that existing file or save the changes as a new file,
   // rather than silently overwriting.
   Future<void> _handleGraphFileSaveTapped() async {
-    if (!_document.isDirty) {
+    if (!_document.isDirty && _cloudSession == null) {
       _showCanvasMessage(
         'No changes to save',
         severity: _CanvasMessageSeverity.info,
@@ -5596,10 +5600,19 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     }
 
     final newDocument = GraphDocument.duplicateStructureFrom(_document);
+    final parentSession = _cloudSession;
+    final childSession = parentSession == null
+        ? null
+        : await parentSession.workspace.create(newDocument,
+            author: parentSession.workspace.directory?.authors
+                .where((author) => author.id == parentSession.workspace.directory!.defaultAuthorId)
+                .firstOrNull);
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (context) => GraphCanvasScreen(
+        builder: (context) => childSession != null
+            ? GraphDraftEditorScreen(session: childSession)
+            : GraphCanvasScreen(
           document: newDocument,
           repository: _repository,
           photoPicker: _photoPicker,
@@ -7524,7 +7537,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   Widget _buildPresentationView(BuildContext context) {
-    final visibleAnnotations = _annotations
+    final visibleAnnotations = widget.completePackagePreview ? _annotations : _annotations
         .where((annotation) =>
             annotation.kind == GraphAnnotationKind.marker &&
             widget.presentationMarkerIds.contains(annotation.id))
@@ -7533,7 +7546,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 40,
-        automaticallyImplyLeading: false,
+        automaticallyImplyLeading: widget.completePackagePreview,
         title: Text(_document.customer.displayName),
       ),
       body: SafeArea(
@@ -7561,7 +7574,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                   wallSegments: _wallSegments,
                   annotations: visibleAnnotations,
                   shapes: _shapes,
-                  freehandStrokes: const <FreehandStroke>[],
+                  freehandStrokes: widget.completePackagePreview ? _freehandStrokes : const <FreehandStroke>[],
                   traces: _traces,
                   draftFreehandPoints: const <GraphPoint>[],
                   previewShapeSegments: const <WallSegment>[],
@@ -7586,8 +7599,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                   structureVisible: true,
                   shapesVisible: true,
                   inspectionsVisible: true,
-                  treatmentVisible: false,
-                  photosVisible: false,
+                  treatmentVisible: widget.completePackagePreview,
+                  photosVisible: widget.completePackagePreview,
                   traceLayerVisible: true,
                 ),
               ),

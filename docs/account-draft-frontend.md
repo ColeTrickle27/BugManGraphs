@@ -6,9 +6,9 @@ This branch adds a fixture-testable client, account-scoped recovery journal, deb
 
 `accountGraphDraftsActivated` is a literal false. `createProductionGraphDraftWorkspace()` returns null while off and refuses activation without a verified host binding. The app's normal HomeScreen has no workspace, creates no account database and makes no draft API requests. An explicitly injected fixture workspace can exercise the new UI. Do not add a URL/query toggle or infer ownership from username, employee author ID, graph metadata or a selected creator.
 
-Contract baseline: OpsBrain PR100, head `fdf142cb9447ae926f266c57abcd944d134dd399`, `docs/graph-drafts-api.md`. Backend deployment and account migration remain independently blocked pending approval.
+Contract baseline: OpsBrain PR100, head `1b8bff38b9a487b9b79e8fd6dc5e361e19a0d994`, `docs/graph-drafts-api.md`. Backend deployment and account migration remain independently blocked pending approval.
 
-Before live activation, require a verified immutable credential accountId projection and a same-origin session/login/logout flow. Standalone Graphs does not inherit an OpsBrain-host cookie. Review host-cookie/signing/CSRF behavior and account-switch handling. A further binding question is pending: new-draft requests with expectedRevision null need an authenticated account-scope precondition (or an equivalent verified mechanism) so a changed cookie cannot associate an old account's queued package with a new account. A client-side UUID alone is not authentication. No live production service is created here.
+Before live activation, require a verified immutable credential accountId projection and a same-origin session/login/logout flow. Standalone Graphs does not inherit an OpsBrain-host cookie. Review host-cookie/signing/CSRF behavior and account-switch handling. The disabled bootstrap reads `GET /api/graph-drafts/context` and pins its server-derived `accountId` before creating a workspace. Every authors/list/load/save request sends `X-Graph-Expected-Account-Id`; the backend compares it against authenticated ownership before draft storage. A409 triggers a context check: a different account invalidates this client and asks for the original account instead of rebinding queued recovery. Existing recovery can require its original UUID during bootstrap. This precondition is not client authorization. The backend reports missing428 and malformed400; the client always supplies the validated pinned UUID. No live production service is created here.
 
 ## Data and state
 
@@ -23,4 +23,10 @@ Before live activation, require a verified immutable credential accountId projec
 
 ## Verification and remaining limits
 
-Tests use MockClient/fixture services and synthetic account UUIDs/customer data. The production activation gate is asserted. Real-device native sharing, live host identity/cookie routing, atomic account-scope binding and production backend behavior are not asserted by these fixtures. Local fixture browser QA must never use customer production accounts or objects.
+Tests use MockClient/fixture services and synthetic account UUIDs/customer data. The production activation gate is asserted. Real-device native sharing, live host identity/cookie routing, production backend account-binding enforcement and behavior are not asserted by these fixtures. Local fixture browser QA must never use customer production accounts or objects.
+
+## Review corrections
+
+Clean sessions revalidate on reopen; pending local edits win even if created during a remote fetch. Each pushed copied-structure editor has its own repository/session. The route close guard waits for repository transitions and flushes/checks the active fork, including failed acknowledgment metadata persistence. A successful upload cannot be called locally durable until its revision/author metadata is stored; retry can persist it without uploading twice.
+
+Closing before debounce flushes recovery and starts sync. Home drains the queue on refresh, app resume and a30second reconnect retry while displayed. Failed attempts retain recovery. Original409 conflicts survive unchanged canvas captures. Optional explicitly empty thumbnail references remain empty, while absent legacy references retain the migration fallback. Serializers retain nested customer, attachment and graphObjects fields; deleted objects stay deleted. Manual Customer Files publication is explicit and independent of cloud acknowledgment or the loaded document's clean flag. The read-only conflict preview includes annotations, treatment, freehand and full photo bytes with a Close action.

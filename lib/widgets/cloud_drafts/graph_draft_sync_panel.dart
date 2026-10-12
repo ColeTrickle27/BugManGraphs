@@ -3,8 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../services/graph_file_handoff_factory.dart';
 import '../../services/cloud_drafts/graph_draft_workspace.dart';
-import '../../models/graph_document.dart';
-import '../../screens/graph_canvas_screen.dart';
+import '../../screens/cloud_drafts/graph_draft_remote_preview.dart';
 
 Future<GraphDraftEditorSession?> showGraphDraftSyncPanel(
         BuildContext context, GraphDraftEditorSession session) =>
@@ -49,12 +48,9 @@ Future<GraphDraftEditorSession?> showGraphDraftSyncPanel(
                                         Navigator.push(
                                             context,
                                             MaterialPageRoute<void>(
-                                                builder: (_) => GraphCanvasScreen(
-                                                    document:
-                                                        GraphDocument.fromJson(
-                                                            cloud.package
-                                                                .document),
-                                                    presentationMode: true)));
+                                                builder: (_) =>
+                                                    GraphDraftRemotePreview(
+                                                        remote: cloud)));
                                       }),
                                 if (session.phase == GraphDraftPhase.conflict)
                                   FilledButton.icon(

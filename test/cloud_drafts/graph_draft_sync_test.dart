@@ -82,6 +82,59 @@ Map<String, Object?> moved(GraphDraftEditorSession session) {
 
 Future<void> tick() async => Future<void>.delayed(Duration.zero);
 void main() {
+  test('full-photo-only package survives model editing, persistence and upload',
+      () async {
+    final w = workspace(FixtureDraftService(), MemoryGraphDraftStore());
+    final json = doc().toJson();
+    json['attachments'] = [
+      const GraphAttachment(
+              id: 'photo-only',
+              name: 'Synthetic',
+              blobKey: 'photo-only',
+              thumbnailKey: '')
+          .toJson()
+    ];
+    final model = GraphDocument.fromJson(json);
+    expect(model.attachments.single.thumbnailKey, isEmpty);
+    final session = await w.create(model, blobs: {
+      'photo-only': Uint8List.fromList([1, 2, 3])
+    });
+    session.capture(GraphDocument.fromJson(session.documentJson).toJson());
+    await session.retry();
+    expect(session.phase, GraphDraftPhase.synced);
+    expect(session.recovery.package.toJson()['blobs'], {
+      'photo-only': base64Encode([1, 2, 3])
+    });
+    w.dispose();
+  });
+
+  test('clean cached reopen revalidates remote but dirty recovery wins',
+      () async {
+    final api = FixtureDraftService(), store = MemoryGraphDraftStore();
+    final w = workspace(api, store), d = doc();
+    final first = await w.create(d);
+    await first.retry();
+    final remoteJson = moved(first);
+    api.remote = RemoteGraphDraft(
+        GraphDraftPackage.fromJson({
+          'type': 'bugman-graph',
+          'version': 1,
+          'document': remoteJson,
+          'blobs': <String, String>{}
+        }),
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        otherCreator);
+    final reopened = await w.open(d.id);
+    expect(reopened.documentJson, remoteJson);
+    expect(reopened.recovery.revision, api.remote!.revision);
+    final localJson = reopened.documentJson..['title'] = 'Pending local';
+    reopened.capture(localJson);
+    expect(await w.open(d.id), same(reopened));
+    expect(reopened.documentJson, localJson);
+    await reopened.flushLocal();
+    w.dispose();
+  });
+
   test('new unadopted graph persists locally and creates using null revision',
       () async {
     final api = FixtureDraftService(),

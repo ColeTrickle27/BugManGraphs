@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../models/cloud_graph_draft.dart';
 import '../../models/graph_document.dart';
@@ -17,7 +18,39 @@ class AccountGraphGallery extends StatefulWidget {
   State<AccountGraphGallery> createState() => _AccountGraphGalleryState();
 }
 
-class _AccountGraphGalleryState extends State<AccountGraphGallery> {
+class _AccountGraphGalleryState extends State<AccountGraphGallery>
+    with WidgetsBindingObserver {
+  Timer? _queueTimer;
+  bool _draining = false;
+  Future<void> _drainQueue() async {
+    if (_draining || !widget.workspace.account.active) return;
+    _draining = true;
+    final workspace = widget.workspace;
+    try {
+      await workspace.retryQueued();
+      final local = await workspace.localGraphs();
+      if (mounted && identical(workspace, widget.workspace)) {
+        setState(() => _local = local);
+      }
+    } catch (_) {
+      // Recovery remains local; refresh or the next reconnect tick retries.
+    } finally {
+      _draining = false;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_drainQueue());
+  }
+
+  @override
+  void dispose() {
+    _queueTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   bool _loading = true;
   String? _error;
   List<GraphDraftSummary> _remote = [];
@@ -25,6 +58,9 @@ class _AccountGraphGalleryState extends State<AccountGraphGallery> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _queueTimer =
+        Timer.periodic(const Duration(seconds: 30), (_) => _drainQueue());
     _refresh();
   }
 
@@ -42,6 +78,7 @@ class _AccountGraphGalleryState extends State<AccountGraphGallery> {
     final workspace = widget.workspace;
     setState(() => _loading = true);
     try {
+      await _drainQueue();
       final local = await workspace.localGraphs();
       if (!mounted || workspace != widget.workspace) return;
       setState(() => _local = local);

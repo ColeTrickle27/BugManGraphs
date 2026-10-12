@@ -7,6 +7,8 @@ import 'package:bugman_graphs/models/cloud_graph_draft.dart';
 import 'package:bugman_graphs/services/cloud_drafts/graph_draft_http_service.dart';
 import 'package:bugman_graphs/services/cloud_drafts/graph_draft_service.dart';
 import '../support/crowded_canvas_fixture.dart';
+import 'package:bugman_graphs/services/cloud_drafts/graph_draft_store.dart';
+import 'package:bugman_graphs/services/cloud_drafts/graph_draft_workspace.dart';
 
 const scope = '11111111-1111-4111-8111-111111111111';
 final origin = Uri.parse('https://fixture.invalid');
@@ -35,6 +37,76 @@ Map<String, Object?> ack(String id) => {
       'author': {'id': 'employee-1', 'name': 'Synthetic creator'}
     };
 void main() {
+  test(
+      'server context pins every draft request and account switch preserves original recovery',
+      () async {
+    var actualAccount = scope;
+    final requests = <http.Request>[];
+    final client = MockClient((request) async {
+      requests.add(request);
+      if (request.url.path.endsWith('/context')) {
+        return http.Response(jsonEncode({'accountId': actualAccount}), 200);
+      }
+      expect(request.headers['X-Graph-Expected-Account-Id'], scope);
+      if (actualAccount != scope) {
+        return http.Response(
+            jsonEncode({'error': 'Account scope mismatch'}), 409);
+      }
+      if (request.url.path.endsWith('/authors')) {
+        return http.Response(
+            jsonEncode({
+              'defaultAuthorId': 'employee-1',
+              'authors': [
+                {'id': 'employee-1', 'name': 'Synthetic'}
+              ]
+            }),
+            200);
+      }
+      if (request.url.path == '/api/graph-drafts') {
+        return http.Response(
+            jsonEncode({'drafts': [], 'nextCursor': null}), 200);
+      }
+      if (request.method == 'GET') {
+        return http.Response(
+            jsonEncode({...ack(package().id), 'package': package().toJson()}),
+            200);
+      }
+      return http.Response(jsonEncode(ack(package().id)), 201);
+    });
+    final bound = await HttpGraphDraftService.connect(
+        client: client, origin: origin, currentOrigin: origin);
+    expect(bound.account.id, scope);
+    await bound.authors();
+    await bound.list();
+    await bound.get(package().id);
+    final store = MemoryGraphDraftStore();
+    final w = GraphDraftWorkspace(
+        account: bound.account,
+        service: bound,
+        store: store,
+        debounce: const Duration(days: 1));
+    final editor = await w.create(crowdedCanvasFixture());
+    final before = editor.documentJson;
+    actualAccount = '22222222-2222-4222-8222-222222222222';
+    await editor.retry();
+    expect(editor.phase, GraphDraftPhase.signInRequired);
+    expect(bound.account.active, isFalse);
+    expect((await store.read(scope, editor.id))!.document, before);
+    expect(await store.list(actualAccount), isEmpty);
+    final writes = requests.where((request) => request.method == 'POST').length;
+    await editor.retry();
+    expect(
+        requests.where((request) => request.method == 'POST').length, writes);
+    await expectLater(
+        HttpGraphDraftService.connect(
+            client: client,
+            origin: origin,
+            currentOrigin: origin,
+            expectedAccountId: scope),
+        throwsA(isA<GraphDraftException>()));
+    w.dispose();
+  });
+
   test(
       'same-origin endpoints use exact revisions and attribution without assigning ownership',
       () async {

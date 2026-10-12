@@ -78,12 +78,18 @@ class GraphDraftWorkspace extends ChangeNotifier {
 
   Future<List<LocalGraphDraftSummary>> localGraphs() => store.list(account.id);
   Future<GraphDraftEditorSession> open(String id) async {
-    if (_sessions.containsKey(id)) return _sessions[id]!;
+    final cached = _sessions[id];
+    if (cached != null && cached.hasQueuedEdits) return cached;
+    // Flush local-only metadata before replacing a clean cached editor.
+    if (cached != null) await cached.flushLocal();
+    if (cached != null && cached.hasQueuedEdits) return cached;
     var record = await store.read(account.id, id);
     // Pending recovery always wins over a remote refresh. Neither side is lost.
     if ((record == null || !record.dirty) && account.active && !_closed) {
       try {
         final remote = await service.get(id);
+        // An edit made while revalidation was in flight must win.
+        if (cached != null && cached.hasQueuedEdits) return cached;
         if (!account.active || _closed) {
           throw const GraphDraftException(
               401, 'The signed-in account changed.');
@@ -169,7 +175,9 @@ class GraphDraftWorkspace extends ChangeNotifier {
 
   Future<void> retryQueued() async {
     for (final summary in await localGraphs()) {
-      if (!summary.dirty) continue;
+      if (!summary.dirty && _sessions[summary.id]?.hasQueuedEdits != true) {
+        continue;
+      }
       final session = await open(summary.id);
       await session.retry();
     }
@@ -239,6 +247,7 @@ class GraphDraftEditorSession extends ChangeNotifier {
   final _deletedBlobKeys = <String>{};
   Future<void> _localTail = Future.value();
   bool _sending = false, _closed = false;
+  bool _metadataDirty = false;
   GraphDraftPhase phase = GraphDraftPhase.savedLocally;
   String? reason;
   GraphDraftRecovery get recovery =>
@@ -247,8 +256,11 @@ class GraphDraftEditorSession extends ChangeNotifier {
       copyGraphJson(_pending?.document ?? _record.document);
   String get id => _record.id;
   bool get hasUnpersistedEdits =>
-      _pending != null || _persistedGeneration < _record.generation;
-  bool get hasQueuedEdits => _record.dirty || _pending != null;
+      _pending != null ||
+      _persistedGeneration < _record.generation ||
+      _metadataDirty;
+  bool get hasQueuedEdits =>
+      _record.dirty || _pending != null || _metadataDirty;
   GraphDraftAuthor? get displayedAuthor => _desiredAuthor ?? _record.author;
   String? get portalKey => _pending?.portalKey ?? _record.portalKey;
   String get statusText => switch (phase) {
@@ -340,7 +352,11 @@ class GraphDraftEditorSession extends ChangeNotifier {
   Future<void> flushLocal() {
     _timer?.cancel();
     final capture = _pending;
-    if (capture == null) return _localTail;
+    if (capture == null) {
+      return _localTail.then((_) async {
+        if (_metadataDirty) await _persistMetadata();
+      });
+    }
     _localTail = _localTail.catchError((_) {}).then((_) async {
       if (capture.token != _pending?.token) return;
       final blobs = _record.blobs;
@@ -377,12 +393,12 @@ class GraphDraftEditorSession extends ChangeNotifier {
           clearPendingAuthor: _desiredAuthor == null,
           authorIntent: _authorIntent,
           portalKey: _pending?.portalKey ?? capture.portalKey,
-          clearError: true);
+          clearError: false);
       final changed = _record.generation == 0 ||
           candidate.fingerprint != _record.fingerprint ||
           _desiredAuthor?.id != _record.pendingAuthor?.id;
       _record = changed
-          ? candidate
+          ? candidate.copyWith(clearError: _record.errorCode != 409)
           : candidate.copyWith(
               generation: _record.generation,
               acknowledgedGeneration: _record.acknowledgedGeneration);
@@ -393,9 +409,11 @@ class GraphDraftEditorSession extends ChangeNotifier {
         if (capture.token == _pending?.token) _pending = null;
         try {
           _record.package;
-          phase = _record.dirty
-              ? GraphDraftPhase.savedLocally
-              : GraphDraftPhase.synced;
+          phase = _record.errorCode == 409
+              ? GraphDraftPhase.conflict
+              : _record.dirty
+                  ? GraphDraftPhase.savedLocally
+                  : GraphDraftPhase.synced;
         } catch (error) {
           phase = GraphDraftPhase.needsPhoto;
           reason = error.toString();
@@ -415,10 +433,17 @@ class GraphDraftEditorSession extends ChangeNotifier {
   }
 
   Future<void> _persistMetadata() {
+    _metadataDirty = true;
     _localTail = _localTail.catchError((_) {}).then((_) async {
       try {
         await workspace.store.write(_record);
         _persistedGeneration = _record.generation;
+        _metadataDirty = false;
+        if (phase == GraphDraftPhase.localError) {
+          phase = _record.dirty
+              ? GraphDraftPhase.savedLocally
+              : GraphDraftPhase.synced;
+        }
       } catch (_) {
         phase = GraphDraftPhase.localError;
         reason = 'Device recovery could not be saved.';
@@ -500,7 +525,7 @@ class GraphDraftEditorSession extends ChangeNotifier {
     } catch (error) {
       final code = error is GraphDraftException ? error.status : 0;
       phase = switch (code) {
-        401 || 403 => GraphDraftPhase.signInRequired,
+        401 || 403 || 428 => GraphDraftPhase.signInRequired,
         400 => GraphDraftPhase.invalidData,
         409 => GraphDraftPhase.conflict,
         413 => GraphDraftPhase.tooLarge,
