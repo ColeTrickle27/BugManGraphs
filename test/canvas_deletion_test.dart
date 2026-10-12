@@ -14,6 +14,95 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/crowded_canvas_fixture.dart';
 
 void main() {
+  for (final size in [const Size(390, 844), const Size(1400, 900)]) {
+    testWidgets(
+        'middle of three shapes preserves remaining geometry and clears history hover at $size',
+        (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = size;
+      addTearDown(tester.view.reset);
+      final document = deletionFixture('structure', false);
+      final source = document.wallSegments.toList();
+      final shape = document.shapes.single;
+      document.replaceWallSegments([
+        for (final dx in [-900.0, 0.0, 900.0])
+          for (final segment in source)
+            segment.copyWith(
+                start:
+                    GraphPoint.fromOffset(segment.start.offset + Offset(dx, 0)),
+                end: GraphPoint.fromOffset(segment.end.offset + Offset(dx, 0)))
+      ]);
+      document.replaceShapes([
+        for (var i = 0; i < 3; i++)
+          shape.copyWith(
+              name: 'Structure ${i + 1}',
+              segmentIndexes: [for (var n = 0; n < 4; n++) i * 4 + n])
+      ]);
+      final original = document.toJson();
+      await tester
+          .pumpWidget(MaterialApp(home: GraphCanvasScreen(document: document)));
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+      final finder = find.byType(InteractiveViewer);
+      final viewer = tester.widget<InteractiveViewer>(finder);
+      final center = tester.getSize(finder).center(Offset.zero);
+      const zoom = 0.12;
+      viewer.transformationController!
+          .value = Matrix4.diagonal3Values(zoom, zoom, zoom)
+        ..setTranslationRaw(center.dx - 1200 * zoom, center.dy - 950 * zoom, 0);
+      await tester.pump();
+      Offset screen(double x) =>
+          tester.getTopLeft(finder) + center + Offset((x - 1200) * zoom, 0);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: screen(1200));
+      await tester.tapAt(screen(1200));
+      await tester.pump();
+      await mouse.moveTo(screen(2100));
+      await tester.pump();
+      dynamic painter() => tester
+          .widget<CustomPaint>(find.byKey(const ValueKey('graph-canvas-paint')))
+          .foregroundPainter as dynamic;
+      expect(painter().hoveredShapeIndex, 2);
+      await tester.ensureVisible(find.byTooltip('Delete selection'));
+      await tester.pumpAndSettle();
+      await mouse.moveTo(tester.getCenter(find.byTooltip('Delete selection')));
+      await tester.tap(find.byTooltip('Delete selection'));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(painter().hoveredShapeIndex, isNull);
+      expect(
+          document.shapes.map((s) => s.name), ['Structure 1', 'Structure 3']);
+      final originalObjects = original['graphObjects'] as Map;
+      final after = document.toJson()['graphObjects'] as Map;
+      final originalWalls = originalObjects['wallSegments'] as List;
+      expect(after['wallSegments'],
+          [...originalWalls.take(4), ...originalWalls.skip(8)]);
+      expect(document.shapes.last.segmentIndexes, [4, 5, 6, 7]);
+      await mouse.moveTo(screen(2100));
+      await tester.pump();
+      expect(painter().hoveredShapeIndex, 1);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(painter().hoveredShapeIndex, isNull);
+      expect(document.toJson()['graphObjects'], originalObjects);
+      await mouse.moveTo(screen(2100));
+      await tester.pump();
+      expect(painter().hoveredShapeIndex, 2);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyY);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(painter().hoveredShapeIndex, isNull);
+      expect(document.toJson()['graphObjects'], after);
+      expect(GraphDocument.fromJson(document.toJson()).toJson()['graphObjects'],
+          after);
+      await mouse.removePointer();
+    });
+  }
   for (final kind in [
     'structure',
     'measure',
