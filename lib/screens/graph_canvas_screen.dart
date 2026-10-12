@@ -34,6 +34,7 @@ import '../services/graph_image_export.dart';
 import '../services/measurement_format.dart';
 import '../services/measurement_service.dart';
 import '../services/graph_pdf_export.dart';
+import '../services/graph_pdf_photos.dart';
 import '../services/graph_photo_optimizer_factory.dart';
 import '../services/graph_photo_service.dart';
 import '../services/graph_photo_picker_factory.dart';
@@ -6003,9 +6004,11 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   // Shared rendering for the PDF and PNG export actions. Returns null (after
   // showing its own message) when the canvas isn't ready yet; callers stop.
   Future<Uint8List?> _renderExportBytes(GraphFileKind kind) async {
+    final exportDocument = GraphDocument.fromJson(_document.toJson());
+    final isPng = kind == GraphFileKind.pngExport;
     final boundary = _canvasBoundaryKey.currentContext?.findRenderObject()
         as GraphSceneRenderBoundary?;
-    if (boundary == null) {
+    if (isPng && boundary == null) {
       _showCanvasMessage(
         'Graph export is not ready yet',
         severity: _CanvasMessageSeverity.warning,
@@ -6036,66 +6039,39 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         (await rootBundle.load('assets/branding/holloman_exterminators.png'))
             .buffer
             .asUint8List();
-    final isPng = kind == GraphFileKind.pngExport;
-    final pngBytes = await GraphImageExport.capturePng(
-      boundary,
-      bounds,
-      legend: isPng ? legend : const [],
-      measurementSummary: isPng
-          ? _buildExportMeasurementSummary()
-              .map((item) => '${item.label}: ${item.measurements.join(' ')}')
-              .toList(growable: false)
-          : const [],
-      brandingLogo: isPng ? brandingLogo : null,
-    );
+    final pngBytes = isPng
+        ? await GraphImageExport.capturePng(
+            boundary!,
+            bounds,
+            legend: isPng ? legend : const [],
+            measurementSummary: isPng
+                ? _buildExportMeasurementSummary()
+                    .map((item) =>
+                        '${item.label}: ${item.measurements.join(' ')}')
+                    .toList(growable: false)
+                : const [],
+            brandingLogo: isPng ? brandingLogo : null,
+          )
+        : Uint8List(0);
     if (isPng) return pngBytes;
     return GraphPdfExport.build(
       graphPng: pngBytes,
-      title: _document.customer.displayName,
+      sourceDocument: exportDocument,
+      title: exportDocument.customer.displayName,
       legend: legend,
       measurementSummary: _buildExportMeasurementSummary(),
       brandingLogo: brandingLogo,
-      // Marker-icon glyphs are intentionally NOT embedded in the PDF
-      // legend: the `pdf` package (3.13.0) detects a font's Unicode
-      // support by checking for a raw TrueType `glyf` table
-      // signature, which MaterialIcons-Regular.otf (a CFF-flavored
-      // OpenType font, signature `OTTO`) fails. That misdetection
-      // makes the package try to Latin1-encode the Material Icon's
-      // private-use-area codepoint and throw, which is the root
-      // cause PDF export always failed while PNG export (which
-      // never touches this font) worked. GraphPdfExport.build()
-      // already renders a solid-color square per legend entry when
-      // markerIconFontBytes is omitted, so the legend still reads
-      // correctly without embedding glyphs.
+      // Diagram/text are vector; marker symbols are high-resolution bitmaps
+      // from the existing icon font, avoiding unsupported CFF font embedding.
       photos: _isLayerVisible(_GraphLayer.photos)
-          ? await _buildPdfPhotos()
+          ? await _buildPdfPhotos(exportDocument)
           : const [],
     );
   }
 
-  Future<List<GraphPdfPhoto>> _buildPdfPhotos() async {
-    final result = <GraphPdfPhoto>[];
-    final visiblePhotoIds = _annotations
-        .where((item) => item.kind == GraphAnnotationKind.photo)
-        .expand((item) => item.attachmentIds)
-        .toSet();
-    for (final attachment in _document.attachments) {
-      if (!visiblePhotoIds.contains(attachment.id)) continue;
-      final bytes = _pendingPhotoBlobs[attachment.blobKey] ??
-          await _repository.loadBlob(attachment.blobKey);
-      if (bytes == null) continue;
-      result.add(
-        GraphPdfPhoto(
-          referenceLabel: attachment.referenceLabel.isEmpty
-              ? 'Photo'
-              : attachment.referenceLabel,
-          filename: attachment.name,
-          bytes: bytes,
-        ),
-      );
-    }
-    return result;
-  }
+  Future<List<GraphPdfPhoto>> _buildPdfPhotos([GraphDocument? snapshot]) =>
+      loadGraphPdfPhotos(snapshot ?? _document,
+          loadBlob: (key) async => _pendingPhotoBlobs[key] ?? await _repository.loadBlob(key));
 
   List<GraphMeasurementSummary> _buildExportMeasurementSummary() {
     final summaries = <GraphMeasurementSummary>[];

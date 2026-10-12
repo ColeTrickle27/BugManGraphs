@@ -33,3 +33,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/holloman_exterminators.png
+    - assets/fonts/Roboto-Regular.ttf
+    - assets/fonts/Roboto-Bold.ttf
