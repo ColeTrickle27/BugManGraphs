@@ -1,5 +1,7 @@
 // Fixed authority only. Never accept upstream hosts, tokens or cookie domains from input.
 const UPSTREAM = 'https://ops.holloman-ext.com';
+// Only validated public API routes are mapped to the approved machine-only namespace.
+const UPSTREAM_API = '/api/graph-relay';
 const ORIGIN = 'https://graphs.holloman-ext.com';
 const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const SECURITY = {'Cache-Control':'private, no-store','Pragma':'no-cache','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'"};
@@ -59,7 +61,7 @@ export function createGraphRelay({origin=ORIGIN,fetcher=fetch,accessClientId,acc
       body=request.body?.pipeThrough(new TransformStream({transform(chunk,controller){seen+=chunk.byteLength;if(seen>rule.cap) {exceeded=true;throw new Error('Request is too large');}controller.enqueue(chunk);}}));
     }
     let upstream;
-    try {upstream=await fetcher(new Request(UPSTREAM+url.pathname+url.search,{method:request.method,headers,body,redirect:'manual',duplex:'half',cache:'no-store',signal:AbortSignal.timeout(60000)}));} catch {if(exceeded) return fail(413,'Request is too large.');return fail(503,'The account service is unavailable. Recovery remains on this device.');}
+    try {upstream=await fetcher(new Request(UPSTREAM+UPSTREAM_API+url.pathname.slice('/api'.length)+url.search,{method:request.method,headers,body,redirect:'manual',duplex:'half',cache:'no-store',signal:AbortSignal.timeout(60000)}));} catch {if(exceeded) return fail(413,'Request is too large.');return fail(503,'The account service is unavailable. Recovery remains on this device.');}
     if(upstream.status>=300 && upstream.status<400 || upstream.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase()!=='application/json') {await upstream.body?.cancel();return fail(502,'Unexpected account service response.');}
     const responseHeaders=new Headers({...SECURITY,'Content-Type':'application/json; charset=utf-8'});
     const cookies=(upstream.headers.getSetCookie ? upstream.headers.getSetCookie() : upstream.headers.getAll('Set-Cookie')).filter(value=>!/^CF_Authorization=/i.test(value.trim()));

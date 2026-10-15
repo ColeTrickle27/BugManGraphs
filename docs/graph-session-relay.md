@@ -45,3 +45,19 @@ Entry author refresh retains verified cached choices through connection failure;
 Inactive authenticated entry subtrees remain mounted offstage while the root exposes its normal sign-in screen. Closing a locked shared editor or discarding an interrupted form therefore retains a usable sign-in route. Root-owned recovered workspaces are installed by the session owner and are never disposed by a form; only locally owned fallback recovery workspaces are released by that form. Entry state follows explicit root workspace updates after sign-in. Regressions cover closing/discarding, successful sign-in, returning to My Graphs after recovery and starting another graph with the same active root-owned scope.
 
 The dedicated relay identity duration is approved for one year; the backend owner verifies metadata only. Actual credential creation and encrypted binding entry remain user-only. This duration update does not change relay/session code, activation or migration.
+
+## Prepared machine-only upstream path (2026-10-15)
+
+The Graphs server adapter now maps its existing allowlisted browser routes to a fixed machine-only namespace on the same Ops authority:
+
+| Graphs browser route | Fixed Ops upstream route |
+| --- | --- |
+| POST `/api/login`, `/api/logout` | POST `/api/graph-relay/login`, `/api/graph-relay/logout` |
+| GET `/api/me` | GET `/api/graph-relay/me` |
+| GET `/api/graph-drafts/context`, `/authors` | GET `/api/graph-relay/graph-drafts/context`, `/authors` |
+| GET `/api/graph-drafts` with validated pagination | GET `/api/graph-relay/graph-drafts` with identical query |
+| GET/POST `/api/graph-drafts/:id` | GET/POST `/api/graph-relay/graph-drafts/:id` |
+
+Only an already validated route is mapped. Browser access to `/api/graph-relay/*` remains rejected. No fallback to human-facing Ops routes is permitted; redirects/HTML remain rejected. The upstream host, Origin, server credential bindings, signed session cookie rules, expected-account header, revision payload, streaming limits and feature gates are unchanged. Manual Customer Files publication remains separate Ops sign-in.
+
+Parent coordinates the approved machine-only Access path and shared Ops deployment with the backend and Quotes owners. Backend must confirm these exact aliases dispatch to the existing handlers, preserving host-only `hob_session` cookies with Path=/ and JSON/status/precondition semantics. No new backend machine-path implementation was available on the published backend branch during initial preparation. This is a compatibility candidate, not live acceptance. Backend verification and a backed-up successful migration are required before autosave activation. No credential values are read or stored in source.
