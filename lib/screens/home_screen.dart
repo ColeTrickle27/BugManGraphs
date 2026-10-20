@@ -52,7 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFC20000),
+      backgroundColor: AppColors.red,
       appBar: AppBar(
         title: const Text('BugMan Graphs'),
         actions: const [OpsBrainHomeButton()],
@@ -61,7 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
           preferredSize: Size.fromHeight(4),
           child: SizedBox(
             height: 4,
-            child: ColoredBox(color: Color(0xFFC20000)),
+            child: ColoredBox(color: AppColors.red),
           ),
         ),
       ),
@@ -104,7 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: const Color(0xFFC20000),
+        backgroundColor: AppColors.red,
         onPressed: () async {
           await Navigator.of(context).pushNamed(NewJobScreen.routeName);
           if (mounted) _refresh();

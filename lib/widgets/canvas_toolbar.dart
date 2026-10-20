@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 import '../editor/editor_interaction_controller.dart';
 import '../models/graph_annotation.dart';
@@ -54,7 +55,7 @@ class CanvasToolbarAction {
       };
 
   Color get color => switch (kind) {
-        CanvasToolbarActionKind.tool => const Color(0xFFCC2000),
+        CanvasToolbarActionKind.tool => AppColors.red,
         CanvasToolbarActionKind.preset => preset!.defaultBorderColor,
         CanvasToolbarActionKind.marker => marker!.defaultColor,
       };
@@ -483,7 +484,7 @@ class CanvasQuickToolbar extends StatelessWidget {
                 side: BorderSide(
                   color: candidates.isEmpty
                       ? const Color(0xFF6D6E71)
-                      : const Color(0xFFCC2000),
+                      : AppColors.red,
                 ),
               ),
               child: Padding(
@@ -717,7 +718,7 @@ class _QuickUtilityButton extends StatelessWidget {
           constraints: const BoxConstraints.tightFor(width: 38, height: 34),
           padding: EdgeInsets.zero,
           visualDensity: VisualDensity.compact,
-          color: selected ? const Color(0xFFCC2000) : Colors.black87,
+          color: selected ? AppColors.red : Colors.black87,
           onPressed: onPressed,
           icon: Icon(icon, size: 20),
         ),
@@ -734,7 +735,7 @@ class _DragFeedback extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: const Color(0xFFCC2000), width: 2),
+          border: Border.all(color: AppColors.red, width: 2),
           boxShadow: const [BoxShadow(blurRadius: 8, color: Colors.black26)],
         ),
         child: Row(
@@ -808,7 +809,7 @@ class _QuickActionButton extends StatelessWidget {
               vertical: 7,
             ),
             decoration: BoxDecoration(
-              color: selected ? const Color(0xFFCC2000) : Colors.transparent,
+              color: selected ? AppColors.red : Colors.transparent,
               borderRadius: BorderRadius.circular(10),
             ),
             child: Row(
@@ -986,7 +987,7 @@ class _PlainToolButton extends StatelessWidget {
             child: _PickerFace(
               icon: icon,
               label: label,
-              color: const Color(0xFFCC2000),
+              color: AppColors.red,
               active: selected,
             ),
           ),

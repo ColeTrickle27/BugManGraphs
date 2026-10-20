@@ -33,3 +33,22 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/holloman_exterminators.png
+    - assets/fonts/holloman/Bitter-OFL.txt
+    - assets/fonts/holloman/Calistoga-OFL.txt
+    - assets/fonts/holloman/JetBrainsMono-OFL.txt
+  fonts:
+    - family: Calistoga
+      fonts:
+        - asset: assets/fonts/holloman/6NUU8F2OJg6MeR7l4e0vtA.ttf
+    - family: Bitter
+      fonts:
+        - asset: assets/fonts/holloman/raxhHiqOu8IVPmnRc6SY1KXhnF_Y8fbfCL8.ttf
+        - asset: assets/fonts/holloman/raxhHiqOu8IVPmnRc6SY1KXhnF_Y8SjYCL8.ttf
+          weight: 600
+        - asset: assets/fonts/holloman/raxhHiqOu8IVPmnRc6SY1KXhnF_Y8RHYCL8.ttf
+          weight: 700
+    - family: JetBrains Mono
+      fonts:
+        - asset: assets/fonts/holloman/tDbY2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKxjPQ.ttf
+        - asset: assets/fonts/holloman/tDbY2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8FqtjPQ.ttf
+          weight: 600

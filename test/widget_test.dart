@@ -35,8 +35,8 @@ void main() {
     final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
     final theme = materialApp.theme!;
     expect(theme.colorScheme.primary, AppColors.red);
-    expect(theme.colorScheme.secondary, AppColors.black);
-    expect(theme.colorScheme.outline, AppColors.wolfGrey);
+    expect(theme.colorScheme.secondary, AppColors.white);
+    expect(theme.colorScheme.outline, AppColors.black);
     expect(theme.colorScheme.surface, AppColors.white);
     expect(theme.colorScheme.onPrimary, AppColors.white);
   });
