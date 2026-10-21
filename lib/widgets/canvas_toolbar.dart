@@ -230,7 +230,7 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
     return Material(
       elevation: 6,
       borderRadius: BorderRadius.circular(10),
-      color: Colors.white,
+      color: const Color(0xFF261F24),
       child: SizedBox(
         width: 112,
         child: Padding(
@@ -1069,7 +1069,7 @@ class _ToolbarHeader extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: Color(0xFF6D6E71),
+                color: Color(0xFFE7DCE1),
                 fontSize: 11,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 0.8,
@@ -1117,7 +1117,7 @@ class _CollapsibleToolbarSection extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 9),
                 child: Row(
                   children: [
-                    Icon(icon, size: 18, color: const Color(0xFF6D6E71)),
+                    Icon(icon, size: 18, color: const Color(0xFFE7DCE1)),
                     const SizedBox(width: 7),
                     Expanded(
                       child: Text(
@@ -1125,7 +1125,8 @@ class _CollapsibleToolbarSection extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: Color(0xFF4C4D50),
+                          color: Color(0xFFF8F2F5),
+                          fontFamily: 'Raider Straight',
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
                         ),
@@ -1136,7 +1137,7 @@ class _CollapsibleToolbarSection extends StatelessWidget {
                           ? Icons.keyboard_arrow_up
                           : Icons.keyboard_arrow_down,
                       size: 18,
-                      color: const Color(0xFF6D6E71),
+                      color: const Color(0xFFE7DCE1),
                     ),
                   ],
                 ),

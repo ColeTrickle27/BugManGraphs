@@ -1,0 +1,5 @@
+Raider Crusader — 2016 Iconian Fonts — www.iconian.com
+WOFF2 copies converted using fontTools from the user's supplied raider-crusader(3).zip.
+Original font naming/copyright tables retained. Commercial-use permission confirmed directly by Cole.
+The supplied archive contains 20 TTF files and no separate license or readme.
+Chrome variant (RaiderCrusaderChrome) additionally embedded for the requested Bug Men lettering.

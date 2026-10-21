@@ -1,3 +1,4 @@
+import '../widgets/moisture_reading_dialog.dart';
 import 'dart:async';
 import '../services/callout_geometry.dart';
 import '../services/graph_pdf_raster.dart';
@@ -3827,10 +3828,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
 
     if (annotation.kind == GraphAnnotationKind.marker &&
         annotation.markerType == GraphMarkerType.moisture) {
-      final moisture = await _showTextLabelDialog(
-        title: 'Moisture percentage',
-        initialText: '15%',
-      );
+      final moisture = await showDialog<String>(
+          context: context, builder: (_) => const MoistureReadingDialog());
       if (!mounted || moisture == null) {
         return;
       }
@@ -3849,6 +3848,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         label: formatted,
         note: formatted,
         color: moistureMarkerColor(value),
+        extraProperties: {
+          ...annotation.extraProperties,
+          'moisturePercentage': value
+        },
       );
     } else if (annotation.kind == GraphAnnotationKind.marker &&
         annotation.markerType == GraphMarkerType.treatmentNote) {
@@ -7087,7 +7090,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         flexibleSpace: const DecoratedBox(
             decoration: BoxDecoration(
                 gradient: LinearGradient(
-                    colors: [Color(0xFFC20000), Color(0xFF900018)],
+                    colors: [Color(0xFFFBFAF8), Color(0xFFF3E9EC)],
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight))),
         toolbarHeight: 40,

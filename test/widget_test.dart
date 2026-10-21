@@ -142,8 +142,6 @@ void main() {
       'Zip',
       'Phone',
       'Email',
-      'Name',
-      'Phone Number',
       'Location Name',
       'Date',
       'Created By',
@@ -159,12 +157,11 @@ void main() {
     expect(dateField.controller?.text, expectedDate);
     expect(dateField.readOnly, isTrue);
 
-    final serviceType = tester.widget<DropdownButtonFormField<String>>(
-      find.widgetWithText(DropdownButtonFormField<String>, 'Service Type'),
-    );
+    final serviceType = tester
+        .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Inspection'));
     expect(NewJobScreen.serviceTypes,
         ['Inspection', 'WDIR', 'ATBS Installation', 'General Use']);
-    expect(serviceType.initialValue, 'Inspection');
+    expect(serviceType.selected, isTrue);
     expect(find.text('Termite Inspection'), findsNothing);
     expect(find.text('Termite Treatment'), findsNothing);
     expect(find.text('Rodent Inspection'), findsNothing);

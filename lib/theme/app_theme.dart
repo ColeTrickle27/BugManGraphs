@@ -52,8 +52,8 @@ ThemeData buildBugManTheme() {
   );
   final base = ThemeData(
     colorScheme: colors,
-    scaffoldBackgroundColor: AppColors.background,
-    fontFamily: 'Calistoga',
+    scaffoldBackgroundColor: const Color(0xFFF1F0F2),
+    fontFamily: 'Bitter',
     useMaterial3: true,
   );
   return base.copyWith(
@@ -75,10 +75,28 @@ ThemeData buildBugManTheme() {
           borderRadius: BorderRadius.all(Radius.circular(16)),
           side: BorderSide(color: Color(0xFFE6E1E4))),
     ),
-    // Bitter is the supplied readable serif face for dense forms; Calistoga
-    // remains the supplied heading/navigation face. Both are bundled offline.
+    // Homepage typography: readable Bitter forms and Raider Straight headings.
+    // Both fonts are bundled for offline field work.
     textTheme: base.textTheme
         .copyWith(
+          displayLarge: base.textTheme.displayLarge
+              ?.copyWith(fontFamily: 'Raider Straight'),
+          displayMedium: base.textTheme.displayMedium
+              ?.copyWith(fontFamily: 'Raider Straight'),
+          headlineLarge: base.textTheme.headlineLarge
+              ?.copyWith(fontFamily: 'Raider Straight'),
+          headlineMedium: base.textTheme.headlineMedium
+              ?.copyWith(fontFamily: 'Raider Straight'),
+          headlineSmall: base.textTheme.headlineSmall
+              ?.copyWith(fontFamily: 'Raider Straight'),
+          titleLarge: base.textTheme.titleLarge
+              ?.copyWith(fontFamily: 'Raider Straight', fontSize: 24),
+          titleMedium: base.textTheme.titleMedium
+              ?.copyWith(fontFamily: 'Raider Straight', fontSize: 20),
+          titleSmall: base.textTheme.titleSmall
+              ?.copyWith(fontFamily: 'Raider Straight', fontSize: 17),
+          labelLarge: base.textTheme.labelLarge
+              ?.copyWith(fontFamily: 'Raider Straight', fontSize: 16),
           bodyLarge: base.textTheme.bodyLarge?.copyWith(fontFamily: 'Bitter'),
           bodyMedium: base.textTheme.bodyMedium?.copyWith(fontFamily: 'Bitter'),
           bodySmall: base.textTheme.bodySmall?.copyWith(fontFamily: 'Bitter'),
@@ -88,8 +106,10 @@ ThemeData buildBugManTheme() {
           displayColor: AppColors.foreground,
         ),
     appBarTheme: const AppBarTheme(
-      backgroundColor: AppColors.red,
-      foregroundColor: AppColors.white,
+      backgroundColor: Color(0xFFFBFAF8),
+      foregroundColor: AppColors.red,
+      titleTextStyle: TextStyle(
+          fontFamily: 'Raider Straight', fontSize: 25, color: AppColors.red),
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       scrolledUnderElevation: 0,

@@ -34,10 +34,14 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/holloman_exterminators.png
+    - assets/branding/modern/
     - assets/fonts/holloman/Bitter-OFL.txt
     - assets/fonts/holloman/Calistoga-OFL.txt
     - assets/fonts/holloman/JetBrainsMono-OFL.txt
   fonts:
+    - family: Raider Straight
+      fonts:
+        - asset: assets/branding/modern/raider-straight.ttf
     - family: Calistoga
       fonts:
         - asset: assets/fonts/holloman/6NUU8F2OJg6MeR7l4e0vtA.ttf
