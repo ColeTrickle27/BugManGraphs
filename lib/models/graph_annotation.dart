@@ -2,11 +2,7 @@ import 'dart:ui';
 
 import 'graph_point.dart';
 
-enum GraphAnnotationKind {
-  marker,
-  photo,
-  text,
-}
+enum GraphAnnotationKind { marker, photo, text }
 
 enum GraphMarkerCategory {
   insectFindings('Insect Findings'),
@@ -97,7 +93,7 @@ enum GraphMarkerType {
   foundationCrack('Foundation Crack', 'FC', Color(0xFFD33A2C)),
   plumbingPenetration('Plumbing Penetration', 'PP', Color(0xFF168AAD)),
   utilityPenetration('Utility Penetration', 'UP', Color(0xFF5A6C7D)),
-  crawlspaceAccess('Crawlspace Access', 'Access', Color(0xFF2E7D55)),
+  crawlspaceAccess('Access', 'Access', Color(0xFF2E7D55)),
   vent('Vent', 'V', Color(0xFF5A9BD8)),
   expansionJoint('Expansion Joint', 'EJ', Color(0xFF56616E)),
   structuralConcern('Structural Concern', 'SC', Color(0xFFD33A2C)),
@@ -111,9 +107,10 @@ enum GraphMarkerType {
   door('Door', 'DR', Color(0xFF435C70)),
   window('Window', 'WIN', Color(0xFF245B9E)),
   garageDoor('Garage Door', 'GD', Color(0xFF435C70)),
-  steps('Steps', 'ST', Color(0xFF795548)),
+  stepsFront('Steps (frontal)', 'ST', Color(0xFF795548)),
+  steps('Steps (side profile)', 'ST', Color(0xFF795548)),
   hvacUnit('HVAC', 'AC', Color(0xFF5A9BD8)),
-  gasLine('Gas Line', 'GAS', Color(0xFFE0AD19)),
+  gasLine('Gas Line', 'GAS', Color(0xFF2E7D55)),
   waterLine('Water Line', 'WL', Color(0xFF168AAD)),
   wellOrCistern('Well or Cistern', 'WELL', Color(0xFF0077B6)),
   deckSupport('Deck Support', 'DS', Color(0xFF8A5A2B)),
@@ -188,6 +185,7 @@ extension GraphMarkerTypeMetadata on GraphMarkerType {
         GraphMarkerType.door ||
         GraphMarkerType.window ||
         GraphMarkerType.garageDoor ||
+        GraphMarkerType.stepsFront ||
         GraphMarkerType.steps ||
         GraphMarkerType.hvacUnit ||
         GraphMarkerType.gasLine ||
@@ -267,7 +265,9 @@ extension GraphMarkerTypeMetadata on GraphMarkerType {
         GraphMarkerType.garageDoor =>
           GraphMarkerSymbol.door,
         GraphMarkerType.window => GraphMarkerSymbol.window,
-        GraphMarkerType.steps => GraphMarkerSymbol.steps,
+        GraphMarkerType.stepsFront ||
+        GraphMarkerType.steps =>
+          GraphMarkerSymbol.steps,
         GraphMarkerType.hvacUnit => GraphMarkerSymbol.hvac,
         GraphMarkerType.gasLine ||
         GraphMarkerType.waterLine ||

@@ -38,10 +38,17 @@ class GraphPdfExport {
     List<GraphPdfPhoto> photos = const [],
     Uint8List? brandingLogo,
     Uint8List? markerIconFontBytes,
+    ByteData? documentFont,
+    ByteData? documentBoldFont,
   }) async {
     final document = pw.Document(
       title: title,
       creator: 'BugMan Graphs',
+      theme: documentFont == null
+          ? null
+          : pw.ThemeData.withFont(
+              base: pw.Font.ttf(documentFont),
+              bold: pw.Font.ttf(documentBoldFont ?? documentFont)),
     );
     final image = pw.MemoryImage(graphPng);
     final logo = brandingLogo == null ? null : pw.MemoryImage(brandingLogo);

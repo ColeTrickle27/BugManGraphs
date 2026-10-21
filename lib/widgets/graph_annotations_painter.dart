@@ -1,3 +1,4 @@
+import '../services/callout_geometry.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -82,13 +83,20 @@ class GraphAnnotationsPainter extends CustomPainter {
 
   void _drawSelectionBox(Canvas canvas, GraphAnnotation annotation) {
     final center = annotation.point.offset;
-    final rect = Rect.fromCenter(center: center, width: 84, height: 66);
+    final rect = CalloutGeometry.tip(annotation) == null
+        ? Rect.fromCenter(center: center, width: 84, height: 66)
+        : CalloutGeometry.box(annotation);
     final selectedPaint = Paint()
       ..color = const Color(0xFF2F80ED)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
 
     canvas.drawRect(rect, selectedPaint);
+    final tip = CalloutGeometry.tip(annotation);
+    if (tip != null) {
+      canvas.drawCircle(tip, 7, Paint()..color = Colors.white);
+      canvas.drawCircle(tip, 7, selectedPaint);
+    }
 
     for (final handleCenter in [
       rect.topLeft,
@@ -133,10 +141,11 @@ class GraphAnnotationsPainter extends CustomPainter {
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    iconPainter.paint(
-      canvas,
-      Offset(-iconPainter.width / 2, -iconPainter.height / 2),
-    );
+    if (!_paintStructureDetail(
+        canvas, annotation.markerType, iconSize, color)) {
+      iconPainter.paint(
+          canvas, Offset(-iconPainter.width / 2, -iconPainter.height / 2));
+    }
 
     canvas.restore();
     // Marker labels always scale from the same `annotation.size` value used
@@ -166,6 +175,61 @@ class GraphAnnotationsPainter extends CustomPainter {
     );
   }
 
+  bool _paintStructureDetail(
+      Canvas canvas, GraphMarkerType type, double size, Color color) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8;
+    final r = size / 2;
+    if (type == GraphMarkerType.gasLine || type == GraphMarkerType.waterLine) {
+      for (var x = -r; x < r; x += size / 4) {
+        canvas.drawLine(Offset(x, 0), Offset(x + size / 7, 0), paint);
+      }
+    } else if (type == GraphMarkerType.pier) {
+      canvas.drawRect(Rect.fromLTRB(-r, -r, r, r), paint);
+      for (var i = 1; i < 3; i++) {
+        final n = -r + size * i / 3;
+        canvas.drawLine(Offset(n, -r), Offset(n, r), paint);
+        canvas.drawLine(Offset(-r, n), Offset(r, n), paint);
+      }
+    } else if (type == GraphMarkerType.stepsFront) {
+      canvas.drawRect(Rect.fromLTRB(-r, -r, r, r), paint);
+      for (var i = 1; i < 4; i++) {
+        final y = -r + size * i / 4;
+        canvas.drawLine(Offset(-r, y), Offset(r, y), paint);
+      }
+    } else if (type == GraphMarkerType.steps) {
+      final path = Path()..moveTo(-r, r);
+      for (var i = 0; i < 4; i++) {
+        path.lineTo(-r + size * i / 4, r - size * (i + 1) / 4);
+        path.lineTo(-r + size * (i + 1) / 4, r - size * (i + 1) / 4);
+      }
+      path
+        ..lineTo(r, r)
+        ..close();
+      canvas.drawPath(path, paint);
+    } else if (type == GraphMarkerType.crawlspaceAccess) {
+      canvas.drawPath(
+          Path()
+            ..moveTo(-r, r)
+            ..lineTo(-r, -r)
+            ..lineTo(r / 3, -r)
+            ..lineTo(r / 3, r),
+          paint);
+      canvas.drawLine(Offset(-r / 2, 0), Offset(r, 0), paint);
+      canvas.drawPath(
+          Path()
+            ..moveTo(r / 2, -r / 3)
+            ..lineTo(r, 0)
+            ..lineTo(r / 2, r / 3),
+          paint);
+    } else {
+      return false;
+    }
+    return true;
+  }
+
   // Marker label scale constants. All derived from `annotation.size`, the
   // same value that drives icon size, so the two never scale independently.
   static const double _markerLabelBaseFontSize = 12;
@@ -190,35 +254,9 @@ class GraphAnnotationsPainter extends CustomPainter {
     Offset tip,
     Size canvasSize,
   ) {
-    final requestedCenter = annotation.point.offset;
-    final textPainter = TextPainter(
-      text: TextSpan(
-        text: annotation.label,
-        style: TextStyle(
-          color: annotation.textColor,
-          fontSize: annotation.fontSize,
-          fontWeight: annotation.bold ? FontWeight.w800 : FontWeight.w600,
-          fontStyle: annotation.italic ? FontStyle.italic : FontStyle.normal,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-      textAlign: TextAlign.center,
-    )..layout(maxWidth: 210);
-    final width = math.max(128.0, textPainter.width + 30);
-    final height = math.max(48.0, textPainter.height + 22);
-    final center = Offset(
-      requestedCenter.dx
-          .clamp(width / 2, canvasSize.width - (width / 2))
-          .toDouble(),
-      requestedCenter.dy
-          .clamp(height / 2, canvasSize.height - (height / 2))
-          .toDouble(),
-    );
-    final rect = Rect.fromCenter(
-      center: center,
-      width: width,
-      height: height,
-    );
+    final textPainter = CalloutGeometry.text(annotation);
+    final rect = CalloutGeometry.box(annotation);
+    final center = rect.center;
     final box = RRect.fromRectAndRadius(rect, const Radius.circular(7));
     final nearest = Offset(
       tip.dx.clamp(rect.left, rect.right),

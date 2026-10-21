@@ -1,3 +1,4 @@
+import '../services/curve_measurements.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -5,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../models/graph_shape.dart';
 import '../models/wall_segment.dart';
 import '../services/measurement_format.dart';
+import '../services/graph_pat_catalog.dart';
 import 'wall_segments_painter.dart';
 
 @visibleForTesting
@@ -29,7 +31,7 @@ String shapeMeasurementSummary(
     (total, segment) => total + segment.lengthFeet,
   );
   if (preset.showsLinearAndAreaMeasurements) {
-    if (!shape.closed || shapeSegments.length < 3) {
+    if (!shape.closed) {
       return MeasurementFormat.linearFeet(linearFeet);
     }
     return '${MeasurementFormat.linearFeet(linearFeet)} • '
@@ -62,7 +64,7 @@ List<String> shapeExportMeasurements(
   }
 
   final measurements = <String>[];
-  if (shape.closed && shapeSegments.length >= 3) {
+  if (shape.closed) {
     measurements.add(
       MeasurementFormat.squareFeet(_shapeAreaSquareFeet(shape, shapeSegments)),
     );
@@ -77,23 +79,9 @@ List<String> shapeExportMeasurements(
   return measurements;
 }
 
-double _shapeAreaSquareFeet(
-  GraphShape shape,
-  List<WallSegment> shapeSegments,
-) {
-  if (!shape.closed || shapeSegments.length < 3) {
-    return 0;
-  }
-
-  final points = shapeSegments.map((segment) => segment.start).toList();
-  var areaPixels = 0.0;
-  for (var i = 0; i < points.length; i += 1) {
-    final current = points[i];
-    final next = points[(i + 1) % points.length];
-    areaPixels += (current.x * next.y) - (next.x * current.y);
-  }
-  return areaPixels.abs() /
-      2 /
+double _shapeAreaSquareFeet(GraphShape shape, List<WallSegment> shapeSegments) {
+  if (!shape.closed) return 0;
+  return CurveMeasurements.areaPixels(shapeSegments) /
       (WallSegment.pixelsPerFoot * WallSegment.pixelsPerFoot);
 }
 
@@ -331,8 +319,23 @@ class GraphShapesPainter extends CustomPainter {
     Path path,
     Rect bounds,
   ) {
+    final native = graphPatPatterns[pattern];
+    if (native != null) {
+      native.paint(
+          canvas,
+          path,
+          Paint()
+            ..color = const Color(0x7756616E)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1 / graphPatUnitScale[pattern]!,
+          unitsPerPatternUnit: graphPatUnitScale[pattern]!);
+      return;
+    }
     switch (pattern) {
       case GraphShapePattern.none:
+      case GraphShapePattern.blockwork:
+      case GraphShapePattern.brick:
+      case GraphShapePattern.checkerplate:
         return;
       case GraphShapePattern.diagonal:
         _drawLinePattern(canvas, path, bounds, _PatternLine.diagonal);

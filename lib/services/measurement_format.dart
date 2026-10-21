@@ -8,5 +8,5 @@ class MeasurementFormat {
       '${value.round()}${includeUnit ? ' sf' : ''}';
 
   static String acres(num value, {bool includeUnit = true}) =>
-      '${value.toStringAsFixed(1)}${includeUnit ? ' ac' : ''}';
+      '${value.toStringAsFixed(2)}${includeUnit ? ' ac' : ''}';
 }

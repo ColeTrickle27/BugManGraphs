@@ -1,3 +1,4 @@
+import 'callout_geometry.dart';
 import 'dart:ui';
 
 import '../models/graph_document.dart';
@@ -46,8 +47,14 @@ class ExportBoundsCalculator {
           inspectionsVisible: inspectionsVisible,
           treatmentVisible: treatmentVisible,
           photosVisible: photosVisible,
-        ))
+        )) ...[
           annotation.point,
+          if (CalloutGeometry.tip(annotation) != null) ...[
+            GraphPoint.fromOffset(CalloutGeometry.bounds(annotation).topLeft),
+            GraphPoint.fromOffset(
+                CalloutGeometry.bounds(annotation).bottomRight),
+          ],
+        ],
       if (structureVisible)
         for (final stroke in document.freehandStrokes) ...stroke.points,
       if (traceVisible)

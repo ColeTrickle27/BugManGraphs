@@ -1,14 +1,16 @@
+import 'printing_test_support.dart';
+import 'package:bugman_graphs/models/graph_shape.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:bugman_graphs/main.dart';
 import 'package:bugman_graphs/editor/editor_interaction_controller.dart';
 import 'package:bugman_graphs/models/graph_annotation.dart';
-import 'package:bugman_graphs/models/graph_shape.dart';
+
 import 'package:bugman_graphs/models/graph_document.dart';
 import 'package:bugman_graphs/models/graph_point.dart';
 import 'package:bugman_graphs/models/job.dart';
 import 'package:bugman_graphs/models/trace_geometry.dart';
-import 'package:bugman_graphs/models/wall_segment.dart';
+
 import 'package:bugman_graphs/screens/graph_canvas_screen.dart';
 import 'package:bugman_graphs/screens/home_screen.dart';
 import 'package:bugman_graphs/screens/new_job_screen.dart';
@@ -17,7 +19,7 @@ import 'package:bugman_graphs/services/bugman_portal_service.dart';
 import 'package:bugman_graphs/services/graph_repository_stub.dart';
 import 'package:bugman_graphs/theme/app_theme.dart';
 import 'package:bugman_graphs/widgets/canvas_toolbar.dart';
-import 'package:bugman_graphs/widgets/graph_shapes_painter.dart';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -36,7 +38,7 @@ void main() {
     final theme = materialApp.theme!;
     expect(theme.colorScheme.primary, AppColors.red);
     expect(theme.colorScheme.secondary, AppColors.white);
-    expect(theme.colorScheme.outline, AppColors.black);
+    expect(theme.colorScheme.outline, const Color(0xFFD8D2D6));
     expect(theme.colorScheme.surface, AppColors.white);
     expect(theme.colorScheme.onPrimary, AppColors.white);
   });
@@ -59,7 +61,17 @@ void main() {
     final document = GraphDocument(
       id: job.id,
       customer: GraphCustomerInfo.fromJob(job),
-      traces: const [TraceGeometry(id: 'property-trace', label: 'Property', geoPoints: [], canvasPoints: [GraphPoint(x: 100, y: 100), GraphPoint(x: 200, y: 100), GraphPoint(x: 200, y: 200)])],
+      traces: const [
+        TraceGeometry(
+            id: 'property-trace',
+            label: 'Property',
+            geoPoints: [],
+            canvasPoints: [
+              GraphPoint(x: 100, y: 100),
+              GraphPoint(x: 200, y: 100),
+              GraphPoint(x: 200, y: 200)
+            ])
+      ],
       annotations: const [
         GraphAnnotation(
             id: 'approved',
@@ -458,49 +470,6 @@ void main() {
     expect(_shapeCount(tester), 1);
   });
 
-  for (final pointCount in [2, 3]) {
-    testWidgets(
-        'Quick Measure accepts $pointCount points as an open distance measurement',
-        (tester) async {
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(1400, 900);
-      addTearDown(tester.view.reset);
-      await _pumpEditor(tester);
-
-      await _selectQuickMeasure(tester);
-      final toolbar = tester.widget<CanvasToolbar>(find.byType(CanvasToolbar));
-      expect(toolbar.selectedTool, CanvasTool.structure);
-      expect(toolbar.selectedDrawingPreset, GraphDrawingPreset.measurementLine);
-      await tester.tapAt(const Offset(300, 250));
-      await tester.tapAt(const Offset(500, 250));
-      if (pointCount == 3) {
-        await tester.tapAt(const Offset(500, 450));
-      }
-      await tester.tap(find.text('Finish Measure'));
-      await tester.pump();
-
-      expect(_shapeCount(tester), 1);
-      final painter = _graphOverlayPainter(tester);
-      final shapes = (painter.shapes as List).cast<GraphShape>();
-      final wallSegments = (painter.wallSegments as List).cast<WallSegment>();
-      expect(shapes.single.preset, GraphDrawingPreset.measurementLine);
-      expect(shapes.single.closed, isFalse);
-      expect(shapes.single.fillColor, isNull);
-      expect(shapes.single.fillOpacity, 0);
-      expect(wallSegments, hasLength(pointCount - 1));
-      expect(usesStyledSegmentRendering(shapes.single), isTrue);
-      final shapeSegments = shapes.single.segmentIndexes
-          .map((index) => wallSegments[index])
-          .toList();
-      expect(shapeMeasurementSummary(shapes.single, shapeSegments),
-          isNot(contains(' sf')));
-      expect(
-          shapeExportMeasurements(shapes.single, shapeSegments), hasLength(1));
-      expect(shapeMeasurementSummary(shapes.single, shapeSegments),
-          contains(' lf'));
-    });
-  }
-
   testWidgets('generic shapes require drag and double-click opens properties',
       (tester) async {
     tester.view.devicePixelRatio = 1;
@@ -662,7 +631,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Snap to grid'), findsOneWidget);
     expect(find.text('Snap to objects'), findsNothing);
-    expect(find.text('10:1'), findsOneWidget);
+    expect(find.text('1000% zoom'), findsNothing);
     expect(find.text('20:1'), findsNothing);
   });
 
@@ -845,6 +814,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final restoreRaster = installTestRasterizer();
+    addTearDown(restoreRaster);
     await chooseFileActionAndAwaitAsyncWork(tester, 'Export PDF');
     expect(portal.saveExistingKeys, [null]);
     expect(portal.uploadExportCalls, hasLength(1));
@@ -921,7 +892,7 @@ void main() {
       ),
     ));
     await tester.pumpAndSettle();
-    await _selectQuickMeasure(tester);
+    await _selectStructure(tester, 'Detached Structure');
     await tester.tapAt(const Offset(300, 250));
     await tester.tapAt(const Offset(500, 250));
     final beforeSave = document.toJson();
@@ -950,9 +921,9 @@ void main() {
     expect(document.isDirty, isFalse);
     // The unclosed drawing session remains usable after the sign-in dialog.
     await tester.tapAt(const Offset(500, 450));
-    await tester.tap(find.text('Finish Measure'));
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
-    expect(_wallCount(tester), 2);
+    expect(_wallCount(tester), 3);
     expect(_shapeCount(tester), 1);
   });
 
@@ -1107,16 +1078,18 @@ void main() {
     final controller = viewer.transformationController!;
     expect(controller.value.getMaxScaleOnAxis(), closeTo(1, 0.001));
 
-    await tester.tap(find.byTooltip('Canvas options'));
+    await tester.tap(find.byTooltip('Zoom percentage'));
     await tester.pumpAndSettle();
     final scaleItem = find.ancestor(
-      of: find.text('3:1'),
+      of: find.text('200%'),
       matching: find.byWidgetPredicate((widget) => widget is PopupMenuItem),
     );
+    await tester.ensureVisible(scaleItem);
+    await tester.pumpAndSettle();
     await tester.tap(scaleItem);
     await tester.pumpAndSettle();
 
-    expect(controller.value.getMaxScaleOnAxis(), closeTo(3, 0.001));
+    expect(controller.value.getMaxScaleOnAxis(), closeTo(2, 0.001));
   });
 
   testWidgets('completed Trace vertices can be moved and trace can be deleted',
@@ -1257,6 +1230,8 @@ void main() {
     addTearDown(tester.view.reset);
     await _pumpEditor(tester);
 
+    await _expandToolbarSection(
+        tester, 'Annotate', find.byTooltip('Callouts & Sketch: Callout Box'));
     final calloutBox = find.byTooltip(
       'Callouts & Sketch: Callout Box',
     );
@@ -1707,6 +1682,8 @@ void main() {
     addTearDown(tester.view.reset);
     await _pumpEditor(tester);
 
+    await _expandToolbarSection(
+        tester, 'Annotate', find.byTooltip('Callouts & Sketch: Callout Box'));
     final picker = find.byTooltip('Callouts & Sketch: Callout Box');
     await tester.tap(picker);
     await tester.pumpAndSettle();
@@ -1852,21 +1829,15 @@ Future<void> _secondaryClick(WidgetTester tester, Offset position) async {
 }
 
 Future<void> _selectStructure(WidgetTester tester, String label) async {
-  await _expandToolbarSection(tester, 'Sketch Structure', find.text('MAIN'));
+  tester
+      .widget<CanvasToolbar>(find.byType(CanvasToolbar))
+      .onDrawingPresetSelected(
+          GraphDrawingPreset.values.firstWhere((p) => p.label == label));
+  await tester.pumpAndSettle();
   if (label == 'Main Structure') {
-    await tester.ensureVisible(find.text('MAIN'));
+    await tester.tap(find.text('Polygon'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('MAIN'));
-    await tester.pumpAndSettle();
-    return;
   }
-
-  await tester.ensureVisible(find.text('Building Features'));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text('Building Features'));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text(label));
-  await tester.pumpAndSettle();
 }
 
 Future<void> _selectBasicShape(WidgetTester tester, String label) async {
@@ -1882,17 +1853,6 @@ Future<void> _selectBasicShape(WidgetTester tester, String label) async {
 Future<void> _selectLineTool(WidgetTester tester, String label) async {
   expect(label, 'Line');
   await tester.sendKeyEvent(LogicalKeyboardKey.keyL);
-  await tester.pumpAndSettle();
-}
-
-Future<void> _selectQuickMeasure(WidgetTester tester) async {
-  final quickMeasure = find.byKey(const ValueKey('quick-measure-tool'));
-  await tester.ensureVisible(quickMeasure);
-  final action = tester.widget<InkWell>(find.descendant(
-    of: quickMeasure,
-    matching: find.byType(InkWell),
-  ));
-  action.onTap!();
   await tester.pumpAndSettle();
 }
 

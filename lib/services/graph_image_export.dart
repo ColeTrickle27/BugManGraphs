@@ -15,8 +15,30 @@ class GraphImageExport {
     List<GraphLegendSection> legend = const [],
     List<String> measurementSummary = const [],
     Uint8List? brandingLogo,
+    void Function(ui.Canvas, ui.Size)? paintScene,
   }) async {
-    final source = await boundary.toImage(pixelRatio: 1);
+    final ui.Image source;
+    if (paintScene == null) {
+      source = await boundary.toImage(pixelRatio: 1);
+    } else {
+      if (contentBounds.isEmpty ||
+          !contentBounds.isFinite ||
+          contentBounds.width > 8192 ||
+          contentBounds.height > 8192) {
+        throw StateError(
+            'Export bounds must be nonempty and at most 8192 canvas units per side.');
+      }
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      canvas.drawRect(ui.Offset.zero & contentBounds.size,
+          ui.Paint()..color = const ui.Color(0xFFFFFFFF));
+      canvas.translate(-contentBounds.left, -contentBounds.top);
+      paintScene(canvas, contentBounds.size);
+      final picture = recorder.endRecording();
+      source = await picture.toImage(
+          contentBounds.width.ceil(), contentBounds.height.ceil());
+      picture.dispose();
+    }
     ui.Image? logo;
     if (brandingLogo != null) {
       final codec = await ui.instantiateImageCodec(brandingLogo);
@@ -31,7 +53,9 @@ class GraphImageExport {
         source.width.toDouble(),
         source.height.toDouble(),
       );
-      final crop = contentBounds.intersect(imageBounds);
+      final crop = paintScene == null
+          ? contentBounds.intersect(imageBounds)
+          : imageBounds;
       if (crop.isEmpty) {
         throw StateError('Graph has no visible export content');
       }

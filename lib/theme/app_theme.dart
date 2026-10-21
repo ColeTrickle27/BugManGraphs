@@ -29,7 +29,7 @@ ThemeData buildBugManTheme() {
   const radius = BorderRadius.all(Radius.circular(15.6));
   const border = OutlineInputBorder(
     borderRadius: radius,
-    borderSide: BorderSide(color: AppColors.black),
+    borderSide: BorderSide(color: Color(0xFFE2DDE0)),
   );
   const colors = ColorScheme.light(
     primary: AppColors.red,
@@ -47,7 +47,7 @@ ThemeData buildBugManTheme() {
     surface: AppColors.white,
     onSurface: AppColors.foreground,
     onSurfaceVariant: AppColors.secondaryForeground,
-    outline: AppColors.black,
+    outline: Color(0xFFD8D2D6),
     surfaceTint: Colors.transparent,
   );
   final base = ThemeData(
@@ -57,6 +57,24 @@ ThemeData buildBugManTheme() {
     useMaterial3: true,
   );
   return base.copyWith(
+    hoverColor: AppColors.red.withValues(alpha: .055),
+    focusColor: AppColors.red.withValues(alpha: .10),
+    dialogTheme: const DialogThemeData(
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      elevation: 12,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(22)),
+          side: BorderSide(color: Color(0xFFE6E1E4))),
+    ),
+    popupMenuTheme: const PopupMenuThemeData(
+      color: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      elevation: 8,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(16)),
+          side: BorderSide(color: Color(0xFFE6E1E4))),
+    ),
     // Bitter is the supplied readable serif face for dense forms; Calistoga
     // remains the supplied heading/navigation face. Both are bundled offline.
     textTheme: base.textTheme
@@ -81,10 +99,10 @@ ThemeData buildBugManTheme() {
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: radius,
-        side: BorderSide(color: AppColors.black),
+        side: BorderSide(color: Color(0xFFE2DDE0)),
       ),
     ),
-    dividerColor: AppColors.black,
+    dividerColor: const Color(0xFFE6E1E4),
     floatingActionButtonTheme: const FloatingActionButtonThemeData(
       backgroundColor: AppColors.red,
       foregroundColor: AppColors.white,
@@ -107,9 +125,12 @@ ThemeData buildBugManTheme() {
       backgroundColor: AppColors.red,
       indicatorColor: AppColors.white,
       iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(
-        color: states.contains(WidgetState.selected) ? AppColors.red : AppColors.white,
-      )),
-      labelTextStyle: WidgetStateProperty.all(const TextStyle(color: AppColors.white, fontFamily: 'Calistoga')),
+            color: states.contains(WidgetState.selected)
+                ? AppColors.red
+                : AppColors.white,
+          )),
+      labelTextStyle: WidgetStateProperty.all(
+          const TextStyle(color: AppColors.white, fontFamily: 'Calistoga')),
     ),
     drawerTheme: const DrawerThemeData(backgroundColor: AppColors.background),
     inputDecorationTheme: const InputDecorationTheme(
