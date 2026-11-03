@@ -56,6 +56,43 @@ void main() {
     await tester.pump();
     expect(document.toJson(), snapshot);
   });
+
+  for (final delta in [
+    const Offset(240, 120),
+    const Offset(-240, 120),
+    const Offset(240, -120),
+    const Offset(-240, -120),
+    const Offset(144, 144)
+  ]) {
+    testWidgets(
+        'geometry chooser Rectangle keeps independent dimensions $delta',
+        (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1400, 900);
+      addTearDown(tester.view.reset);
+      final document = sample();
+      await tester
+          .pumpWidget(MaterialApp(home: GraphCanvasScreen(document: document)));
+      await tester.pumpAndSettle();
+      tester
+          .widget<CanvasToolbar>(find.byType(CanvasToolbar))
+          .onDrawingPresetSelected(GraphDrawingPreset.mainStructure);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rectangle').last);
+      await tester.pumpAndSettle();
+      await tester.dragFrom(const Offset(650, 450), delta);
+      await tester.pumpAndSettle();
+      expect(document.shapes, hasLength(1));
+      final lengths = document.wallSegments.map((s) => s.lengthFeet).toList()
+        ..sort();
+      expect(lengths.first, closeTo(delta.dy.abs() / 24, 1e-8));
+      expect(lengths.last, closeTo(delta.dx.abs() / 24, 1e-8));
+      expect(find.text('Classify shape'), findsOneWidget);
+      await tester.tap(find.text('Classify later'));
+      await tester.pumpAndSettle();
+      expect(document.shapes.single.closed, isTrue);
+    });
+  }
   test('PAT preserves origins, rotated offsets and signed dashes as data', () {
     const raw = '*TEST, synthetic fixture\n90, 2,3, 4,5, 6,-7,0\n';
     final pattern = PatPattern.parse(raw);

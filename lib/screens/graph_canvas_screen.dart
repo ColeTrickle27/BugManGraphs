@@ -464,7 +464,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     final session = _cloudSession;
     if (session == null) return;
     final fork = await showGraphDraftSyncPanel(context, session);
-    if (!mounted || fork == null || _publicationInFlight) return;
+    if (!mounted || fork == null || _publicationInFlight) {
+      return;
+    }
     final repository = _repository as GraphDraftEditorRepository;
     session.removeListener(_cloudChanged);
     repository.session = fork;
@@ -5776,7 +5778,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     );
     if (!mounted ||
         trace == null ||
-        _cloudSession?.workspace.account.active == false) return;
+        _cloudSession?.workspace.account.active == false) {
+      return;
+    }
     _recordSnapshotUndo();
     setState(() {
       final nextTraces = <TraceGeometry>[..._traces];
@@ -5927,7 +5931,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       final choice = await _confirmOverwriteOrSaveAsNew();
       if (choice == null ||
           choice == _SaveConflictChoice.cancel ||
-          _publicationInFlight) return;
+          _publicationInFlight) {
+        return;
+      }
       if (choice == _SaveConflictChoice.saveAsNew) {
         _replaceDocumentWithNewIdentity();
       }
@@ -5995,10 +6001,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     GraphDraftEditorSession? publishingSession;
     var savedOnDevice = false;
     try {
-      if (_cloudSession?.workspace.account.active == false)
+      if (_cloudSession?.workspace.account.active == false) {
         throw StateError(
-          'Sign in to the original account to publish this graph.',
-        );
+            'Sign in to the original account to publish this graph.');
+      }
       final referencedAttachmentIds =
           _annotations.expand((annotation) => annotation.attachmentIds).toSet();
       final retainedAttachments = _document.attachments
@@ -6027,10 +6033,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         deletedBlobKeys: _deletedPhotoBlobKeys,
       );
       savedOnDevice = true;
-      if (_cloudSession?.workspace.account.active == false)
+      if (_cloudSession?.workspace.account.active == false) {
         throw StateError(
-          'Sign in to the original account to publish this graph.',
-        );
+            'Sign in to the original account to publish this graph.');
+      }
       publishingDocument = GraphDocument.fromJson(_document.toJson());
       publishingSession = _cloudSession;
       PortalUploadResult? portalResult;
@@ -6055,12 +6061,13 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                 blobs: _pendingPhotoBlobs,
               );
               await _repository.flushCurrent();
-              if (_repository.session.hasUnpersistedEdits)
+              if (_repository.session.hasUnpersistedEdits) {
                 throw StateError('Recovery could not be saved on this device.');
-              if (!_repository.session.workspace.account.active)
+              }
+              if (!_repository.session.workspace.account.active) {
                 throw StateError(
-                  'Sign in to the original account to publish this graph.',
-                );
+                    'Sign in to the original account to publish this graph.');
+              }
             }
             publishingDocument.dispose();
             publishingDocument = GraphDocument.fromJson(_document.toJson());
@@ -8236,8 +8243,6 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                           valueListenable: _transformationController,
                           builder: (context, matrix, child) =>
                               _TopEditorToolbar(
-                            onUndo: _undoLastAction,
-                            onRedo: _redoLastAction,
                             drawingRatioLabel: _scaleLabel,
                             onDrawingRatioChanged: _setScaleLabel,
                             onLabelSmaller: () => setState(
@@ -8526,8 +8531,6 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
 
 class _TopEditorToolbar extends StatelessWidget {
   const _TopEditorToolbar({
-    required this.onUndo,
-    required this.onRedo,
     required this.drawingRatioLabel,
     required this.onDrawingRatioChanged,
     required this.onLabelSmaller,
@@ -8556,8 +8559,6 @@ class _TopEditorToolbar extends StatelessWidget {
     required this.onScaleChanged,
   });
 
-  final VoidCallback onUndo;
-  final VoidCallback onRedo;
   final String drawingRatioLabel;
   final ValueChanged<String> onDrawingRatioChanged;
   final VoidCallback onLabelSmaller;

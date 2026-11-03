@@ -631,7 +631,9 @@ class _NewJobScreenState extends State<NewJobScreen> {
                       ),
                       const SizedBox(height: 20),
                       if (_authorCorrection != null) Text(_authorCorrection!),
-                      if (_cloudCreatorMode && widget.cloudAuthors == null)
+                      if (_cloudCreatorMode &&
+                          (widget.cloudAuthors == null ||
+                              widget.cloudAuthors!.authors.isEmpty))
                         const Text(
                             'Creator choices are unavailable while offline. Keep entering graph information, then connect to choose an active creator.'),
                       if (_cloudCreatorMode)

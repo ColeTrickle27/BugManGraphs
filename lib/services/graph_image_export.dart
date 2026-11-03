@@ -35,8 +35,9 @@ class GraphImageExport {
           (contentBounds.height * ratio).ceil());
       picture.dispose();
     } else {
-      source = await (boundary.layer! as OffsetLayer)
-          .toImage(contentBounds, pixelRatio: ratio);
+      source = boundary is GraphSceneRenderBoundary
+          ? await boundary.captureBounds(contentBounds, pixelRatio: ratio)
+          : await boundary.toImage(pixelRatio: ratio);
     }
     ui.Image? logo;
     if (brandingLogo != null) {
