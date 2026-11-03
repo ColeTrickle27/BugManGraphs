@@ -1,3 +1,4 @@
+import 'graph_pat_catalog.dart';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui';
@@ -569,6 +570,51 @@ class GraphPdfDiagram {
             top = points.map((p) => p.dy).reduce(math.min),
             bottom = points.map((p) => p.dy).reduce(math.max);
         final pattern = shape.pattern;
+        final native = graphPatPatterns[pattern];
+        if (native != null) {
+          final units = graphPatUnitScale[pattern]!;
+          final raw = shape.segmentIndexes
+              .where((i) => i >= 0 && i < document.wallSegments.length)
+              .map((i) => document.wallSegments[i])
+              .toList();
+          final world = raw
+              .expand((s) => [
+                    s.start.offset,
+                    s.end.offset,
+                    if (s.controlPoint != null) s.controlPoint!.offset
+                  ])
+              .toList();
+          final worldBounds = Rect.fromLTRB(
+              world.map((p) => p.dx).reduce(math.min),
+              world.map((p) => p.dy).reduce(math.min),
+              world.map((p) => p.dx).reduce(math.max),
+              world.map((p) => p.dy).reduce(math.max));
+          final unitBounds = Rect.fromLTRB(
+              worldBounds.left / units,
+              worldBounds.top / units,
+              worldBounds.right / units,
+              worldBounds.bottom / units);
+          final angle = shape.rotationDegrees * math.pi / 180,
+              center = worldBounds.center;
+          Offset mapped(Offset p) {
+            final v = p * units - center;
+            return project(center +
+                Offset(v.dx * math.cos(angle) - v.dy * math.sin(angle),
+                    v.dx * math.sin(angle) + v.dy * math.cos(angle)));
+          }
+
+          for (final stroke in native.strokes(unitBounds)) {
+            final a = mapped(stroke.start), b = mapped(stroke.end);
+            if (a == b) {
+              g.drawEllipse(a.dx, height - a.dy, 0.3, 0.3);
+              g.fillPath();
+            } else {
+              g.drawLine(a.dx, height - a.dy, b.dx, height - b.dy);
+              g.strokePath();
+            }
+          }
+        }
+
         for (var y = top; y <= bottom; y += 8) {
           if (pattern == GraphShapePattern.horizontal ||
               pattern == GraphShapePattern.grid) {

@@ -136,6 +136,7 @@ void main() {
     expect(utilityToolbarMarkers, [
       GraphMarkerType.hvacUnit,
       GraphMarkerType.pier,
+      GraphMarkerType.stepsFront,
       GraphMarkerType.steps,
       GraphMarkerType.crawlspaceAccess,
       GraphMarkerType.gasLine,
@@ -221,7 +222,7 @@ void main() {
     expect(shapeMeasurementSummary(structure, segments), '4 lf • 1 sf');
     expect(
       shapeMeasurementSummary(property, segments),
-      '0.0 ac • 1 sf • 4 lf',
+      '0.00 ac • 1 sf • 4 lf',
     );
     expect(shapeMeasurementSummary(quickMeasure, segments), '4 lf • 1 sf');
     expect(

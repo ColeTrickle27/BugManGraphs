@@ -16,7 +16,10 @@ Offset wallMeasurementLabelCenter(
   final dx = end.dx - start.dx;
   final dy = end.dy - start.dy;
   final length = math.sqrt((dx * dx) + (dy * dy));
-  final midpoint = Offset((start.dx + end.dx) / 2, (start.dy + end.dy) / 2);
+  final control = segment.controlPoint?.offset;
+  final midpoint = control == null
+      ? (start + end) / 2
+      : start * .25 + control * .5 + end * .25;
   if (length == 0) {
     return midpoint;
   }
@@ -381,7 +384,10 @@ class WallSegmentsPainter extends CustomPainter {
       width: textPainter.width + 20,
       height: textPainter.height + 12,
     );
-    final midpoint = Offset((start.dx + end.dx) / 2, (start.dy + end.dy) / 2);
+    final control = segment.controlPoint?.offset;
+    final midpoint = control == null
+        ? (start + end) / 2
+        : start * .25 + control * .5 + end * .25;
     final outward = labelCenter - midpoint;
     final normal = outward / outward.distance;
     final labelHalfExtent = (labelRect.width / 2) * normal.dx.abs() +

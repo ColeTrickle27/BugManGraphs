@@ -1,14 +1,18 @@
+import 'printing_test_support.dart';
+import 'package:bugman_graphs/models/wall_segment.dart';
+import 'package:bugman_graphs/widgets/graph_shapes_painter.dart';
+import 'package:bugman_graphs/models/graph_shape.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:bugman_graphs/main.dart';
 import 'package:bugman_graphs/editor/editor_interaction_controller.dart';
 import 'package:bugman_graphs/models/graph_annotation.dart';
-import 'package:bugman_graphs/models/graph_shape.dart';
+
 import 'package:bugman_graphs/models/graph_document.dart';
 import 'package:bugman_graphs/models/graph_point.dart';
 import 'package:bugman_graphs/models/job.dart';
 import 'package:bugman_graphs/models/trace_geometry.dart';
-import 'package:bugman_graphs/models/wall_segment.dart';
+
 import 'package:bugman_graphs/screens/graph_canvas_screen.dart';
 import 'package:bugman_graphs/screens/home_screen.dart';
 import 'package:bugman_graphs/screens/new_job_screen.dart';
@@ -17,13 +21,17 @@ import 'package:bugman_graphs/services/bugman_portal_service.dart';
 import 'package:bugman_graphs/services/graph_repository_stub.dart';
 import 'package:bugman_graphs/theme/app_theme.dart';
 import 'package:bugman_graphs/widgets/canvas_toolbar.dart';
-import 'package:bugman_graphs/widgets/graph_shapes_painter.dart';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as image_lib;
 
 void main() {
+  setUp(() {
+    final restore = installTestRasterizer();
+    addTearDown(restore);
+  });
   testWidgets('BugManGraphs starts on the job list', (tester) async {
     await tester.pumpWidget(const BugManGraphsApp());
 
@@ -35,8 +43,8 @@ void main() {
     final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
     final theme = materialApp.theme!;
     expect(theme.colorScheme.primary, AppColors.red);
-    expect(theme.colorScheme.secondary, AppColors.black);
-    expect(theme.colorScheme.outline, AppColors.wolfGrey);
+    expect(theme.colorScheme.secondary, AppColors.white);
+    expect(theme.colorScheme.outline, const Color(0xFFD8D2D6));
     expect(theme.colorScheme.surface, AppColors.white);
     expect(theme.colorScheme.onPrimary, AppColors.white);
   });
@@ -138,6 +146,8 @@ void main() {
       'City',
       'State',
       'Zip',
+      'Phone',
+      'Email',
       'Location Name',
       'Date',
       'Created By',
@@ -153,9 +163,8 @@ void main() {
     expect(dateField.controller?.text, expectedDate);
     expect(dateField.readOnly, isTrue);
 
-    final serviceType = tester.widget<DropdownButtonFormField<String>>(
-      find.widgetWithText(DropdownButtonFormField<String>, 'Service Type'),
-    );
+    final serviceType = tester
+        .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Inspection'));
     expect(NewJobScreen.serviceTypes, [
       'Inspection',
       'WDIR',
@@ -163,9 +172,10 @@ void main() {
       'General Use',
       'Termite Treatment',
     ]);
-    expect(serviceType.initialValue, 'Inspection');
+    expect(serviceType.selected, isTrue);
     expect(find.text('Termite Inspection'), findsNothing);
-    expect(find.text('Termite Treatment'), findsNothing);
+    expect(
+        find.widgetWithText(ChoiceChip, 'Termite Treatment'), findsOneWidget);
     expect(find.text('Rodent Inspection'), findsNothing);
     expect(find.text('General Pest'), findsNothing);
 
@@ -598,47 +608,57 @@ void main() {
   });
 
   for (final pointCount in [2, 3]) {
-    testWidgets(
-        'Quick Measure accepts $pointCount points as an open distance measurement',
-        (tester) async {
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(1400, 900);
-      addTearDown(tester.view.reset);
-      await _pumpEditor(tester);
-
-      await _selectQuickMeasure(tester);
-      final toolbar = tester.widget<CanvasToolbar>(find.byType(CanvasToolbar));
-      expect(toolbar.selectedTool, CanvasTool.structure);
-      expect(toolbar.selectedDrawingPreset, GraphDrawingPreset.measurementLine);
-      await tester.tapAt(const Offset(300, 250));
-      await tester.tapAt(const Offset(500, 250));
-      if (pointCount == 3) {
-        await tester.tapAt(const Offset(500, 450));
-      }
-      await tester.tap(find.text('Finish Measure'));
-      await tester.pump();
-
-      expect(_shapeCount(tester), 1);
-      final painter = _graphOverlayPainter(tester);
-      final shapes = (painter.shapes as List).cast<GraphShape>();
-      final wallSegments = (painter.wallSegments as List).cast<WallSegment>();
-      expect(shapes.single.preset, GraphDrawingPreset.measurementLine);
-      expect(shapes.single.closed, isFalse);
-      expect(shapes.single.fillColor, isNull);
-      expect(shapes.single.fillOpacity, 0);
-      expect(wallSegments, hasLength(pointCount - 1));
-      expect(usesStyledSegmentRendering(shapes.single), isTrue);
-      final shapeSegments = shapes.single.segmentIndexes
-          .map((index) => wallSegments[index])
-          .toList();
-      expect(shapeMeasurementSummary(shapes.single, shapeSegments),
-          isNot(contains(' sf')));
+    test('legacy $pointCount-point measurements keep data and precise lengths',
+        () {
+      final document = GraphDocument.forJob(Job(
+          customerName: 'Synthetic legacy',
+          serviceAddress: '',
+          pestPacLocationNumber: '',
+          pestPacBillToNumber: '',
+          serviceType: 'Inspection',
+          createdBy: 'Regression',
+          createdDate: DateTime(2026)));
+      final segments = [
+        for (var i = 0; i < pointCount - 1; i++)
+          WallSegment(
+              start: GraphPoint(x: 24.25 * i, y: 0),
+              end: GraphPoint(x: 24.25 * (i + 1), y: 0))
+      ];
+      document.replaceWallSegments(segments);
+      document.replaceShapes([
+        GraphShape(
+            name: 'Legacy measure',
+            segmentIndexes: [for (var i = 0; i < segments.length; i++) i],
+            preset: GraphDrawingPreset.measurementLine,
+            closed: false,
+            fillColor: null,
+            fillOpacity: 0,
+            borderColor: Colors.black,
+            borderWidth: 2,
+            pattern: GraphShapePattern.none,
+            rotationDegrees: 0)
+      ]);
+      final reopened = GraphDocument.fromJson(document.toJson());
+      expect(reopened.shapes.single.preset, GraphDrawingPreset.measurementLine);
+      expect(reopened.shapes.single.closed, isFalse);
+      expect(reopened.wallSegments.length, pointCount - 1);
       expect(
-          shapeExportMeasurements(shapes.single, shapeSegments), hasLength(1));
-      expect(shapeMeasurementSummary(shapes.single, shapeSegments),
-          contains(' lf'));
+          reopened.wallSegments.first.lengthFeet, closeTo(24.25 / 24, 1e-12));
+      expect(
+          shapeExportMeasurements(
+              reopened.shapes.single, reopened.wallSegments),
+          hasLength(1));
     });
   }
+  testWidgets('removed Quick Measure cannot start new placement',
+      (tester) async {
+    await _pumpEditor(tester);
+    await _selectQuickMeasure(tester);
+    final toolbar = tester.widget<CanvasToolbar>(find.byType(CanvasToolbar));
+    expect(toolbar.selectedDrawingPreset,
+        isNot(GraphDrawingPreset.measurementLine));
+    expect(_shapeCount(tester), 0);
+  });
 
   testWidgets('generic shapes insert on tap and double-click edits inline text',
       (tester) async {
@@ -789,22 +809,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Snap to grid'), findsOneWidget);
     expect(find.text('Snap to objects'), findsNothing);
-    expect(find.text('10:1'), findsOneWidget);
+    expect(find.text('1000% zoom'), findsNothing);
     expect(find.text('20:1'), findsNothing);
   });
 
   Future<void> chooseFileAction(WidgetTester tester, String label) async {
     if (label == 'Save PDF to OpsBrain' || label == 'Save PNG to OpsBrain') {
       // The legacy callbacks stay supported; these actions are no longer menu entries.
-      final dynamic toolbar = tester.widget(find.byWidgetPredicate((w) => w.runtimeType.toString() == '_TopEditorToolbar'));
-      if (label == 'Save PDF to OpsBrain') { toolbar.onExportPdf(); } else { toolbar.onExportPng(); }
+      final dynamic toolbar = tester.widget(find.byWidgetPredicate(
+          (w) => w.runtimeType.toString() == '_TopEditorToolbar'));
+      if (label == 'Save PDF to OpsBrain') {
+        toolbar.onExportPdf();
+      } else {
+        toolbar.onExportPng();
+      }
       await tester.pumpAndSettle();
       return;
     }
     await tester.tap(find.byTooltip('Save and share'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text(label));
-  await tester.tap(find.text(label));
+    await tester.tap(find.text(label));
     await tester.pumpAndSettle();
   }
 
@@ -952,8 +977,13 @@ void main() {
   ) async {
     await tester.runAsync(() async {
       if (label == 'Save PDF to OpsBrain' || label == 'Save PNG to OpsBrain') {
-        final dynamic toolbar = tester.widget(find.byWidgetPredicate((w) => w.runtimeType.toString() == '_TopEditorToolbar'));
-        if (label == 'Save PDF to OpsBrain') { toolbar.onExportPdf(); } else { toolbar.onExportPng(); }
+        final dynamic toolbar = tester.widget(find.byWidgetPredicate(
+            (w) => w.runtimeType.toString() == '_TopEditorToolbar'));
+        if (label == 'Save PDF to OpsBrain') {
+          toolbar.onExportPdf();
+        } else {
+          toolbar.onExportPng();
+        }
       } else {
         await tester.tap(find.byTooltip('Save and share'));
         await tester.pumpAndSettle();
@@ -972,7 +1002,8 @@ void main() {
     });
   }
 
-  testWidgets('retained legacy PDF/PNG callbacks preserve OpsBrain export support',
+  testWidgets(
+      'retained legacy PDF/PNG callbacks preserve OpsBrain export support',
       (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 900);
@@ -1080,7 +1111,7 @@ void main() {
       ),
     ));
     await tester.pumpAndSettle();
-    await _selectQuickMeasure(tester);
+    await _selectStructure(tester, 'Detached Structure');
     await tester.tapAt(const Offset(300, 250));
     await tester.tapAt(const Offset(500, 250));
     final beforeSave = document.toJson();
@@ -1109,9 +1140,9 @@ void main() {
     expect(document.isDirty, isFalse);
     // The unclosed drawing session remains usable after the sign-in dialog.
     await tester.tapAt(const Offset(500, 450));
-    await tester.tap(find.text('Finish Measure'));
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
-    expect(_wallCount(tester), 2);
+    expect(_wallCount(tester), 3);
     expect(_shapeCount(tester), 1);
   });
 
@@ -1183,12 +1214,15 @@ void main() {
     expect(portal.uploadExportCalls, isEmpty);
   });
 
-  testWidgets('save menu removes inspection workflow without removing graph save or copy', (tester) async {
+  testWidgets(
+      'save menu removes inspection workflow without removing graph save or copy',
+      (tester) async {
     await _pumpEditor(tester);
-    await tester.tap(find.byTooltip('Save and share'));await tester.pumpAndSettle();
-    expect(find.text('Save & Open Inspection Workflow'),findsNothing);
-    expect(find.text('Save Graph to BugMan Graphs'),findsOneWidget);
-    expect(find.text('Copy Structure to New Graph'),findsOneWidget);
+    await tester.tap(find.byTooltip('Save and share'));
+    await tester.pumpAndSettle();
+    expect(find.text('Save & Open Inspection Workflow'), findsNothing);
+    expect(find.text('Save Graph to BugMan Graphs'), findsOneWidget);
+    expect(find.text('Copy Structure to New Graph'), findsOneWidget);
   });
 
   testWidgets('drawing ratio leaves viewport zoom and geometry unchanged',
@@ -1209,6 +1243,8 @@ void main() {
       of: find.text('3:1'),
       matching: find.byWidgetPredicate((widget) => widget is PopupMenuItem),
     );
+    await tester.ensureVisible(scaleItem);
+    await tester.pumpAndSettle();
     await tester.tap(scaleItem);
     await tester.pumpAndSettle();
 
@@ -1401,6 +1437,8 @@ void main() {
     addTearDown(tester.view.reset);
     await _pumpEditor(tester);
 
+    await _expandToolbarSection(
+        tester, 'Annotate', find.byTooltip('Callouts & Sketch: Callout Box'));
     final calloutBox = find.byTooltip(
       'Callouts & Sketch: Callout Box',
     );
@@ -1939,6 +1977,8 @@ void main() {
     addTearDown(tester.view.reset);
     await _pumpEditor(tester);
 
+    await _expandToolbarSection(
+        tester, 'Annotate', find.byTooltip('Callouts & Sketch: Callout Box'));
     final picker = find.byTooltip('Callouts & Sketch: Callout Box');
     await tester.tap(picker);
     await tester.pumpAndSettle();

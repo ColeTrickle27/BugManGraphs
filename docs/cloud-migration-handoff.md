@@ -1,0 +1,23 @@
+# Graphs cloud migration checkpoint — 2026-10-21
+
+Branch: preview/digiboard-page4. Previous tested baseline: 4fabc6a014784685bfdb43647dbbe3ee3af8f700. No push/deploy. Do not publish or change auth.
+
+Latest changes: homepage fonts/assets and neutral/red chrome across home/editor/form; compact New Job cards, customer/service chips, optional contact popup, existing OpsBrain /api/me signed-in default and admin-only /api/users picker with manual fallback; moisture 15 numeric autofocus/select-all with decimal numeric keyboard and precise moisturePercentage extra property. Existing page4 geometry/context/zoom/callout/export fixes remain in baseline.
+
+Verification: latest complete suite 143 passed, 1 failed. Failure is modern_form_test.dart responsive form has button selections and transactional contact popup, line99 takeException: Could not find a generator for route /graph-canvas. The new test harness lacks routing after Create Graph; all save assertions before that succeeded. Add appropriate test route or use edit-only route harness, then rerun. Do not weaken persistence assertions. Earlier focused3 tests passed. Analyzer clean before latest route-preview additions. Release preview build succeeded before latest route-preview additions. New audit route additions were not rebuilt/analyzed. Actual latest screenshots/export parity were not rerun because laptop disconnects. Baseline actual PNG/PDF standard/wide/tall comparisons were zero pixel difference with paired artifacts committed.
+
+Source encoding: new_job_screen.dart was repaired to UTF-8, and mojibake middle-dot in customer identity labels repaired. Confirm git diff and remaining encoding. One duplicate New/Unassigned status may be cleaned after visual review.
+
+Preview target: lib/page4_preview.dart. Query reviewRoute home, homeSaved, newJob, editJob, trace, presentation, default editor. Preview does not use real OpsBrain users. Trace uses offline provider, no live map. Standalone preview route navigation needs review. Export fixtures ?exportReview=1&fixture=standard|wide|tall. Production main.dart uses existing routes. Local preview prior server http://127.0.0.1:8794 serves build/web using task-root serve-preview.ps1. Do not use production customer data.
+
+Commands in repo: flutter pub get; flutter test; flutter analyze; flutter build web --release --no-wasm-dry-run --dart-define=PAGE4_REVIEW=modern_forms --target lib/page4_preview.dart. Use Flutter compatible with pubspec.lock. For cloud use loopback static server and supported private preview. Existing tool/page4_capture_workflows.js, page4_capture_exports.js, page4_export_parity.js are Playwright CLI run-code handlers. Raster parity uses bundled PDF.js and independently rendered PDF. PDF multipage PNG is vertical strip with24px gutters. Maintain canvas/export colors; no textures behind canvas; OS reduced motion honored.
+
+Remaining work: finish full-route desktop/mobile visual audit, large text/keyboard checks, test Created By signed-in/default/manual using authorized identity fixtures without fabricated selectable preview users, moisture canvas save/load and actual first/repeated placement, final regression/analyzer/build/export parity, screenshots and review commit. Theme may still need trace/panel polish after audit. No features after this checkpoint until cloud receives stable bundle.
+
+Known baseline limitations: physical calibration legacy24 units/foot not verified; zoom/fit are viewport only. Curved joins to different structures/already-curved target unsupported.8192-unit export bound and PNG memory caps. Herringbone original/PAT original Library downloads previously blocked Windows os.setxattr; EPS never executed. Raw PAT numeric definitions preserved in catalog.
+
+Unrelated formatter-only test files/generated plugin headers and old untracked artifacts intentionally excluded. No credentials included. Private Library upload may fail prepare_uploads; inspect exact result before retry.
+
+## Superseding completion handoff
+
+The October pending-test checkpoint above is retained as historical migration evidence. See docs/page4-preview.md, Completion review November2, for completed145-test suite,15 responsive follow-up tests, fresh actual zero-pixel PNG/PDF comparisons and desktop/mobile workflow evidence. The missing test/preview route is fixed. Current source remains preview-only; no remote push/deploy or auth change. Use the newest committed checkpoint supplied with the final review bundle, rather than ccdd551. Runtime remains Flutter3.44.4/Dart3.12.2 and authoritative committed pubspec.lock. Run python tool/serve_page4_review.py for portable loopback preview.

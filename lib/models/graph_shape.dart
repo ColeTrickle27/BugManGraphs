@@ -11,12 +11,12 @@ enum GraphShapePattern {
   dots,
   largeDots,
   checker,
+  blockwork,
+  brick,
+  checkerplate,
 }
 
-enum GraphDrawingPresetKind {
-  area,
-  line,
-}
+enum GraphDrawingPresetKind { area, line }
 
 /// The foundation condition recorded with a main structure. It is stored in
 /// [GraphShape.extraProperties] so older saved graphs remain valid.
@@ -40,7 +40,7 @@ enum GraphDrawingPreset {
     0.30,
     Color(0xFF214D38),
     3,
-    GraphShapePattern.none,
+    GraphShapePattern.blockwork,
     Color(0xFF214D38),
     5,
     LinePatternValue.solid,
@@ -183,7 +183,7 @@ enum GraphDrawingPreset {
     0.30,
     Color(0xFF4B4F54),
     3,
-    GraphShapePattern.none,
+    GraphShapePattern.checkerplate,
     Color(0xFF4B4F54),
     4,
     LinePatternValue.solid,
@@ -229,7 +229,7 @@ enum GraphDrawingPreset {
   ),
   measurementLine(
     'Quick Measure',
-    'MEASURE',
+    'QUICK MEASURE',
     GraphDrawingPresetKind.area,
     Color(0xFF4D9CFF),
     0.14,
@@ -239,6 +239,32 @@ enum GraphDrawingPreset {
     Color(0xFF245BDB),
     3,
     LinePatternValue.dashed,
+  ),
+  patio(
+    'Patio',
+    'PATIO',
+    GraphDrawingPresetKind.area,
+    Color(0xFFE6CBA3),
+    0.35,
+    Color(0xFF906332),
+    3,
+    GraphShapePattern.brick,
+    Color(0xFF906332),
+    4,
+    LinePatternValue.solid,
+  ),
+  custom(
+    'Custom description',
+    'CUSTOM',
+    GraphDrawingPresetKind.area,
+    Color(0xFFC7B3E8),
+    0.30,
+    Color(0xFF6246A8),
+    3,
+    GraphShapePattern.crossHatch,
+    Color(0xFF6246A8),
+    4,
+    LinePatternValue.solid,
   ),
   treatmentArea(
     'Treatment Area',

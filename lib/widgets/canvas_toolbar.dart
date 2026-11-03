@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 import '../editor/editor_interaction_controller.dart';
 import '../models/graph_annotation.dart';
@@ -33,15 +34,20 @@ class CanvasToolbarAction {
   String get label => switch (kind) {
         CanvasToolbarActionKind.tool => tool!.label,
         CanvasToolbarActionKind.preset =>
-          preset == GraphDrawingPreset.propertyLine
-              ? 'Property Line (acres)'
-              : preset!.label,
+          preset == GraphDrawingPreset.mainStructure
+              ? 'Sketch / Area'
+              : preset == GraphDrawingPreset.propertyLine
+                  ? 'Property Line (acres)'
+                  : preset!.label,
         CanvasToolbarActionKind.marker => marker!.label,
       };
 
   String get shortLabel => switch (kind) {
         CanvasToolbarActionKind.tool => tool!.label,
-        CanvasToolbarActionKind.preset => preset!.shortLabel,
+        CanvasToolbarActionKind.preset =>
+          preset == GraphDrawingPreset.mainStructure
+              ? 'Sketch / Area'
+              : preset!.shortLabel,
         CanvasToolbarActionKind.marker => marker!.shortLabel,
       };
 
@@ -54,7 +60,7 @@ class CanvasToolbarAction {
       };
 
   Color get color => switch (kind) {
-        CanvasToolbarActionKind.tool => const Color(0xFFCC2000),
+        CanvasToolbarActionKind.tool => AppColors.red,
         CanvasToolbarActionKind.preset => preset!.defaultBorderColor,
         CanvasToolbarActionKind.marker => marker!.defaultColor,
       };
@@ -101,6 +107,8 @@ const basicShapeToolbarActions = <CanvasToolbarAction>[
 ];
 
 const buildingFeatureToolbarActions = <CanvasToolbarAction>[
+  CanvasToolbarAction.preset(GraphDrawingPreset.patio),
+  CanvasToolbarAction.preset(GraphDrawingPreset.custom),
   CanvasToolbarAction.preset(GraphDrawingPreset.slab),
   CanvasToolbarAction.preset(GraphDrawingPreset.woodDeck),
   CanvasToolbarAction.preset(GraphDrawingPreset.woodPorch),
@@ -119,6 +127,7 @@ const propertyToolbarActions = <CanvasToolbarAction>[
 const utilityToolbarActions = <CanvasToolbarAction>[
   CanvasToolbarAction.marker(GraphMarkerType.hvacUnit),
   CanvasToolbarAction.marker(GraphMarkerType.pier),
+  CanvasToolbarAction.marker(GraphMarkerType.stepsFront),
   CanvasToolbarAction.marker(GraphMarkerType.steps),
   CanvasToolbarAction.marker(GraphMarkerType.crawlspaceAccess),
   CanvasToolbarAction.marker(GraphMarkerType.gasLine),
@@ -176,7 +185,7 @@ class CanvasToolbar extends StatefulWidget {
 }
 
 class _CanvasToolbarState extends State<CanvasToolbar> {
-  String? _expandedSection = 'Annotate';
+  String? _expandedSection = 'Sketch Structure';
 
   void _activate(CanvasToolbarAction action) {
     switch (action.kind) {
@@ -189,9 +198,7 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
     }
   }
 
-  CanvasToolbarAction _displayedAction(
-    List<CanvasToolbarAction> actions,
-  ) {
+  CanvasToolbarAction _displayedAction(List<CanvasToolbarAction> actions) {
     for (final action in actions) {
       if (action.isSelected(
         selectedTool: widget.selectedTool,
@@ -226,7 +233,7 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
     return Material(
       elevation: 6,
       borderRadius: BorderRadius.circular(10),
-      color: Colors.white,
+      color: const Color(0xFF261F24),
       child: SizedBox(
         width: 112,
         child: Padding(
@@ -236,40 +243,15 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
               children: [
                 _ToolbarHeader(onCollapse: widget.onCollapse),
                 const SizedBox(height: 4),
-                KeyedSubtree(
-                  key: const ValueKey('draw-structure-tool'),
-                  child: _ActionFace(
-                    action: const CanvasToolbarAction.preset(
-                      GraphDrawingPreset.mainStructure,
-                    ),
-                    selected: const CanvasToolbarAction.preset(
-                      GraphDrawingPreset.mainStructure,
-                    ).isSelected(
-                      selectedTool: widget.selectedTool,
-                      selectedPreset: widget.selectedDrawingPreset,
-                      selectedMarker: widget.selectedMarkerType,
-                    ),
-                    onPressed: () => _activate(
-                      const CanvasToolbarAction.preset(
-                        GraphDrawingPreset.mainStructure,
-                      ),
-                    ),
-                    onDoubleTap: () => widget.onActionDoubleTapped(
-                      const CanvasToolbarAction.preset(
-                        GraphDrawingPreset.mainStructure,
-                      ),
-                    ),
-                  ),
-                ),
-                const Divider(height: 18),
                 _section(
                   label: 'Annotate',
                   icon: Icons.edit_note_outlined,
                   children: [
                     _ActionPicker(
                       groupLabel: 'Callouts & Sketch',
-                      displayedAction:
-                          _displayedAction(basicLineToolbarActions),
+                      displayedAction: _displayedAction(
+                        basicLineToolbarActions,
+                      ),
                       actions: basicLineToolbarActions,
                       selectedTool: widget.selectedTool,
                       selectedPreset: widget.selectedDrawingPreset,
@@ -279,8 +261,9 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
                     const SizedBox(height: 6),
                     _ActionPicker(
                       groupLabel: 'Basic Shapes',
-                      displayedAction:
-                          _displayedAction(basicShapeToolbarActions),
+                      displayedAction: _displayedAction(
+                        basicShapeToolbarActions,
+                      ),
                       actions: basicShapeToolbarActions,
                       selectedTool: widget.selectedTool,
                       selectedPreset: widget.selectedDrawingPreset,
@@ -351,7 +334,7 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
                       const SizedBox(height: 6),
                     ],
                     for (final action in const [
-                      CanvasToolbarAction.tool(CanvasTool.photo)
+                      CanvasToolbarAction.tool(CanvasTool.photo),
                     ]) ...[
                       _ActionButton(
                         action: action,
@@ -401,12 +384,15 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
                       selectedMarker: widget.selectedMarkerType,
                       active: widget.selectedTool == CanvasTool.marker &&
                           treatmentMarkerTypes
-                              .where((marker) =>
-                                  marker != GraphMarkerType.treatmentNote)
+                              .where(
+                                (marker) =>
+                                    marker != GraphMarkerType.treatmentNote,
+                              )
                               .contains(widget.selectedMarkerType),
                       markers: treatmentMarkerTypes
-                          .where((marker) =>
-                              marker != GraphMarkerType.treatmentNote)
+                          .where(
+                            (marker) => marker != GraphMarkerType.treatmentNote,
+                          )
                           .toList(),
                       onSelected: widget.onMarkerSelected,
                     ),
@@ -472,103 +458,197 @@ class CanvasQuickToolbar extends StatelessWidget {
   final bool layersSelected;
 
   @override
-  Widget build(BuildContext context) => DragTarget<CanvasToolbarAction>(
-        onWillAcceptWithDetails: (_) => true,
-        onAcceptWithDetails: (details) => onActionAdded(details.data),
-        builder: (context, candidates, rejected) =>
-            LayoutBuilder(builder: (context, constraints) {
-          final compact = constraints.maxWidth < 1120;
-          return Material(
+  Widget build(BuildContext context) => _QuickToolbarRegion(
+        builder: (expanded, expandLabel) => DragTarget<CanvasToolbarAction>(
+          onWillAcceptWithDetails: (_) => true,
+          onAcceptWithDetails: (details) => onActionAdded(details.data),
+          builder: (context, candidates, rejected) =>
+              LayoutBuilder(builder: (context, constraints) {
+            final compact = constraints.maxWidth < 760;
+            final actionButtons = <Widget>[
+              for (final action in actions)
+                Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: _QuickActionButton(
+                      action: action,
+                      compact: compact,
+                      expandLabel: expanded,
+                      selected: action.isSelected(
+                          selectedTool: selectedTool,
+                          selectedPreset: selectedDrawingPreset,
+                          selectedMarker: selectedMarkerType),
+                      onPressed: () {
+                        expandLabel();
+                        onActionSelected(action);
+                      },
+                    )),
+            ];
+            final utilities = <Widget>[
+              _QuickUtilityButton(
+                  icon: Icons.undo,
+                  tooltip: 'Quick undo',
+                  selected: false,
+                  onPressed: onUndo),
+              _QuickUtilityButton(
+                  icon: Icons.redo,
+                  tooltip: 'Quick redo',
+                  selected: false,
+                  onPressed: onRedo),
+              const _QuickToolbarDivider(),
+              _QuickUtilityButton(
+                  icon: Icons.edit_note,
+                  tooltip: 'Object properties',
+                  selected: propertiesSelected,
+                  onPressed: onToggleProperties),
+              _QuickUtilityButton(
+                  icon: Icons.layers_outlined,
+                  tooltip: 'Layers panel',
+                  selected: layersSelected,
+                  onPressed: onToggleLayers),
+              _QuickUtilityButton(
+                  icon: Icons.delete_outline,
+                  tooltip: 'Delete selection',
+                  selected: false,
+                  onPressed: onDeleteSelection),
+              if (actions.length > 2)
+                _QuickUtilityButton(
+                    icon: Icons.restart_alt,
+                    tooltip: 'Reset quick toolbar',
+                    selected: false,
+                    onPressed: onReset),
+            ];
+            final more = PopupMenuButton<String>(
+              tooltip: 'More quick tools',
+              icon: const Icon(Icons.more_horiz, color: Color(0xFF687078)),
+              constraints: const BoxConstraints(minWidth: 220),
+              onSelected: (value) {
+                switch (value) {
+                  case 'undo':
+                    onUndo();
+                  case 'redo':
+                    onRedo();
+                  case 'properties':
+                    onToggleProperties();
+                  case 'layers':
+                    onToggleLayers();
+                  case 'delete':
+                    onDeleteSelection();
+                  case 'reset':
+                    onReset();
+                  case 'hide':
+                    onCollapse();
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(value: 'undo', child: Text('Undo')),
+                const PopupMenuItem(value: 'redo', child: Text('Redo')),
+                CheckedPopupMenuItem(
+                    value: 'properties',
+                    checked: propertiesSelected,
+                    child: const Text('Properties')),
+                CheckedPopupMenuItem(
+                    value: 'layers',
+                    checked: layersSelected,
+                    child: const Text('Layers')),
+                const PopupMenuItem(
+                    value: 'delete', child: Text('Delete selection')),
+                if (actions.length > 2)
+                  const PopupMenuItem(
+                      value: 'reset', child: Text('Reset quick toolbar')),
+                const PopupMenuDivider(),
+                const PopupMenuItem(
+                    value: 'hide', child: Text('Hide quick toolbar')),
+              ],
+            );
+            final history = <Widget>[
+              if (!compact)
+                IconButton(
+                    tooltip: 'Hide quick toolbar',
+                    onPressed: onCollapse,
+                    icon: const Icon(Icons.keyboard_arrow_down)),
+              if (showHistory) ...[
+                IconButton(
+                    key: const ValueKey('canvas-bottom-undo'),
+                    tooltip: 'Undo',
+                    constraints:
+                        const BoxConstraints.tightFor(width: 44, height: 44),
+                    padding: EdgeInsets.zero,
+                    onPressed: canUndo ? onUndo : null,
+                    icon: const Icon(Icons.undo)),
+                IconButton(
+                    key: const ValueKey('canvas-bottom-redo'),
+                    tooltip: 'Redo',
+                    constraints:
+                        const BoxConstraints.tightFor(width: 44, height: 44),
+                    padding: EdgeInsets.zero,
+                    onPressed: canRedo ? onRedo : null,
+                    icon: const Icon(Icons.redo)),
+              ],
+            ];
+            final content = Row(mainAxisSize: MainAxisSize.min, children: [
+              ...history,
+              const _QuickToolbarDivider(),
+              Flexible(
+                  child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [...actionButtons, ...utilities.skip(3)]))),
+              if (compact) more,
+            ]);
+            final surface = Material(
               key: const ValueKey('canvas-quick-toolbar'),
-              elevation: 10,
+              elevation: 3,
+              shadowColor: const Color(0x26000000),
               color:
-                  candidates.isEmpty ? Colors.white : const Color(0xFFFFE7E2),
-              shape: StadiumBorder(
+                  candidates.isEmpty ? Colors.white : const Color(0xFFFFEEEE),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24),
                   side: BorderSide(
                       color: candidates.isEmpty
-                          ? const Color(0xFF6D6E71)
-                          : const Color(0xFFCC2000))),
+                          ? const Color(0xFFDADDE1)
+                          : AppColors.red)),
               child: Padding(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    IconButton(
-                        tooltip: 'Hide quick toolbar',
-                        constraints: const BoxConstraints.tightFor(
-                            width: 44, height: 44),
-                        padding: EdgeInsets.zero,
-                        onPressed: onCollapse,
-                        icon: const Icon(Icons.keyboard_arrow_down)),
-                    if (showHistory) ...[
-                      IconButton(
-                          key: const ValueKey('canvas-bottom-undo'),
-                          tooltip: 'Undo',
-                          constraints: const BoxConstraints.tightFor(
-                              width: 44, height: 44),
-                          padding: EdgeInsets.zero,
-                          onPressed: canUndo ? onUndo : null,
-                          icon: const Icon(Icons.undo)),
-                      IconButton(
-                          key: const ValueKey('canvas-bottom-redo'),
-                          tooltip: 'Redo',
-                          constraints: const BoxConstraints.tightFor(
-                              width: 44, height: 44),
-                          padding: EdgeInsets.zero,
-                          onPressed: canRedo ? onRedo : null,
-                          icon: const Icon(Icons.redo)),
-                    ],
-                    const SizedBox(height: 44, child: VerticalDivider()),
-                    Flexible(
-                        child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child:
-                                Row(mainAxisSize: MainAxisSize.min, children: [
-                              for (final action in actions)
-                                Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 2),
-                                    child: _QuickActionButton(
-                                        action: action,
-                                        compact: compact,
-                                        selected: action.isSelected(
-                                            selectedTool: selectedTool,
-                                            selectedPreset:
-                                                selectedDrawingPreset,
-                                            selectedMarker: selectedMarkerType),
-                                        onPressed: () =>
-                                            onActionSelected(action))),
-                              const SizedBox(
-                                  height: 44, child: VerticalDivider()),
-                              _QuickUtilityButton(
-                                  icon: Icons.edit_note,
-                                  tooltip: 'Object properties',
-                                  selected: propertiesSelected,
-                                  onPressed: onToggleProperties),
-                              _QuickUtilityButton(
-                                  icon: Icons.layers_outlined,
-                                  tooltip: 'Layers panel',
-                                  selected: layersSelected,
-                                  onPressed: onToggleLayers),
-                              _QuickUtilityButton(
-                                  icon: Icons.delete_outline,
-                                  tooltip: 'Delete selection',
-                                  selected: false,
-                                  onPressed: onDeleteSelection),
-                              if (actions.length > 2) ...[
-                                const SizedBox(
-                                    height: 44, child: VerticalDivider()),
-                                IconButton(
-                                    tooltip: 'Reset quick toolbar',
-                                    constraints: const BoxConstraints.tightFor(
-                                        width: 44, height: 44),
-                                    padding: EdgeInsets.zero,
-                                    onPressed: onReset,
-                                    icon: const Icon(Icons.restart_alt)),
-                              ],
-                            ]))),
-                  ])));
-        }),
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+                  child: content),
+            );
+            return compact
+                ? surface
+                : SingleChildScrollView(
+                    scrollDirection: Axis.horizontal, child: surface);
+          }),
+        ),
       );
+}
+
+class _QuickToolbarRegion extends StatefulWidget {
+  const _QuickToolbarRegion({required this.builder});
+  final Widget Function(bool, VoidCallback) builder;
+  @override
+  State<_QuickToolbarRegion> createState() => _QuickToolbarRegionState();
+}
+
+class _QuickToolbarRegionState extends State<_QuickToolbarRegion> {
+  bool expanded = true;
+  @override
+  Widget build(BuildContext context) => TapRegion(
+        onTapOutside: (_) {
+          if (expanded) setState(() => expanded = false);
+        },
+        child: widget.builder(expanded, () => setState(() => expanded = true)),
+      );
+}
+
+class _QuickToolbarDivider extends StatelessWidget {
+  const _QuickToolbarDivider();
+  @override
+  Widget build(BuildContext context) => const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 4),
+      child: SizedBox(
+          height: 30,
+          child: VerticalDivider(
+              width: 1, thickness: 1, color: Color(0xFFE4E6E8))));
 }
 
 class _ActionPicker extends StatelessWidget {
@@ -670,10 +750,7 @@ class _ActionButton extends StatelessWidget {
 }
 
 class _DraggableAction extends StatelessWidget {
-  const _DraggableAction({
-    required this.action,
-    required this.child,
-  });
+  const _DraggableAction({required this.action, required this.child});
 
   final CanvasToolbarAction action;
   final Widget child;
@@ -714,9 +791,9 @@ class _QuickUtilityButton extends StatelessWidget {
           constraints: const BoxConstraints.tightFor(width: 44, height: 44),
           padding: EdgeInsets.zero,
           visualDensity: VisualDensity.compact,
-          color: selected ? const Color(0xFFCC2000) : Colors.black87,
+          color: selected ? AppColors.red : const Color(0xFF687078),
           onPressed: onPressed,
-          icon: Icon(icon, size: 20),
+          icon: Icon(icon, size: 24),
         ),
       );
 }
@@ -731,7 +808,7 @@ class _DragFeedback extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: const Color(0xFFCC2000), width: 2),
+          border: Border.all(color: AppColors.red, width: 2),
           boxShadow: const [BoxShadow(blurRadius: 8, color: Colors.black26)],
         ),
         child: Row(
@@ -783,55 +860,76 @@ class _QuickActionButton extends StatelessWidget {
   const _QuickActionButton({
     required this.action,
     required this.compact,
+    required this.expandLabel,
     required this.selected,
     required this.onPressed,
   });
 
   final CanvasToolbarAction action;
   final bool compact;
+  final bool expandLabel;
   final bool selected;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) => Tooltip(
         message: action.tooltip,
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(10),
-          child: Container(
-            constraints: BoxConstraints(minWidth: compact ? 36 : 58),
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? 7 : 10,
-              vertical: 7,
-            ),
-            decoration: BoxDecoration(
-              color: selected ? const Color(0xFFCC2000) : Colors.transparent,
+        child: Semantics(
+            selected: selected,
+            child: InkWell(
+              onTap: onPressed,
               borderRadius: BorderRadius.circular(10),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  action.icon,
-                  size: 20,
-                  color: selected ? Colors.white : action.color,
+              child: AnimatedContainer(
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 250),
+                constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 10,
                 ),
-                if (!compact &&
-                    action.tool != CanvasTool.select &&
-                    action.tool != CanvasTool.pan) ...[
-                  const SizedBox(width: 5),
-                  Text(
-                    action.label,
-                    style: TextStyle(
-                      color: selected ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.w700,
+                decoration: BoxDecoration(
+                  color:
+                      selected ? const Color(0xFFFFEEEE) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      action.icon,
+                      size: 24,
+                      color: selected ? AppColors.red : const Color(0xFF687078),
                     ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
+                    AnimatedSize(
+                      duration: MediaQuery.disableAnimationsOf(context)
+                          ? Duration.zero
+                          : const Duration(milliseconds: 250),
+                      curve: Curves.easeOutCubic,
+                      child: selected && expandLabel
+                          ? Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                      maxWidth: compact ? 48 : 160),
+                                  child: Text(
+                                    action.label,
+                                    key: ValueKey(
+                                        'quick-active-label-${action.label}'),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: AppColors.red,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  )))
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                ),
+              ),
+            )),
       );
 }
 
@@ -983,7 +1081,7 @@ class _PlainToolButton extends StatelessWidget {
             child: _PickerFace(
               icon: icon,
               label: label,
-              color: const Color(0xFFCC2000),
+              color: AppColors.red,
               active: selected,
             ),
           ),
@@ -1005,7 +1103,7 @@ class _ToolbarHeader extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: Color(0xFF6D6E71),
+                color: Color(0xFFE7DCE1),
                 fontSize: 11,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 0.8,
@@ -1053,7 +1151,7 @@ class _CollapsibleToolbarSection extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 9),
                 child: Row(
                   children: [
-                    Icon(icon, size: 18, color: const Color(0xFF6D6E71)),
+                    Icon(icon, size: 18, color: const Color(0xFFE7DCE1)),
                     const SizedBox(width: 7),
                     Expanded(
                       child: Text(
@@ -1061,7 +1159,8 @@ class _CollapsibleToolbarSection extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: Color(0xFF4C4D50),
+                          color: Color(0xFFF8F2F5),
+                          fontFamily: 'Raider Straight',
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
                         ),
@@ -1072,7 +1171,7 @@ class _CollapsibleToolbarSection extends StatelessWidget {
                           ? Icons.keyboard_arrow_up
                           : Icons.keyboard_arrow_down,
                       size: 18,
-                      color: const Color(0xFF6D6E71),
+                      color: const Color(0xFFE7DCE1),
                     ),
                   ],
                 ),
@@ -1087,6 +1186,8 @@ class _CollapsibleToolbarSection extends StatelessWidget {
 
 IconData iconForDrawingPreset(GraphDrawingPreset preset) => switch (preset) {
       GraphDrawingPreset.mainStructure => Icons.home_work_outlined,
+      GraphDrawingPreset.patio => Icons.grid_on,
+      GraphDrawingPreset.custom => Icons.edit_outlined,
       GraphDrawingPreset.slab => Icons.grid_on,
       GraphDrawingPreset.crawlspace => Icons.foundation_outlined,
       GraphDrawingPreset.basement => Icons.layers_outlined,

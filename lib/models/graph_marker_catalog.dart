@@ -5,6 +5,7 @@ import 'graph_annotation.dart';
 const utilityMarkerTypes = <GraphMarkerType>{
   GraphMarkerType.hvacUnit,
   GraphMarkerType.pier,
+  GraphMarkerType.stepsFront,
   GraphMarkerType.steps,
   GraphMarkerType.crawlspaceAccess,
   GraphMarkerType.gasLine,

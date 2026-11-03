@@ -1,3 +1,4 @@
+import '../services/callout_geometry.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -159,6 +160,11 @@ class GraphAnnotationsPainter extends CustomPainter {
       ..strokeWidth = labels.bounded ? 1.5 / labels.zoom : 2;
 
     canvas.drawRect(rect, selectedPaint);
+    final tip = CalloutGeometry.tip(annotation);
+    if (tip != null) {
+      canvas.drawCircle(tip, 7, Paint()..color = Colors.white);
+      canvas.drawCircle(tip, 7, selectedPaint);
+    }
 
     for (final handleCenter in [
       rect.topLeft,
@@ -185,11 +191,6 @@ class GraphAnnotationsPainter extends CustomPainter {
     canvas.save();
     canvas.translate(center.dx, center.dy);
     canvas.rotate(annotation.rotationDegrees * 3.1415926535 / 180);
-    canvas.drawCircle(
-      const Offset(1.5, 2),
-      iconSize * 0.34,
-      Paint()..color = const Color.fromRGBO(0, 0, 0, 0.16),
-    );
     final iconPainter = TextPainter(
       text: TextSpan(
         text: String.fromCharCode(icon.codePoint),
@@ -203,10 +204,11 @@ class GraphAnnotationsPainter extends CustomPainter {
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    iconPainter.paint(
-      canvas,
-      Offset(-iconPainter.width / 2, -iconPainter.height / 2),
-    );
+    if (!_paintStructureDetail(
+        canvas, annotation.markerType, iconSize, color)) {
+      iconPainter.paint(
+          canvas, Offset(-iconPainter.width / 2, -iconPainter.height / 2));
+    }
 
     canvas.restore();
     // Marker labels always scale from the same `annotation.size` value used
@@ -234,6 +236,61 @@ class GraphAnnotationsPainter extends CustomPainter {
       horizontalPadding: _markerLabelHorizontalPadding,
       verticalPadding: _markerLabelVerticalPadding,
     );
+  }
+
+  bool _paintStructureDetail(
+      Canvas canvas, GraphMarkerType type, double size, Color color) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8;
+    final r = size / 2;
+    if (type == GraphMarkerType.gasLine || type == GraphMarkerType.waterLine) {
+      for (var x = -r; x < r; x += size / 4) {
+        canvas.drawLine(Offset(x, 0), Offset(x + size / 7, 0), paint);
+      }
+    } else if (type == GraphMarkerType.pier) {
+      canvas.drawRect(Rect.fromLTRB(-r, -r, r, r), paint);
+      for (var i = 1; i < 3; i++) {
+        final n = -r + size * i / 3;
+        canvas.drawLine(Offset(n, -r), Offset(n, r), paint);
+        canvas.drawLine(Offset(-r, n), Offset(r, n), paint);
+      }
+    } else if (type == GraphMarkerType.stepsFront) {
+      canvas.drawRect(Rect.fromLTRB(-r, -r, r, r), paint);
+      for (var i = 1; i < 4; i++) {
+        final y = -r + size * i / 4;
+        canvas.drawLine(Offset(-r, y), Offset(r, y), paint);
+      }
+    } else if (type == GraphMarkerType.steps) {
+      final path = Path()..moveTo(-r, r);
+      for (var i = 0; i < 4; i++) {
+        path.lineTo(-r + size * i / 4, r - size * (i + 1) / 4);
+        path.lineTo(-r + size * (i + 1) / 4, r - size * (i + 1) / 4);
+      }
+      path
+        ..lineTo(r, r)
+        ..close();
+      canvas.drawPath(path, paint);
+    } else if (type == GraphMarkerType.crawlspaceAccess) {
+      canvas.drawPath(
+          Path()
+            ..moveTo(-r, r)
+            ..lineTo(-r, -r)
+            ..lineTo(r / 3, -r)
+            ..lineTo(r / 3, r),
+          paint);
+      canvas.drawLine(Offset(-r / 2, 0), Offset(r, 0), paint);
+      canvas.drawPath(
+          Path()
+            ..moveTo(r / 2, -r / 3)
+            ..lineTo(r, 0)
+            ..lineTo(r / 2, r / 3),
+          paint);
+    } else {
+      return false;
+    }
+    return true;
   }
 
   // Marker label scale constants. All derived from `annotation.size`, the

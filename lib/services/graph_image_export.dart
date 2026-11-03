@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/rendering.dart';
 import '../widgets/graph_scene_boundary.dart';
 
 import 'graph_export_legend.dart';
@@ -11,20 +12,33 @@ class GraphImageExport {
 
   /// Captures the canvas and returns only the requested content bounds.
   static Future<Uint8List> capturePng(
-    GraphSceneRenderBoundary boundary,
+    RenderRepaintBoundary boundary,
     ui.Rect contentBounds, {
     List<GraphLegendSection> legend = const [],
     List<String> measurementSummary = const [],
     Uint8List? brandingLogo,
+    void Function(ui.Canvas, ui.Size)? paintScene,
   }) async {
     // Capture negative/oversized world bounds at a bounded resolution BEFORE
     // allocating an image. Zoom and the fixed layout box do not define export.
     final ratio = math.min(
         1.0, 2400 / math.max(contentBounds.width, contentBounds.height));
-    final source = await boundary.captureBounds(
-      contentBounds,
-      pixelRatio: ratio,
-    );
+    final ui.Image source;
+    if (paintScene != null) {
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder)
+        ..scale(ratio)
+        ..translate(-contentBounds.left, -contentBounds.top);
+      paintScene(canvas, contentBounds.size);
+      final picture = recorder.endRecording();
+      source = await picture.toImage((contentBounds.width * ratio).ceil(),
+          (contentBounds.height * ratio).ceil());
+      picture.dispose();
+    } else {
+      source = boundary is GraphSceneRenderBoundary
+          ? await boundary.captureBounds(contentBounds, pixelRatio: ratio)
+          : await boundary.toImage(pixelRatio: ratio);
+    }
     ui.Image? logo;
     if (brandingLogo != null) {
       final codec = await ui.instantiateImageCodec(brandingLogo);

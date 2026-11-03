@@ -1,3 +1,4 @@
+import '../widgets/graph_page_chrome.dart';
 import 'package:flutter/material.dart';
 
 import '../models/job.dart';
@@ -57,7 +58,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     if(widget.cloudDraftWorkspace!=null)return AccountGraphGallery(workspace:widget.cloudDraftWorkspace!,legacyRepository:widget.repository);
     return Scaffold(
-      backgroundColor: const Color(0xFFC20000),
+      backgroundColor: const Color(0xFFF1F0F2),
       appBar: AppBar(
         title: const Text('BugManGraphs'),
         actions: const [OpsBrainHomeButton()],
@@ -66,12 +67,21 @@ class _HomeScreenState extends State<HomeScreen> {
           preferredSize: Size.fromHeight(4),
           child: SizedBox(
             height: 4,
-            child: ColoredBox(color: Color(0xFFC20000)),
+            child: ColoredBox(color: AppColors.red),
           ),
         ),
       ),
-      body: SafeArea(
-        child: FutureBuilder<List<SavedGraphSummary>>(
+      body: GraphPageBackdrop(
+          child: SafeArea(
+              child: Column(children: [
+        const Padding(
+            padding: EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: GraphPageHero(
+                title: 'Your Graphs',
+                subtitle:
+                    'Create, measure and document your next inspection.')),
+        Expanded(
+            child: FutureBuilder<List<SavedGraphSummary>>(
           future: _savedGraphs,
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) {
@@ -106,10 +116,10 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             );
           },
-        ),
-      ),
+        )),
+      ]))),
       floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: const Color(0xFFC20000),
+        backgroundColor: AppColors.red,
         onPressed: () async {
           await Navigator.of(context).pushNamed(NewJobScreen.routeName);
           if (mounted) _refresh();
@@ -221,7 +231,7 @@ class _EmptyJobsState extends StatelessWidget {
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 600;
         final horizontalPadding = isCompact ? 16.0 : 32.0;
-        final logoExtent = isCompact ? 240.0 : 360.0;
+        final logoExtent = isCompact ? 120.0 : 150.0;
 
         return SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(

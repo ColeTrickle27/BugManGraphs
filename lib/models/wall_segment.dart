@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'graph_point.dart';
+import '../services/curve_measurements.dart';
 
 enum LinePattern {
   solid('Solid'),
@@ -39,7 +40,7 @@ class WallSegment {
 
   bool get isCurve => controlPoint != null;
 
-  double get lengthPixels => start.distanceTo(end);
+  double get lengthPixels => CurveMeasurements.length(this);
 
   double get lengthFeet => lengthPixels / pixelsPerFoot;
 

@@ -153,8 +153,8 @@ void main() {
       final largeGap = large.rowBands[1].$1 - large.rowBands[0].$2;
       expect(smallGap, inInclusiveRange(0, 10),
           reason: 'icon-to-label gap should be tight at the small size');
-      expect(largeGap, inInclusiveRange(0, 14),
-          reason: 'icon-to-label gap should be tight at the large size');
+      expect(largeGap, inInclusiveRange(0, 24),
+          reason: 'bare glyph bearings plus the scaled label gap should stay tight');
 
       // Item 3/2 (tight bounds, no background fill): the label band's
       // height must be small - a filled background/pill would inflate it

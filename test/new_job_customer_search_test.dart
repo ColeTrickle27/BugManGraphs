@@ -45,11 +45,11 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(
         find.widgetWithText(TextField, 'Company'), 'Draft company');
-    await tester.tap(find.text('+ Add Contact'));
+    await tester.tap(find.text('+ Primary Contact'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Primary'));
+    await tester.enterText(find.descendant(of:find.byType(AlertDialog),matching:find.widgetWithText(TextField,'Phone')), '555-0100');
+    await tester.tap(find.text('Save Contact'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(TextField, 'Phone'), '555-0100');
     await tester.tap(find.widgetWithText(ChoiceChip, 'New Customer'));
     await tester.pumpAndSettle();
     expect(

@@ -1,3 +1,4 @@
+import 'printing_test_support.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -53,6 +54,7 @@ Future<void> closeExport(WidgetTester tester) async {
 }
 
 void main() {
+  setUp(() { final restore=installTestRasterizer(); addTearDown(restore); });
   testWidgets(
       'failed preparation can close and retry without document mutation',
       (tester) async {
@@ -75,7 +77,7 @@ void main() {
   });
   for (final setting in ['zoom', 'labels', 'grid', 'ratio']) {
     testWidgets(
-        'PNG reflects $setting changes on reopen without editing geometry',
+        'PDF-composed PNG remains viewport-independent after $setting changes',
         (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(1400, 900);
@@ -109,7 +111,7 @@ void main() {
       await tester.pumpAndSettle();
       await openExport(tester);
       expect(handoff.files, hasLength(2));
-      expect(handoff.files.last, isNot(orderedEquals(handoff.files.first)));
+      expect(handoff.files.last, orderedEquals(handoff.files.first));
       expect(document.toJson(), before);
       expect(tester.takeException(), isNull);
     });
