@@ -37,11 +37,11 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
-      MaterialApp(
+      const MaterialApp(
         home: Scaffold(
           body: MediaQuery(
-            data: const MediaQueryData(disableAnimations: true),
-            child: const Padding(
+            data: MediaQueryData(disableAnimations: true),
+            child: Padding(
               padding: EdgeInsets.all(16),
               child: ExpandableActionCard(
                 title: 'Edge measurements',
