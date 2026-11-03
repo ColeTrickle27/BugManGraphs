@@ -150,7 +150,7 @@ ThemeData buildBugManTheme() {
                 : AppColors.white,
           )),
       labelTextStyle: WidgetStateProperty.all(
-          const TextStyle(color: AppColors.white, fontFamily: 'Calistoga')),
+          const TextStyle(color: AppColors.white, fontFamily: 'Raider Straight')),
     ),
     drawerTheme: const DrawerThemeData(backgroundColor: AppColors.background),
     inputDecorationTheme: const InputDecorationTheme(

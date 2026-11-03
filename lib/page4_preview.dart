@@ -68,6 +68,18 @@ Future<void> main() async {
   }
   runApp(MaterialApp(
       theme: buildBugManTheme(),
+      routes: {
+        NewJobScreen.routeName: (_) => NewJobScreen(
+            opsUserService: UnavailableOpsUserService(), onCreateJob: (_) {})
+      },
+      onGenerateRoute: (settings) {
+        if (settings.name != GraphCanvasScreen.routeName) return null;
+        return MaterialPageRoute<void>(
+            builder: (_) => GraphCanvasScreen(
+                job: settings.arguments as Job,
+                repository: repository,
+                portalService: UnavailableBugManPortalService()));
+      },
       home: const ['home', 'homeSaved']
               .contains(page4ReviewParameters['reviewRoute'])
           ? HomeScreen(repository: repository)

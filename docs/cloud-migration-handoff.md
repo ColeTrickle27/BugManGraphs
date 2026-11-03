@@ -17,3 +17,7 @@ Remaining work: finish full-route desktop/mobile visual audit, large text/keyboa
 Known baseline limitations: physical calibration legacy24 units/foot not verified; zoom/fit are viewport only. Curved joins to different structures/already-curved target unsupported.8192-unit export bound and PNG memory caps. Herringbone original/PAT original Library downloads previously blocked Windows os.setxattr; EPS never executed. Raw PAT numeric definitions preserved in catalog.
 
 Unrelated formatter-only test files/generated plugin headers and old untracked artifacts intentionally excluded. No credentials included. Private Library upload may fail prepare_uploads; inspect exact result before retry.
+
+## Superseding completion handoff
+
+The October pending-test checkpoint above is retained as historical migration evidence. See docs/page4-preview.md, Completion review November2, for completed145-test suite,15 responsive follow-up tests, fresh actual zero-pixel PNG/PDF comparisons and desktop/mobile workflow evidence. The missing test/preview route is fixed. Current source remains preview-only; no remote push/deploy or auth change. Use the newest committed checkpoint supplied with the final review bundle, rather than ccdd551. Runtime remains Flutter3.44.4/Dart3.12.2 and authoritative committed pubspec.lock. Run python tool/serve_page4_review.py for portable loopback preview.

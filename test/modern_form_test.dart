@@ -1,4 +1,3 @@
-import 'printing_test_support.dart';
 import 'package:bugman_graphs/models/job.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -60,8 +59,15 @@ void main() {
     Job? saved;
     await t.pumpWidget(MaterialApp(
         theme: buildBugManTheme(),
+        routes: {
+          '/graph-canvas': (_) =>
+              const Scaffold(body: Text('Saved graph preview'))
+        },
         home: NewJobScreen(
-            opsUserService: UnavailableOpsUserService(), onCreateJob: (job) { saved=job; })));
+            opsUserService: UnavailableOpsUserService(),
+            onCreateJob: (job) {
+              saved = job;
+            })));
     await t.pumpAndSettle();
     await t.tap(find.text('New Customer'));
     await t.pumpAndSettle();
@@ -86,17 +92,45 @@ void main() {
     await t.tap(find.text('Save Contact'));
     await t.pumpAndSettle();
     expect(find.text('Contact saved'), findsOneWidget);
-    await t.enterText(find.byKey(const ValueKey('created-by-manual')), 'Manual entry');
-    await t.tap(find.widgetWithText(ChoiceChip,'WDIR'));
+    await t.enterText(
+        find.byKey(const ValueKey('created-by-manual')), 'Manual entry');
+    await t.tap(find.widgetWithText(ChoiceChip, 'WDIR'));
     await t.tap(find.text('Create Graph'));
     await t.pumpAndSettle();
-    expect(saved!.createdBy,'Manual entry');
-    expect(saved!.serviceType,'WDIR');
-    expect(saved!.intakeDetails['customerType'],'Commercial');
-    expect(saved!.intakeDetails['contactName'],'Contact saved');
+    expect(saved!.createdBy, 'Manual entry');
+    expect(saved!.serviceType, 'WDIR');
+    expect(saved!.intakeDetails['customerType'], 'Commercial');
+    expect(saved!.intakeDetails['contactName'], 'Contact saved');
     t.view.physicalSize = const Size(390, 844);
     await t.pumpAndSettle();
     expect(t.takeException(), isNull);
     await t.pumpWidget(const SizedBox());
+  });
+  testWidgets('mobile large text and keyboard keep contact actions reachable',
+      (t) async {
+    t.view.devicePixelRatio = 1;
+    t.view.physicalSize = const Size(390, 844);
+    addTearDown(t.view.reset);
+    await t.pumpWidget(MaterialApp(
+        theme: buildBugManTheme(),
+        builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+                textScaler: const TextScaler.linear(1.5),
+                viewInsets: const EdgeInsets.only(bottom: 280)),
+            child: child!),
+        home: NewJobScreen(
+            opsUserService: UnavailableOpsUserService(), onCreateJob: (_) {})));
+    await t.pumpAndSettle();
+    final contact = find.byKey(const ValueKey('optional-contact-button'));
+    await t.ensureVisible(contact);
+    await t.tap(contact);
+    await t.pumpAndSettle();
+    await t.enterText(
+        find.byKey(const ValueKey('optional-contact-name')), 'Draft');
+    await t.ensureVisible(find.text('Save Contact'));
+    await t.tap(find.text('Save Contact'));
+    await t.pumpAndSettle();
+    expect(find.text('Draft'), findsOneWidget);
+    expect(t.takeException(), isNull);
   });
 }

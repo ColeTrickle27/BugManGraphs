@@ -81,8 +81,10 @@ class GraphFormCard extends StatelessWidget {
 }
 
 class ResponsiveGraphFields extends StatelessWidget {
-  const ResponsiveGraphFields({required this.children, super.key});
+  const ResponsiveGraphFields(
+      {required this.children, this.fullWidthOnNarrow = const {}, super.key});
   final List<Widget> children;
+  final Set<int> fullWidthOnNarrow;
   @override
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (context, constraints) {
@@ -91,12 +93,17 @@ class ResponsiveGraphFields extends StatelessWidget {
             ? 1
             : constraints.maxWidth >= 660
                 ? 3
-                : constraints.maxWidth >= 340
+                : constraints.maxWidth >= 300
                     ? 2
                     : 1;
         final width = (constraints.maxWidth - (columns - 1) * 14) / columns;
         return Wrap(spacing: 14, runSpacing: 14, children: [
-          for (final child in children) SizedBox(width: width, child: child)
+          for (var index = 0; index < children.length; index++)
+            SizedBox(
+                width: columns == 2 && fullWidthOnNarrow.contains(index)
+                    ? constraints.maxWidth
+                    : width,
+                child: children[index])
         ]);
       });
 }

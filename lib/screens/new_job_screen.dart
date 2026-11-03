@@ -446,7 +446,7 @@ class _NewJobScreenState extends State<NewJobScreen> {
                     ]),
                     const SizedBox(height: 12),
                     Text(
-                        'Bill To: ${_pestPacBillToController.text.isEmpty ? 'New/Unassigned' : _pestPacBillToController.text} - Location: ${_pestPacLocationController.text.isEmpty ? 'New/Unassigned' : _pestPacLocationController.text}',
+                        'Bill To: ${_pestPacBillToController.text.isEmpty ? 'New/Unassigned' : _pestPacBillToController.text} \u00b7 Location: ${_pestPacLocationController.text.isEmpty ? 'New/Unassigned' : _pestPacLocationController.text}',
                         style: Theme.of(context).textTheme.bodySmall),
                     const SizedBox(height: 16),
                     if (_showingLocationSummary) ..._buildLocationSummary(),
@@ -712,11 +712,10 @@ class _NewJobScreenState extends State<NewJobScreen> {
           decoration: InputDecoration(labelText: label));
 
   List<Widget> _buildManualFields() => [
-        if (_selectedLocation == null) ...[
-          const Text("Bill To: New/Unassigned · Location: New/Unassigned"),
-          const SizedBox(height: 14),
-        ],
-        ResponsiveGraphFields(children: [
+        ResponsiveGraphFields(fullWidthOnNarrow: const {
+          3,
+          9
+        }, children: [
           _detailField('company', 'Company'),
           _detailField('first', 'First Name'),
           _detailField('last', 'Last Name'),

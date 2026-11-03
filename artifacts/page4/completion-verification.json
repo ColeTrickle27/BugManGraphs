@@ -1,0 +1,60 @@
+{
+  "full_regression_tests": 145,
+  "full_regression_failed": 0,
+  "final_responsive_customer_tests": 15,
+  "final_responsive_customer_failed": 0,
+  "analyzer": "No issues found",
+  "release_build": "succeeded",
+  "runtime": {
+    "flutter": "3.44.4",
+    "dart": "3.12.2"
+  },
+  "browser": "isolated headless Chromium, desktop1440/mobile390, no foreground interaction",
+  "moisture_browser": {
+    "first_and_repeat_desktop_mobile": "passed",
+    "initial_value": "15",
+    "selection": [
+      0,
+      2
+    ],
+    "focused": true,
+    "typing_replaces": true,
+    "confirm_and_cancel": "passed",
+    "physical_mobile_keyboard": "not physically tested; numeric decimal TextInputType tested"
+  },
+  "exports": [
+    {
+      "format": "standard",
+      "pages": 3,
+      "width": 1584,
+      "height": 4440,
+      "differingPixelsOver2": 0,
+      "maxChannelError": 0,
+      "meanChannelError": 0
+    },
+    {
+      "format": "wide",
+      "pages": 1,
+      "width": 1584,
+      "height": 1224,
+      "differingPixelsOver2": 0,
+      "maxChannelError": 0,
+      "meanChannelError": 0
+    },
+    {
+      "format": "tall",
+      "pages": 1,
+      "width": 1584,
+      "height": 1224,
+      "differingPixelsOver2": 0,
+      "maxChannelError": 0,
+      "meanChannelError": 0
+    }
+  ],
+  "limitations": [
+    "Physical property calibration is not verified; viewport zoom/fit are not calibration.",
+    "Live OpsBrain authenticated user directory and map provider not exercised; no fabricated selectable users.",
+    "Original herringbone/PAT Library transfer limitations remain documented."
+  ],
+  "production_push_deploy": false
+}

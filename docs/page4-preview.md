@@ -156,3 +156,21 @@ shared dialogs/menus, inputs, cards and selection/hover accents are updated.
 This is a restrained adaptation of the modern-app direction; it is not a full
 screen-by-screen visual audit of every legacy Graphs route or an exact clone of
 the latest homepage composition. No other application/worktree was changed.
+
+## Completion review — November 2, 2026
+
+The checkpoint resumed at ccdd551 and its missing preview/test route was repaired. Full regression:145 tests passed. Final responsive follow-up:15 targeted tests passed. Desktop/mobile browser review covers empty/saved home, New/Edit Job, optional contact dialog, offline trace workspace, presentation, editor, context menu, classification and callout selection. Evidence is output/playwright/modern-*.png plus existing updated desktop/mobile editor captures. Homepage Raider Straight/Bitter typography, eye hero/silver chrome, cards and red actions now cover all four Graphs screens through shared theme and route-specific form/home chrome. Canvas and map remain clear. Reduced-motion toolbar handling remains unchanged; no background motion was added.
+
+Actual browser moisture audit: first and second invocations on desktop1440 and mobile390 each showed text15, selection0..2 and focus; immediate typing23 replaced it; Save and Cancel completed. Dedicated widget tests also verify numeric/decimal keyboard configuration, repeated reset, save/cancel, form persistence and150% text with280px keyboard inset. Desktop-browser viewport emulation does not prove a physical mobile keyboard; device QA remains advisable.
+
+Fresh actual exports: all6 PDF/PNG actions returned200. Independent PDF.js raster comparison: standard3pages1584x4440, wide/tall1page1584x1224; all maxChannelError0 and differingPixelsOver2=0. Paired deliverables remain artifacts/page4/exports/{standard,wide,tall}.{png,pdf}; comparison JSON/reference PNG included. Negative-world curved geometry, native hatches, measurements, labels, photos, markers, metadata, legend and multipage framing are included in the synthetic standard fixture.
+
+Run the isolated synthetic preview with Flutter3.44.4/Dart3.12.2 and committed pubspec.lock:
+flutter pub get --enforce-lockfile
+flutter test
+flutter analyze
+flutter build web --release --no-wasm-dry-run --dart-define=PAGE4_REVIEW=completion_final --target lib/page4_preview.dart
+python tool/serve_page4_review.py
+Then open http://127.0.0.1:8794/?reviewRoute=newJob or ?exportReview=1&fixture=standard. The local memory-only preview has no production saves or live user directory. Query routes: home,homeSaved,newJob,editJob,trace,presentation; defaulteditor. The portable loopback server only accepts synthetic fixture export paths, writes locally and uses no credentials. Existing production auth/permissions/routes remain intact.
+
+Live authenticated OpsBrain current-user/directory and map-provider integration were not exercised; manual fallback is reviewed, and directory access remains admin-only through existing endpoints. No fabricated selectable users were added. Original herringbone transfer and physical property calibration remain unresolved as documented above; no scale-accuracy claim. Native PAT numeric data remains preserved. No push, deploy, auth changes or production writes.
