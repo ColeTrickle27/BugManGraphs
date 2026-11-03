@@ -86,6 +86,7 @@ void main() {
     final viewer = find.byType(InteractiveViewer);
     final controller =
         tester.widget<InteractiveViewer>(viewer).transformationController!;
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
     controller.value = Matrix4.identity();
     await tester.pump();
     final curveMid = tester.getTopLeft(viewer) + const Offset(250, 350);

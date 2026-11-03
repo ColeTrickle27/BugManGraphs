@@ -7,10 +7,13 @@ import 'package:flutter/material.dart';
 
 import '../models/customer_file.dart';
 import '../models/job.dart';
+import '../models/cloud_graph_draft.dart';
+import '../widgets/cloud_drafts/graph_creator_picker.dart';
 import '../services/customer_files_service.dart';
 import '../services/customer_files_service_factory.dart';
 import '../services/bugman_portal_service.dart';
 import '../services/portal_sign_in.dart';
+import '../services/authenticated_identity.dart';
 import '../widgets/ops_brain_home_button.dart';
 import 'graph_canvas_screen.dart';
 
@@ -19,10 +22,18 @@ class NewJobScreen extends StatefulWidget {
     required this.onCreateJob,
     this.initialJob,
     this.editOnly = false,
+    this.asDialog = false,
     this.preselectedLocation,
     this.resolutionWarning,
     this.customerFilesService,
     this.opsUserService,
+    this.authenticatedNameLoader,
+    this.cloudAuthors,
+    this.cloudHistoricalAuthor,
+    this.cloudInitialAuthorId,
+    this.onCloudAuthorChanged,
+    this.cloudCreatorMode = false,
+    this.returnCreatedJob = false,
     super.key,
   });
 
@@ -32,11 +43,13 @@ class NewJobScreen extends StatefulWidget {
     'WDIR',
     'ATBS Installation',
     'General Use',
+    'Termite Treatment',
   ];
 
   final ValueChanged<Job> onCreateJob;
   final Job? initialJob;
   final bool editOnly;
+  final bool asDialog;
 
   /// A Bill-To/Location already resolved against Ops Brain (e.g. by a
   /// Sales Brain "Create New" deep link). When set, the customer identity
@@ -54,6 +67,13 @@ class NewJobScreen extends StatefulWidget {
   /// Ops-Brain-backed implementation is used.
   final CustomerFilesService? customerFilesService;
   final OpsUserService? opsUserService;
+  final Future<String?> Function()? authenticatedNameLoader;
+  final GraphDraftAuthors? cloudAuthors;
+  final GraphDraftAuthor? cloudHistoricalAuthor;
+  final String? cloudInitialAuthorId;
+  final ValueChanged<GraphDraftAuthor>? onCloudAuthorChanged;
+  final bool cloudCreatorMode;
+  final bool returnCreatedJob;
 
   @override
   State<NewJobScreen> createState() => _NewJobScreenState();
@@ -61,6 +81,11 @@ class NewJobScreen extends StatefulWidget {
 
 class _NewJobScreenState extends State<NewJobScreen> {
   final _locationNameController = TextEditingController();
+  String? _cloudAuthorId;
+  bool get _cloudCreatorMode =>
+      widget.cloudCreatorMode ||
+      widget.cloudAuthors != null ||
+      widget.cloudHistoricalAuthor != null;
   final _locationAddressController = TextEditingController();
   final _pestPacLocationController = TextEditingController();
   final _pestPacBillToController = TextEditingController();
@@ -76,6 +101,9 @@ class _NewJobScreenState extends State<NewJobScreen> {
   String _creatorMode = '__manual__';
   bool _creatorTouched = false;
   bool _creatorsLoading = true;
+  bool _authenticatedCreator = false;
+  bool _primaryContactVisible = false;
+  bool _alternateContactVisible = false;
 
   CustomerLocation? _selectedLocation;
   bool _manualEntryOverride = false;
@@ -92,7 +120,9 @@ class _NewJobScreenState extends State<NewJobScreen> {
       'phone',
       'email',
       'contactName',
-      'contactPhone'
+      'contactPhone',
+      'primaryContactName',
+      'contactEmail',
     ])
       key: TextEditingController(),
   };
@@ -109,6 +139,28 @@ class _NewJobScreenState extends State<NewJobScreen> {
 
   bool get _showingSearch =>
       _searchFlowEnabled && !_manualEntryOverride && _selectedLocation == null;
+
+  String? _authorCorrection;
+  @override
+  void didUpdateWidget(covariant NewJobScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.cloudAuthors != null &&
+        widget.cloudAuthors != oldWidget.cloudAuthors) {
+      final authors = widget.cloudAuthors!.authors;
+      final previous = authors.where((a) => a.id == _cloudAuthorId).firstOrNull;
+      final replacement = previous ??
+          authors
+              .where((a) => a.id == widget.cloudAuthors!.defaultAuthorId)
+              .firstOrNull;
+      if (previous == null && _cloudAuthorId != null) {
+        _authorCorrection =
+            'The previously selected creator is no longer active. Review the updated creator before creating this graph.';
+      }
+      _cloudAuthorId = replacement?.id;
+      _createdByController.text = replacement?.name ?? '';
+      if (replacement != null) widget.onCloudAuthorChanged?.call(replacement);
+    }
+  }
 
   @override
   void initState() {
@@ -149,8 +201,12 @@ class _NewJobScreenState extends State<NewJobScreen> {
           billToId: details['billToId'] ?? '',
         );
       }
-      _locationAddressController.text =
-          details['streetAddress'] ?? initialJob.serviceAddress;
+      final addressField = _selectedLocation == null
+          ? details['streetAddress']
+          : details['locationAddress'];
+      _locationAddressController.text = addressField?.trim().isNotEmpty == true
+          ? addressField!
+          : initialJob.serviceAddress;
       _serviceType = NewJobScreen.serviceTypes.contains(initialJob.serviceType)
           ? initialJob.serviceType
           : 'Inspection';
@@ -161,7 +217,48 @@ class _NewJobScreenState extends State<NewJobScreen> {
       _selectedLocation = preselected;
       _applyLocation(preselected);
     }
-    _loadCreators();
+    _restoreContactVisibility();
+    _cloudAuthorId = widget.cloudInitialAuthorId ??
+        widget.cloudHistoricalAuthor?.id ??
+        widget.cloudAuthors?.defaultAuthorId;
+    if (_cloudCreatorMode && initialJob == null) {
+      _createdByController.text = widget.cloudAuthors?.authors
+              .where((a) => a.id == _cloudAuthorId)
+              .firstOrNull
+              ?.name ??
+          widget.cloudHistoricalAuthor?.name ??
+          '';
+    }
+    if (!_cloudCreatorMode) {
+      _loadCreator();
+      _loadCreators();
+    }
+  }
+
+  void _restoreContactVisibility() {
+    _primaryContactVisible = [
+      'phone',
+      'email',
+      'primaryContactName',
+    ].any((key) => _details[key]!.text.isNotEmpty);
+    _alternateContactVisible = [
+      'contactName',
+      'contactPhone',
+      'contactEmail',
+    ].any((key) => _details[key]!.text.isNotEmpty);
+  }
+
+  Future<void> _loadCreator() async {
+    final name =
+        await (widget.authenticatedNameLoader ?? loadAuthenticatedName)();
+    if (!mounted || name == null || name.trim().isEmpty) return;
+    setState(() {
+      _authenticatedCreator = true;
+      if (widget.initialJob == null ||
+          _createdByController.text.trim().isEmpty) {
+        _createdByController.text = name.trim();
+      }
+    });
   }
 
   Future<void> _loadCreators() async {
@@ -192,10 +289,12 @@ class _NewJobScreenState extends State<NewJobScreen> {
 
   Future<void> _editOptionalContact() async {
     final values = await showDialog<Map<String, String>>(
-        context: context,
-        builder: (_) => _OptionalContactDialog(
-            name: _details['contactName']!.text,
-            phone: _details['contactPhone']!.text));
+      context: context,
+      builder: (_) => _OptionalContactDialog(
+        name: _details['contactName']!.text,
+        phone: _details['contactPhone']!.text,
+      ),
+    );
     if (!mounted || values == null) return;
     setState(() {
       _details['contactName']!.text = values['name']!;
@@ -224,6 +323,8 @@ class _NewJobScreenState extends State<NewJobScreen> {
     for (final controller in _details.values) {
       controller.clear();
     }
+    // Bill-To name is the available company/account name. Do not attempt to
+    // split it into first/last name fields when the source is not structured.
     _details['company']!.text = location.billToName;
     _details['phone']!.text = location.phone;
     _details['email']!.text = location.email;
@@ -247,6 +348,7 @@ class _NewJobScreenState extends State<NewJobScreen> {
               _locationAddressController.text;
       _customerType = previous.intakeDetails['customerType'] ?? '';
     }
+    _restoreContactVisibility();
   }
 
   void _clearLocationFields() {
@@ -258,6 +360,8 @@ class _NewJobScreenState extends State<NewJobScreen> {
     _locationAddressController.clear();
     _pestPacLocationController.clear();
     _pestPacBillToController.clear();
+    _primaryContactVisible = false;
+    _alternateContactVisible = false;
   }
 
   void _selectLocation(CustomerLocation location) {
@@ -371,23 +475,33 @@ class _NewJobScreenState extends State<NewJobScreen> {
       for (final entry in _details.entries) entry.key: entry.value.text.trim(),
       'leadType': _manualEntryOverride ? 'New Customer' : 'Existing Customer',
       'locationName': _locationNameController.text.trim(),
-      'streetAddress': _locationAddressController.text.trim(),
+      'streetAddress': _selectedLocation == null
+          ? _locationAddressController.text.trim()
+          : '',
+      'locationAddress': _selectedLocation == null
+          ? ''
+          : _locationAddressController.text.trim(),
       'state': 'NC',
       'customerType': _customerType,
       'customerLocationId': _selectedLocation?.customerLocationId ?? '',
       'billToId': _selectedLocation?.billToId ?? '',
     };
-    final name = details['company']!.isNotEmpty
-        ? details['company']!
-        : [details['first']!, details['last']!]
-            .where((value) => value.isNotEmpty)
-            .join(' ');
-    final address = [
-      details['streetAddress']!,
-      details['city']!,
-      if (details['city']!.isNotEmpty || details['zip']!.isNotEmpty) 'NC',
-      details['zip']!
-    ].where((value) => value.isNotEmpty).join(', ');
+    final name = _selectedLocation != null
+        ? _details['company']!.text.trim()
+        : details['company']!.isNotEmpty
+            ? details['company']!
+            : [
+                details['first']!,
+                details['last']!,
+              ].where((value) => value.isNotEmpty).join(' ');
+    final address = _selectedLocation != null
+        ? _locationAddressController.text.trim()
+        : [
+            details['streetAddress']!,
+            details['city']!,
+            if (details['city']!.isNotEmpty || details['zip']!.isNotEmpty) 'NC',
+            details['zip']!,
+          ].where((value) => value.isNotEmpty).join(', ');
     final job = Job(
       intakeDetails: details,
       id: widget.initialJob?.id,
@@ -402,181 +516,262 @@ class _NewJobScreenState extends State<NewJobScreen> {
 
     widget.onCreateJob(job);
 
-    if (widget.editOnly) {
+    if (widget.editOnly || widget.returnCreatedJob) {
       Navigator.of(context).pop(job);
       return;
     }
 
-    Navigator.of(context).pushReplacementNamed(
-      GraphCanvasScreen.routeName,
-      arguments: job,
-    );
+    Navigator.of(
+      context,
+    ).pushReplacementNamed(GraphCanvasScreen.routeName, arguments: job);
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-            title: Text(widget.editOnly ? 'Edit Job' : 'New Job'),
-            actions: const [OpsBrainHomeButton()]),
-        body: GraphPageBackdrop(child:
-            SafeArea(child: LayoutBuilder(builder: (context, constraints) {
-          final contact = GraphFormCard(
-              title: 'Contact & Location',
-              icon: Icons.person_outline,
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (widget.resolutionWarning != null &&
-                        !_warningDismissed) ...[
-                      _ResolutionWarningBanner(
+          title: Text(
+            widget.asDialog
+                ? 'Edit Graph Information'
+                : widget.editOnly
+                    ? 'Edit Job'
+                    : 'New Job',
+          ),
+          leading: widget.asDialog
+              ? IconButton(
+                  tooltip: 'Cancel edits',
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                )
+              : null,
+          actions: const [OpsBrainHomeButton()],
+        ),
+        body: GraphPageBackdrop(
+          child: SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final contact = GraphFormCard(
+                  title: 'Contact & Location',
+                  icon: Icons.person_outline,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (widget.resolutionWarning != null &&
+                          !_warningDismissed) ...[
+                        _ResolutionWarningBanner(
                           message: widget.resolutionWarning!,
                           onDismiss: () =>
-                              setState(() => _warningDismissed = true)),
-                      const SizedBox(height: 12)
-                    ],
-                    Wrap(spacing: 8, runSpacing: 8, children: [
-                      ChoiceChip(
-                          label: const Text('Existing Customer'),
-                          selected: !_manualEntryOverride,
-                          onSelected: (_) => _toggleManualEntry(false)),
-                      ChoiceChip(
-                          label: const Text('New Customer'),
-                          selected: _manualEntryOverride,
-                          onSelected: (_) => _toggleManualEntry(true))
-                    ]),
-                    const SizedBox(height: 12),
-                    Text(
+                              setState(() => _warningDismissed = true),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ChoiceChip(
+                            label: const Text('Existing Customer'),
+                            selected: !_manualEntryOverride,
+                            onSelected: (_) => _toggleManualEntry(false),
+                          ),
+                          ChoiceChip(
+                            label: const Text('New Customer'),
+                            selected: _manualEntryOverride,
+                            onSelected: (_) => _toggleManualEntry(true),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
                         'Bill To: ${_pestPacBillToController.text.isEmpty ? 'New/Unassigned' : _pestPacBillToController.text} \u00b7 Location: ${_pestPacLocationController.text.isEmpty ? 'New/Unassigned' : _pestPacLocationController.text}',
-                        style: Theme.of(context).textTheme.bodySmall),
-                    const SizedBox(height: 16),
-                    if (_showingLocationSummary) ..._buildLocationSummary(),
-                    if (_showingSearch) ..._buildCustomerSearch(),
-                    if (_manualEntryOverride || _selectedLocation != null)
-                      ..._buildManualFields(),
-                  ]));
-          final graphDetails = GraphFormCard(
-              title: 'Graph Details',
-              icon: Icons.assignment_outlined,
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    TextField(
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 16),
+                      if (_showingLocationSummary) ..._buildLocationSummary(),
+                      if (_showingSearch) ..._buildCustomerSearch(),
+                      if (_manualEntryOverride || _selectedLocation != null)
+                        ..._buildManualFields(),
+                    ],
+                  ),
+                );
+                final graphDetails = GraphFormCard(
+                  title: 'Graph Details',
+                  icon: Icons.assignment_outlined,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
                         key: const ValueKey('job-date-field'),
                         controller: _dateController,
                         readOnly: true,
                         onTap: _pickDate,
                         decoration: const InputDecoration(
-                            labelText: 'Date',
-                            prefixIcon: Icon(Icons.calendar_today_outlined),
-                            suffixIcon: Icon(Icons.edit_calendar_outlined))),
-                    const SizedBox(height: 18),
-                    Text('Service Type',
-                        style: Theme.of(context).textTheme.titleSmall),
-                    const SizedBox(height: 8),
-                    Wrap(spacing: 8, runSpacing: 8, children: [
-                      for (final type in NewJobScreen.serviceTypes)
-                        ChoiceChip(
-                            label: Text(type),
-                            selected: _serviceType == type,
-                            onSelected: (_) =>
-                                setState(() => _serviceType = type))
-                    ]),
-                    const SizedBox(height: 20),
-                    DropdownButtonFormField<String>(
-                        key: ValueKey(
-                            'creator-mode-$_creatorMode-${_opsUsers.users.length}'),
-                        initialValue: _creatorMode,
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                            labelText: 'Created By',
-                            prefixIcon: Icon(Icons.badge_outlined)),
-                        items: [
-                          for (final user in _opsUsers.users)
-                            DropdownMenuItem(
-                                value: user.username,
-                                child: Text(user.name,
-                                    overflow: TextOverflow.ellipsis)),
-                          const DropdownMenuItem(
-                              value: '__manual__',
-                              child: Text('Enter manually'))
-                        ],
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setState(() {
-                            _creatorTouched = true;
-                            _creatorMode = value;
-                            if (value != '__manual__') {
-                              _createdByController.text = _opsUsers.users
-                                  .firstWhere((u) => u.username == value)
-                                  .name;
-                            }
-                          });
-                        }),
-                    if (_creatorsLoading)
-                      const Padding(
-                          padding: EdgeInsets.only(top: 8),
-                          child: Text('Loading signed-in user...')),
-                    if (_creatorMode == '__manual__') ...[
-                      const SizedBox(height: 12),
-                      TextField(
-                          key: const ValueKey('created-by-manual'),
-                          controller: _createdByController,
-                          onChanged: (_) => _creatorTouched = true,
-                          textInputAction: TextInputAction.done,
-                          decoration: const InputDecoration(
-                              labelText: 'Created By',
-                              hintText: 'Enter your name'),
-                          onSubmitted: (_) => _createJob()),
+                          labelText: 'Date',
+                          prefixIcon: Icon(Icons.calendar_today_outlined),
+                          suffixIcon: Icon(Icons.edit_calendar_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        'Service Type',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
                       const SizedBox(height: 8),
-                      const Text(
-                          'Choose an available OpsBrain user or enter a name manually.',
-                          style: TextStyle(fontSize: 12))
-                    ],
-                    const SizedBox(height: 24),
-                    SizedBox(
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final type in NewJobScreen.serviceTypes)
+                            ChoiceChip(
+                              label: Text(type),
+                              selected: _serviceType == type,
+                              onSelected: (_) =>
+                                  setState(() => _serviceType = type),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      if (_authorCorrection != null) Text(_authorCorrection!),
+                      if (_cloudCreatorMode && widget.cloudAuthors == null)
+                        const Text(
+                            'Creator choices are unavailable while offline. Keep entering graph information, then connect to choose an active creator.'),
+                      if (_cloudCreatorMode)
+                        GraphCreatorPicker(
+                            directory: widget.cloudAuthors,
+                            value: _cloudAuthorId,
+                            historicalAuthor: widget.cloudHistoricalAuthor,
+                            onChanged: (author) {
+                              setState(() {
+                                _cloudAuthorId = author.id;
+                                _createdByController.text = author.name;
+                              });
+                              widget.onCloudAuthorChanged?.call(author);
+                            })
+                      else ...[
+                        DropdownButtonFormField<String>(
+                          key: ValueKey(
+                            'creator-mode-$_creatorMode-${_opsUsers.users.length}',
+                          ),
+                          initialValue: _creatorMode,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Created By',
+                            prefixIcon: Icon(Icons.badge_outlined),
+                          ),
+                          items: [
+                            for (final user in _opsUsers.users)
+                              DropdownMenuItem(
+                                value: user.username,
+                                child: Text(
+                                  user.name,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            const DropdownMenuItem(
+                              value: '__manual__',
+                              child: Text('Enter manually'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(() {
+                              _creatorTouched = true;
+                              _creatorMode = value;
+                              if (value != '__manual__') {
+                                _createdByController.text = _opsUsers.users
+                                    .firstWhere((u) => u.username == value)
+                                    .name;
+                              }
+                            });
+                          },
+                        ),
+                        if (_creatorsLoading)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 8),
+                            child: Text('Loading signed-in user...'),
+                          ),
+                        if (_creatorMode == '__manual__') ...[
+                          const SizedBox(height: 12),
+                          TextField(
+                            key: const ValueKey('created-by-manual'),
+                            readOnly: _authenticatedCreator && !_creatorTouched,
+                            controller: _createdByController,
+                            onChanged: (_) => _creatorTouched = true,
+                            textInputAction: TextInputAction.done,
+                            decoration: const InputDecoration(
+                              labelText: 'Created By',
+                              hintText: 'Enter your name',
+                            ),
+                            onSubmitted: (_) => _createJob(),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Choose an available OpsBrain user or enter a name manually.',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ],
+                      ],
+                      const SizedBox(height: 24),
+                      SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
-                            onPressed: _createJob,
-                            icon: Icon(widget.editOnly
+                          onPressed: _createJob,
+                          icon: Icon(
+                            widget.editOnly
                                 ? Icons.save_outlined
-                                : Icons.arrow_forward),
-                            label: Text(widget.editOnly
-                                ? 'Save Changes'
-                                : 'Create Graph'),
-                            style: FilledButton.styleFrom(
-                                minimumSize: const Size.fromHeight(52)))),
-                  ]));
-          return SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Align(
-                  alignment: Alignment.topCenter,
-                  child: ConstrainedBox(
+                                : Icons.arrow_forward,
+                          ),
+                          label: Text(
+                            widget.editOnly ? 'Save Changes' : 'Create Graph',
+                          ),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(52),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 1240),
-                      child: Column(children: [
-                        GraphPageHero(
+                      child: Column(
+                        children: [
+                          GraphPageHero(
                             title: widget.editOnly
                                 ? 'Update graph information'
                                 : 'Start a New Graph',
                             subtitle:
                                 'Customer details, inspection type and the person creating this graph.',
-                            compact: true),
-                        const SizedBox(height: 20),
-                        if (constraints.maxWidth >= 1000 &&
-                            MediaQuery.textScalerOf(context).scale(14) < 20)
-                          Row(
+                            compact: true,
+                          ),
+                          const SizedBox(height: 20),
+                          if (constraints.maxWidth >= 1000 &&
+                              MediaQuery.textScalerOf(context).scale(14) < 20)
+                            Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Expanded(flex: 2, child: contact),
                                 const SizedBox(width: 20),
-                                Expanded(child: graphDetails)
-                              ])
-                        else ...[
-                          contact,
-                          const SizedBox(height: 20),
-                          graphDetails
+                                Expanded(child: graphDetails),
+                              ],
+                            )
+                          else ...[
+                            contact,
+                            const SizedBox(height: 20),
+                            graphDetails,
+                          ],
                         ],
-                      ]))));
-        }))),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
       );
 
   List<Widget> _buildLocationSummary() {
@@ -598,11 +793,12 @@ class _NewJobScreenState extends State<NewJobScreen> {
                     style: Theme.of(context).textTheme.labelLarge,
                   ),
                   const Spacer(),
-                  TextButton(
-                    key: const ValueKey('change-customer-button'),
-                    onPressed: _changeCustomer,
-                    child: const Text('Change'),
-                  ),
+                  if (!widget.asDialog)
+                    TextButton(
+                      key: const ValueKey('change-customer-button'),
+                      onPressed: _changeCustomer,
+                      child: const Text('Change'),
+                    ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -660,9 +856,10 @@ class _NewJobScreenState extends State<NewJobScreen> {
         ),
       if (_signInUrl != null)
         TextButton.icon(
-            onPressed: () => openPortalSignIn(_signInUrl!),
-            icon: const Icon(Icons.login),
-            label: const Text('Sign in to OpsBrain')),
+          onPressed: () => openPortalSignIn(_signInUrl!),
+          icon: const Icon(Icons.login),
+          label: const Text('Sign in to OpsBrain'),
+        ),
       if (_searchResults.isNotEmpty)
         Card(
           margin: EdgeInsets.zero,
@@ -704,66 +901,185 @@ class _NewJobScreenState extends State<NewJobScreen> {
     ];
   }
 
-  Widget _detailField(String key, String label,
-          {TextInputType? keyboardType}) =>
+  Widget _detailField(
+    String key,
+    String label, {
+    TextInputType? keyboardType,
+  }) =>
       TextField(
-          controller: _details[key],
-          keyboardType: keyboardType,
-          decoration: InputDecoration(labelText: label));
+        controller: _details[key],
+        keyboardType: keyboardType,
+        decoration: InputDecoration(labelText: label),
+      );
 
   List<Widget> _buildManualFields() => [
-        ResponsiveGraphFields(fullWidthOnNarrow: const {
-          3,
-          9
-        }, children: [
-          _detailField('company', 'Company'),
-          _detailField('first', 'First Name'),
-          _detailField('last', 'Last Name'),
-          TextField(
+        ResponsiveGraphFields(
+          fullWidthOnNarrow: const {3, 9},
+          children: [
+            _detailField('company', 'Company'),
+            _detailField('first', 'First Name'),
+            _detailField('last', 'Last Name'),
+            TextField(
               controller: _locationAddressController,
-              decoration: const InputDecoration(labelText: 'Street Address')),
-          _detailField('city', 'City'),
-          TextField(
+              decoration: InputDecoration(
+                  labelText: _selectedLocation == null
+                      ? 'Street Address'
+                      : 'Location Address'),
+            ),
+            _detailField('city', 'City'),
+            TextField(
               controller: _stateController,
               enabled: false,
               decoration:
-                  const InputDecoration(labelText: 'State', hintText: 'NC')),
-          _detailField('zip', 'Zip', keyboardType: TextInputType.number),
-          _detailField('phone', 'Phone', keyboardType: TextInputType.phone),
-          _detailField('email', 'Email',
-              keyboardType: TextInputType.emailAddress),
-          TextField(
+                  const InputDecoration(labelText: 'State', hintText: 'NC'),
+            ),
+            _detailField('zip', 'Zip', keyboardType: TextInputType.number),
+            _detailField('phone', 'Phone', keyboardType: TextInputType.phone),
+            _detailField(
+              'email',
+              'Email',
+              keyboardType: TextInputType.emailAddress,
+            ),
+            TextField(
               controller: _locationNameController,
-              decoration: const InputDecoration(labelText: 'Location Name')),
-        ]),
+              decoration: const InputDecoration(labelText: 'Location Name'),
+            ),
+          ],
+        ),
         const SizedBox(height: 18),
         Text('Customer Type', style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(height: 8),
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          for (final type in const ['Residential', 'Commercial'])
-            ChoiceChip(
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final type in const ['Residential', 'Commercial'])
+              ChoiceChip(
                 label: Text(type),
                 selected: _customerType == type,
-                onSelected: (_) => setState(() => _customerType = type))
-        ]),
+                onSelected: (_) => setState(() => _customerType = type),
+              ),
+          ],
+        ),
         const SizedBox(height: 16),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          OutlinedButton(
+              onPressed: () => _editContactCard(primary: true),
+              child: Text(_primaryContactVisible
+                  ? 'Edit Primary Contact'
+                  : '+ Primary Contact')),
+          OutlinedButton(
+              onPressed: () => _editContactCard(primary: false),
+              child: Text(_alternateContactVisible
+                  ? 'Edit Alternate Contact'
+                  : '+ Alternate Contact')),
+        ]),
+        const SizedBox(height: 8),
         OutlinedButton.icon(
-            key: const ValueKey('optional-contact-button'),
-            onPressed: _editOptionalContact,
-            icon: const Icon(Icons.person_add_alt),
-            label: Text(_details['contactName']!.text.isEmpty &&
+          key: const ValueKey('optional-contact-button'),
+          onPressed: _editOptionalContact,
+          icon: const Icon(Icons.person_add_alt),
+          label: Text(
+            _details['contactName']!.text.isEmpty &&
                     _details['contactPhone']!.text.isEmpty
                 ? '+ Primary/Alternate Contact'
-                : 'Edit Primary/Alternate Contact')),
+                : 'Edit Primary/Alternate Contact',
+          ),
+        ),
         if (_details['contactName']!.text.isNotEmpty ||
             _details['contactPhone']!.text.isNotEmpty)
           Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text([
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              [
                 _details['contactName']!.text,
-                _details['contactPhone']!.text
-              ].where((s) => s.isNotEmpty).join(' - '))),
+                _details['contactPhone']!.text,
+              ].where((s) => s.isNotEmpty).join(' - '),
+            ),
+          ),
       ];
+
+  Future<void> _editContactCard({required bool primary}) async {
+    final keys = primary
+        ? ['primaryContactName', 'phone', 'email']
+        : ['contactName', 'contactPhone', 'contactEmail'];
+    final previous = {for (final key in keys) key: _details[key]!.text};
+    final result = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+                title: Text(primary ? 'Primary Contact' : 'Alternate Contact'),
+                content: SingleChildScrollView(
+                    child: SizedBox(
+                        width: 520, child: _contactCard(primary: primary))),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Cancel')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('Save Contact'))
+                ]));
+    if (!mounted) return;
+    setState(() {
+      if (result != true) {
+        for (final entry in previous.entries) {
+          _details[entry.key]!.text = entry.value;
+        }
+      }
+      _restoreContactVisibility();
+    });
+  }
+
+  Widget _contactCard({required bool primary}) {
+    final keys = primary
+        ? ['primaryContactName', 'phone', 'email']
+        : ['contactName', 'contactPhone', 'contactEmail'];
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    primary ? 'Primary contact' : 'Alternate contact',
+                  ),
+                ),
+                IconButton(
+                  tooltip: primary
+                      ? 'Remove primary contact'
+                      : 'Remove alternate contact',
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() {
+                    for (final key in keys) {
+                      _details[key]!.clear();
+                    }
+                    if (primary) {
+                      _primaryContactVisible = false;
+                    } else {
+                      _alternateContactVisible = false;
+                    }
+                  }),
+                ),
+              ],
+            ),
+            _detailField(keys[0], primary ? 'Name' : 'Contact Name'),
+            _detailField(
+              keys[1],
+              primary ? 'Phone' : 'Contact Phone',
+              keyboardType: TextInputType.phone,
+            ),
+            _detailField(
+              keys[2],
+              primary ? 'Email' : 'Contact Email',
+              keyboardType: TextInputType.emailAddress,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   static String _formatDate(DateTime date) =>
       '${date.month.toString().padLeft(2, '0')}/'
@@ -833,30 +1149,39 @@ class _OptionalContactDialogState extends State<_OptionalContactDialog> {
   Widget build(BuildContext context) => AlertDialog(
         title: const Text('Primary/Alternate Contact'),
         content: SingleChildScrollView(
-            child: SizedBox(
-                width: 520,
-                child: ResponsiveGraphFields(children: [
-                  TextField(
-                      key: const ValueKey('optional-contact-name'),
-                      controller: name,
-                      autofocus: true,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(labelText: 'Name')),
-                  TextField(
-                      key: const ValueKey('optional-contact-phone'),
-                      controller: phone,
-                      keyboardType: TextInputType.phone,
-                      decoration:
-                          const InputDecoration(labelText: 'Phone Number')),
-                ]))),
+          child: SizedBox(
+            width: 520,
+            child: ResponsiveGraphFields(
+              children: [
+                TextField(
+                  key: const ValueKey('optional-contact-name'),
+                  controller: name,
+                  autofocus: true,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(labelText: 'Name'),
+                ),
+                TextField(
+                  key: const ValueKey('optional-contact-phone'),
+                  controller: phone,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(labelText: 'Phone Number'),
+                ),
+              ],
+            ),
+          ),
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(context,
-                  {'name': name.text.trim(), 'phone': phone.text.trim()}),
-              child: const Text('Save Contact'))
+            onPressed: () => Navigator.pop(context, {
+              'name': name.text.trim(),
+              'phone': phone.text.trim(),
+            }),
+            child: const Text('Save Contact'),
+          ),
         ],
       );
 }

@@ -1,7 +1,9 @@
 import 'dart:typed_data';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
+import '../widgets/graph_scene_boundary.dart';
 
 import 'graph_export_legend.dart';
 
@@ -17,27 +19,24 @@ class GraphImageExport {
     Uint8List? brandingLogo,
     void Function(ui.Canvas, ui.Size)? paintScene,
   }) async {
+    // Capture negative/oversized world bounds at a bounded resolution BEFORE
+    // allocating an image. Zoom and the fixed layout box do not define export.
+    final ratio = math.min(
+        1.0, 2400 / math.max(contentBounds.width, contentBounds.height));
     final ui.Image source;
-    if (paintScene == null) {
-      source = await boundary.toImage(pixelRatio: 1);
-    } else {
-      if (contentBounds.isEmpty ||
-          !contentBounds.isFinite ||
-          contentBounds.width > 8192 ||
-          contentBounds.height > 8192) {
-        throw StateError(
-            'Export bounds must be nonempty and at most 8192 canvas units per side.');
-      }
+    if (paintScene != null) {
       final recorder = ui.PictureRecorder();
-      final canvas = ui.Canvas(recorder);
-      canvas.drawRect(ui.Offset.zero & contentBounds.size,
-          ui.Paint()..color = const ui.Color(0xFFFFFFFF));
-      canvas.translate(-contentBounds.left, -contentBounds.top);
+      final canvas = ui.Canvas(recorder)
+        ..scale(ratio)
+        ..translate(-contentBounds.left, -contentBounds.top);
       paintScene(canvas, contentBounds.size);
       final picture = recorder.endRecording();
-      source = await picture.toImage(
-          contentBounds.width.ceil(), contentBounds.height.ceil());
+      source = await picture.toImage((contentBounds.width * ratio).ceil(),
+          (contentBounds.height * ratio).ceil());
       picture.dispose();
+    } else {
+      source = await (boundary.layer! as OffsetLayer)
+          .toImage(contentBounds, pixelRatio: ratio);
     }
     ui.Image? logo;
     if (brandingLogo != null) {
@@ -53,9 +52,7 @@ class GraphImageExport {
         source.width.toDouble(),
         source.height.toDouble(),
       );
-      final crop = paintScene == null
-          ? contentBounds.intersect(imageBounds)
-          : imageBounds;
+      final crop = imageBounds;
       if (crop.isEmpty) {
         throw StateError('Graph has no visible export content');
       }

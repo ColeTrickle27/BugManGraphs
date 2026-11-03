@@ -103,6 +103,7 @@ const basicShapeToolbarActions = <CanvasToolbarAction>[
   CanvasToolbarAction.tool(CanvasTool.rectangle),
   CanvasToolbarAction.tool(CanvasTool.circle),
   CanvasToolbarAction.tool(CanvasTool.triangle),
+  CanvasToolbarAction.tool(CanvasTool.wall),
 ];
 
 const buildingFeatureToolbarActions = <CanvasToolbarAction>[
@@ -110,6 +111,7 @@ const buildingFeatureToolbarActions = <CanvasToolbarAction>[
   CanvasToolbarAction.preset(GraphDrawingPreset.custom),
   CanvasToolbarAction.preset(GraphDrawingPreset.slab),
   CanvasToolbarAction.preset(GraphDrawingPreset.woodDeck),
+  CanvasToolbarAction.preset(GraphDrawingPreset.woodPorch),
   CanvasToolbarAction.preset(GraphDrawingPreset.openPorch),
   CanvasToolbarAction.preset(GraphDrawingPreset.dirtFilledPorch),
   CanvasToolbarAction.preset(GraphDrawingPreset.garage),
@@ -130,6 +132,7 @@ const utilityToolbarActions = <CanvasToolbarAction>[
   CanvasToolbarAction.marker(GraphMarkerType.crawlspaceAccess),
   CanvasToolbarAction.marker(GraphMarkerType.gasLine),
   CanvasToolbarAction.marker(GraphMarkerType.waterLine),
+  CanvasToolbarAction.marker(GraphMarkerType.bushPlant),
 ];
 
 @visibleForTesting
@@ -289,7 +292,18 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
                     ),
                     const SizedBox(height: 6),
                     _ActionPicker(
-                      groupLabel: 'Utility',
+                      groupLabel: 'Other Structures',
+                      displayedAction:
+                          _displayedAction(buildingFeatureToolbarActions),
+                      actions: buildingFeatureToolbarActions,
+                      selectedTool: widget.selectedTool,
+                      selectedPreset: widget.selectedDrawingPreset,
+                      selectedMarker: widget.selectedMarkerType,
+                      onSelected: _activate,
+                    ),
+                    const SizedBox(height: 6),
+                    _ActionPicker(
+                      groupLabel: 'Structure Features',
                       displayedAction: _displayedAction(utilityToolbarActions),
                       actions: utilityToolbarActions,
                       selectedTool: widget.selectedTool,
@@ -402,7 +416,13 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
 }
 
 class CanvasQuickToolbar extends StatelessWidget {
+  final bool showHistory;
+  final bool canUndo;
+  final bool canRedo;
   const CanvasQuickToolbar({
+    this.showHistory = true,
+    this.canUndo = true,
+    this.canRedo = true,
     required this.actions,
     required this.selectedTool,
     required this.selectedMarkerType,
@@ -476,8 +496,8 @@ class CanvasQuickToolbar extends StatelessWidget {
                   onPressed: onRedo),
               const _QuickToolbarDivider(),
               _QuickUtilityButton(
-                  icon: Icons.tune,
-                  tooltip: 'Properties panel',
+                  icon: Icons.edit_note,
+                  tooltip: 'Object properties',
                   selected: propertiesSelected,
                   onPressed: onToggleProperties),
               _QuickUtilityButton(
@@ -540,28 +560,42 @@ class CanvasQuickToolbar extends StatelessWidget {
                     value: 'hide', child: Text('Hide quick toolbar')),
               ],
             );
-            final content = compact
-                ? Row(mainAxisSize: MainAxisSize.min, children: [
-                    Flexible(
-                        child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: actionButtons))),
-                    const _QuickToolbarDivider(),
-                    more,
-                  ])
-                : Row(mainAxisSize: MainAxisSize.min, children: [
-                    _QuickUtilityButton(
-                        icon: Icons.keyboard_arrow_down,
-                        tooltip: 'Hide quick toolbar',
-                        selected: false,
-                        onPressed: onCollapse),
-                    const _QuickToolbarDivider(),
-                    ...actionButtons,
-                    const _QuickToolbarDivider(),
-                    ...utilities,
-                  ]);
+            final history = <Widget>[
+              if (!compact)
+                IconButton(
+                    tooltip: 'Hide quick toolbar',
+                    onPressed: onCollapse,
+                    icon: const Icon(Icons.keyboard_arrow_down)),
+              if (showHistory) ...[
+                IconButton(
+                    key: const ValueKey('canvas-bottom-undo'),
+                    tooltip: 'Undo',
+                    constraints:
+                        const BoxConstraints.tightFor(width: 44, height: 44),
+                    padding: EdgeInsets.zero,
+                    onPressed: canUndo ? onUndo : null,
+                    icon: const Icon(Icons.undo)),
+                IconButton(
+                    key: const ValueKey('canvas-bottom-redo'),
+                    tooltip: 'Redo',
+                    constraints:
+                        const BoxConstraints.tightFor(width: 44, height: 44),
+                    padding: EdgeInsets.zero,
+                    onPressed: canRedo ? onRedo : null,
+                    icon: const Icon(Icons.redo)),
+              ],
+            ];
+            final content = Row(mainAxisSize: MainAxisSize.min, children: [
+              ...history,
+              const _QuickToolbarDivider(),
+              Flexible(
+                  child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [...actionButtons, ...utilities.skip(3)]))),
+              if (compact) more,
+            ]);
             final surface = Material(
               key: const ValueKey('canvas-quick-toolbar'),
               elevation: 3,
@@ -1158,6 +1192,7 @@ IconData iconForDrawingPreset(GraphDrawingPreset preset) => switch (preset) {
       GraphDrawingPreset.crawlspace => Icons.foundation_outlined,
       GraphDrawingPreset.basement => Icons.layers_outlined,
       GraphDrawingPreset.woodDeck => Icons.deck_outlined,
+      GraphDrawingPreset.woodPorch => Icons.deck_outlined,
       GraphDrawingPreset.openPorch => Icons.meeting_room_outlined,
       GraphDrawingPreset.dirtFilledPorch => Icons.terrain_outlined,
       GraphDrawingPreset.dirtArea => Icons.landscape_outlined,

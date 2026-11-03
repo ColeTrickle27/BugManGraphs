@@ -1,10 +1,10 @@
-# BugManInspects / BugMan Graphs — Agent Instructions
+# BugManGraphs — Agent Instructions
 
 ## Purpose
 
 This repository is the source implementation for Holloman Exterminators' BugMan Graphs application.
 
-BugMan Graphs is a specialized field graphing and inspection tool used to create property diagrams, document inspection findings, attach photos, record measurements, and produce graph information that can be consumed by OpsBrain and SalesBrain.
+BugManGraphs is an independent graphing, measurements, and site-plan application. Existing markers, photos, and findings remain supported graph data. A future general inspection app will be a separate product with a unique name; do not repurpose this application for it.
 
 Treat this as a production business application.
 
@@ -254,11 +254,11 @@ Be especially careful when changing:
 
 # OpsBrain Relationship
 
-OpsBrain is the shared platform and integration boundary.
+OpsBrain is the operations hub. The shared integration layer is holloman-mcp and approved shared APIs. Existing OpsBrain-hosted APIs remain compatibility endpoints until individually migrated and verified.
 
 BugMan Graphs should integrate with shared Holloman capabilities through OpsBrain APIs rather than creating competing systems.
 
-OpsBrain owns or should increasingly own shared capabilities such as:
+The approved shared API layer provides capabilities such as:
 
 * authentication
 * permissions
@@ -267,7 +267,7 @@ OpsBrain owns or should increasingly own shared capabilities such as:
 * shared business records
 * company-wide integrations
 
-BugMan Graphs should remain specialized around graphing and inspection capture.
+BugManGraphs remains specialized around graphing, measurements, and site plans. Keep its source, build, and feature work in this repository; never import sibling app source.
 
 Do not turn this repository into a second general-purpose OpsBrain backend.
 

@@ -4,11 +4,14 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../models/graph_annotation.dart';
+import '../editor/label_presentation.dart';
 import '../models/graph_marker_catalog.dart';
 import 'graph_marker_visual.dart';
 
 class GraphAnnotationsPainter extends CustomPainter {
   const GraphAnnotationsPainter({
+    this.labels = const LabelPresentation(),
+    this.sceneBounds,
     required this.annotations,
     required this.selectedAnnotationIndex,
     this.hoveredAnnotationIndex,
@@ -19,6 +22,8 @@ class GraphAnnotationsPainter extends CustomPainter {
   });
 
   final List<GraphAnnotation> annotations;
+  final LabelPresentation labels;
+  final Rect? sceneBounds;
   final int? selectedAnnotationIndex;
   final int? hoveredAnnotationIndex;
   final bool inspectionsVisible;
@@ -81,15 +86,78 @@ class GraphAnnotationsPainter extends CustomPainter {
     };
   }
 
+  static bool containsPoint(GraphAnnotation annotation, Offset point, LabelPresentation labels, {Rect? sceneBounds}) {
+    if (isCallout(annotation)) {
+      return textBounds(annotation, labels, sceneBounds: sceneBounds).inflate(6 / labels.zoom).contains(point);
+    }
+    final zoom = labels.zoom.clamp(0.001, 100.0);
+    if (annotation.kind == GraphAnnotationKind.text) {
+      return textBounds(annotation, labels).inflate(6 / zoom).contains(point);
+    }
+    if ((annotation.point.offset - point).distance <= math.max(22 / zoom, 19 * annotation.size)) {
+      return true;
+    }
+    if (annotation.kind != GraphAnnotationKind.marker) return false;
+    final base = (12 * annotation.size).clamp(9.0, 22.0);
+    final font = labels.fontSize(base);
+    final text = TextPainter(text: TextSpan(text: annotation.label, style: TextStyle(fontSize: font, fontWeight: FontWeight.w800)),
+      textDirection: TextDirection.ltr)..layout(maxWidth: 240 * font / base);
+    final top = annotation.point.y + 17 * annotation.size + (2.5 * annotation.size).clamp(2.0, 8.0);
+    return Rect.fromLTWH(annotation.point.x - text.width / 2 - 8, top, text.width + 16, text.height + 8).inflate(6 / zoom).contains(point);
+  }
+
+  static Rect textBounds(GraphAnnotation annotation, LabelPresentation labels, {Rect? sceneBounds}) {
+    if (isCallout(annotation)) return calloutBounds(annotation, labels, sceneBounds: sceneBounds);
+    final text = TextPainter(text: TextSpan(text: annotation.label, style: TextStyle(
+      fontSize: labels.fontSize(annotation.fontSize),
+      fontWeight: annotation.bold ? FontWeight.w800 : FontWeight.w500,
+      fontStyle: annotation.italic ? FontStyle.italic : FontStyle.normal)),
+      textDirection: TextDirection.ltr)..layout(maxWidth: 240 * labels.fontSize(annotation.fontSize) / annotation.fontSize);
+    return Rect.fromCenter(center: annotation.point.offset, width: text.width + (labels.bounded ? 16 / labels.zoom : 16), height: text.height + (labels.bounded ? 8 / labels.zoom : 8));
+  }
+
+  static bool isCallout(GraphAnnotation annotation) =>
+      annotation.extraProperties['calloutTipX'] is num &&
+      annotation.extraProperties['calloutTipY'] is num;
+
+  static TextPainter calloutText(GraphAnnotation annotation, LabelPresentation labels) {
+    final style = TextStyle(color: annotation.textColor,
+      fontSize: labels.fontSize(annotation.fontSize),
+      fontWeight: annotation.bold ? FontWeight.w800 : FontWeight.w600,
+      fontStyle: annotation.italic ? FontStyle.italic : FontStyle.normal);
+    final unit = labels.bounded ? 1 / labels.zoom.clamp(0.001,100.0) : 1.0;
+    var width = 210 * unit;
+    // Keep a word intact even when a bounded screen font is large in scene units.
+    for (final word in annotation.label.split(RegExp(r'\s+'))) {
+      final measure = TextPainter(text:TextSpan(text:word,style:style),textDirection:TextDirection.ltr)..layout();
+      width = math.max(width,measure.width);
+    }
+    return TextPainter(text:TextSpan(text:annotation.label,style:style),textDirection:TextDirection.ltr,
+      textAlign:TextAlign.center)..layout(maxWidth:width);
+  }
+
+  static Rect calloutBounds(GraphAnnotation annotation, LabelPresentation labels, {Rect? sceneBounds}) {
+    final text = calloutText(annotation, labels);
+    final unit = labels.bounded ? 1 / labels.zoom.clamp(0.001,100.0) : 1.0;
+    final width = math.max(128 * unit,text.width + 30 * unit);
+    final height = math.max(48 * unit,text.height + 22 * unit);
+    var center = annotation.point.offset;
+    if (sceneBounds != null) {
+      center = Offset(sceneBounds.width >= width ? center.dx.clamp(sceneBounds.left+width/2,sceneBounds.right-width/2).toDouble() : sceneBounds.center.dx,
+        sceneBounds.height >= height ? center.dy.clamp(sceneBounds.top+height/2,sceneBounds.bottom-height/2).toDouble() : sceneBounds.center.dy);
+    }
+    return Rect.fromCenter(center:center,width:width,height:height);
+  }
+
   void _drawSelectionBox(Canvas canvas, GraphAnnotation annotation) {
     final center = annotation.point.offset;
-    final rect = CalloutGeometry.tip(annotation) == null
-        ? Rect.fromCenter(center: center, width: 84, height: 66)
-        : CalloutGeometry.box(annotation);
+    final rect = isCallout(annotation) || annotation.kind == GraphAnnotationKind.text
+        ? textBounds(annotation, labels, sceneBounds: sceneBounds)
+        : Rect.fromCenter(center: center, width: 84, height: 66);
     final selectedPaint = Paint()
       ..color = const Color(0xFF2F80ED)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
+      ..strokeWidth = labels.bounded ? 1.5 / labels.zoom : 2;
 
     canvas.drawRect(rect, selectedPaint);
     final tip = CalloutGeometry.tip(annotation);
@@ -106,8 +174,8 @@ class GraphAnnotationsPainter extends CustomPainter {
     ]) {
       final handle = Rect.fromCenter(
         center: handleCenter,
-        width: 10,
-        height: 10,
+        width: labels.bounded ? 10 / labels.zoom : 10,
+        height: labels.bounded ? 10 / labels.zoom : 10,
       );
       canvas.drawRect(handle, Paint()..color = Colors.white);
       canvas.drawRect(handle, selectedPaint);
@@ -249,8 +317,9 @@ class GraphAnnotationsPainter extends CustomPainter {
     Offset tip,
     Size canvasSize,
   ) {
-    final textPainter = CalloutGeometry.text(annotation);
-    final rect = CalloutGeometry.box(annotation);
+    final unit = labels.bounded ? 1 / labels.zoom.clamp(0.001, 100.0) : 1.0;
+    final textPainter = calloutText(annotation, labels);
+    final rect = calloutBounds(annotation, labels, sceneBounds: sceneBounds ?? Offset.zero & canvasSize);
     final center = rect.center;
     final box = RRect.fromRectAndRadius(rect, const Radius.circular(7));
     final nearest = Offset(
@@ -259,22 +328,22 @@ class GraphAnnotationsPainter extends CustomPainter {
     );
     final linePaint = Paint()
       ..color = annotation.borderColor
-      ..strokeWidth = 2.5
+      ..strokeWidth = 2.5 * unit
       ..style = PaintingStyle.stroke;
     canvas.drawLine(tip, nearest, linePaint);
     final direction = (nearest - tip);
     if (direction.distance > 0) {
-      final unit = direction / direction.distance;
-      final left = Offset(-unit.dy, unit.dx);
+      final arrowDirection = direction / direction.distance;
+      final left = Offset(-arrowDirection.dy, arrowDirection.dx);
       final arrow = Path()
         ..moveTo(tip.dx, tip.dy)
         ..lineTo(
-          tip.dx + (unit.dx * 13) + (left.dx * 6),
-          tip.dy + (unit.dy * 13) + (left.dy * 6),
+          tip.dx + (arrowDirection.dx * 13 * unit) + (left.dx * 6 * unit),
+          tip.dy + (arrowDirection.dy * 13 * unit) + (left.dy * 6 * unit),
         )
         ..lineTo(
-          tip.dx + (unit.dx * 13) - (left.dx * 6),
-          tip.dy + (unit.dy * 13) - (left.dy * 6),
+          tip.dx + (arrowDirection.dx * 13 * unit) - (left.dx * 6 * unit),
+          tip.dy + (arrowDirection.dy * 13 * unit) - (left.dy * 6 * unit),
         )
         ..close();
       canvas.drawPath(arrow, Paint()..color = annotation.borderColor);
@@ -371,6 +440,12 @@ class GraphAnnotationsPainter extends CustomPainter {
     double horizontalPadding = 8,
     double verticalPadding = 4,
   }) {
+    if (labels.bounded) {
+      horizontalPadding /= labels.zoom;
+      verticalPadding /= labels.zoom;
+    }
+    final baseFontSize = fontSize;
+    fontSize = labels.fontSize(fontSize);
     final textPainter = TextPainter(
       text: TextSpan(
         text: label,
@@ -382,7 +457,7 @@ class GraphAnnotationsPainter extends CustomPainter {
         ),
       ),
       textDirection: TextDirection.ltr,
-    )..layout(maxWidth: 150);
+    )..layout(maxWidth: 240 * fontSize / baseFontSize);
     final iconPainter = leadingIcon == null
         ? null
         : (TextPainter(
@@ -453,7 +528,8 @@ class GraphAnnotationsPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant GraphAnnotationsPainter oldDelegate) {
-    return oldDelegate.annotations != annotations ||
+    return oldDelegate.sceneBounds != sceneBounds ||
+        oldDelegate.annotations != annotations ||
         oldDelegate.selectedAnnotationIndex != selectedAnnotationIndex ||
         oldDelegate.hoveredAnnotationIndex != hoveredAnnotationIndex ||
         oldDelegate.inspectionsVisible != inspectionsVisible ||

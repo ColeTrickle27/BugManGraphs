@@ -112,6 +112,7 @@ enum GraphMarkerType {
   hvacUnit('HVAC', 'AC', Color(0xFF5A9BD8)),
   gasLine('Gas Line', 'GAS', Color(0xFF2E7D55)),
   waterLine('Water Line', 'WL', Color(0xFF168AAD)),
+  bushPlant('Bush / Plant', 'Plant', Color(0xFF2E7D55)),
   wellOrCistern('Well or Cistern', 'WELL', Color(0xFF0077B6)),
   deckSupport('Deck Support', 'DS', Color(0xFF8A5A2B)),
   pier('Pier', 'PIER', Color(0xFF56616E)),
@@ -188,6 +189,7 @@ extension GraphMarkerTypeMetadata on GraphMarkerType {
         GraphMarkerType.stepsFront ||
         GraphMarkerType.steps ||
         GraphMarkerType.hvacUnit ||
+        GraphMarkerType.bushPlant ||
         GraphMarkerType.gasLine ||
         GraphMarkerType.waterLine ||
         GraphMarkerType.wellOrCistern ||
@@ -246,7 +248,9 @@ extension GraphMarkerTypeMetadata on GraphMarkerType {
         GraphMarkerType.activeLeak ||
         GraphMarkerType.plumbingLeak =>
           GraphMarkerSymbol.leak,
-        GraphMarkerType.woodFungi => GraphMarkerSymbol.fungi,
+        GraphMarkerType.woodFungi ||
+        GraphMarkerType.bushPlant =>
+          GraphMarkerSymbol.fungi,
         GraphMarkerType.foundationCrack ||
         GraphMarkerType.expansionJoint ||
         GraphMarkerType.structuralConcern =>

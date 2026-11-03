@@ -101,6 +101,8 @@ class Page4ReviewPortal implements BugManPortalService {
   @override
   bool get isAvailable => true;
   @override
+  String? buildCustomerFolderUrl({required String billToNumber,required String locationNumber}) => null;
+  @override
   Future<PortalGraphPackage> loadGraph(String key) =>
       throw UnimplementedError();
   @override

@@ -38,6 +38,8 @@ flutter:
     - assets/fonts/holloman/Bitter-OFL.txt
     - assets/fonts/holloman/Calistoga-OFL.txt
     - assets/fonts/holloman/JetBrainsMono-OFL.txt
+    - assets/fonts/Roboto-Regular.ttf
+    - assets/fonts/Roboto-Bold.ttf
   fonts:
     - family: Raider Straight
       fonts:

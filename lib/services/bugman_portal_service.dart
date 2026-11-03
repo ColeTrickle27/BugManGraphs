@@ -71,4 +71,12 @@ abstract class BugManPortalService {
     required String locationNumber,
     required String graphKey,
   });
+
+  /// Builds a direct link to the customer's BugMan Graphs folder in
+  /// Holloman Ops Brain, or null when the required customer identity is
+  /// unavailable in this session.
+  String? buildCustomerFolderUrl({
+    required String billToNumber,
+    required String locationNumber,
+  });
 }
