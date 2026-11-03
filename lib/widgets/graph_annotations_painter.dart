@@ -123,11 +123,6 @@ class GraphAnnotationsPainter extends CustomPainter {
     canvas.save();
     canvas.translate(center.dx, center.dy);
     canvas.rotate(annotation.rotationDegrees * 3.1415926535 / 180);
-    canvas.drawCircle(
-      const Offset(1.5, 2),
-      iconSize * 0.34,
-      Paint()..color = const Color.fromRGBO(0, 0, 0, 0.16),
-    );
     final iconPainter = TextPainter(
       text: TextSpan(
         text: String.fromCharCode(icon.codePoint),
