@@ -1,4 +1,5 @@
 import '../widgets/moisture_reading_dialog.dart';
+import '../widgets/expandable_action_card.dart';
 import 'dart:async';
 import '../services/callout_geometry.dart';
 import '../services/graph_pdf_raster.dart';
@@ -9198,9 +9199,10 @@ class _PropertiesSidebar extends StatelessWidget {
             label: 'Area',
             value: MeasurementFormat.squareFeet(measurement.squareFeet),
           ),
-          ExpansionTile(
-            title: const Text('Edge measurements'),
-            subtitle: const Text('Every edge, including hidden short labels'),
+          ExpandableActionCard(
+            title: 'Edge measurements',
+            subtitle: 'Every edge, including hidden short labels',
+            icon: Icons.straighten,
             children: [
               for (var edge = 0;
                   edge <
