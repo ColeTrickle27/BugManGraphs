@@ -124,27 +124,7 @@ class HttpBugManPortalService implements BugManPortalService {
         .replace(queryParameters: {'key': key});
     final response = await _client.get(uri);
     final payload = _decodeResponse(response);
-    final graph = payload['graph'];
-    if (graph is! Map || graph['document'] is! Map) {
-      throw const FormatException('This BugMan graph could not be opened.');
-    }
-    final documentJson = (graph['document'] as Map).map(
-      (key, value) => MapEntry(key.toString(), value),
-    );
-    final blobs = <String, Uint8List>{};
-    final encodedBlobs = graph['blobs'];
-    if (encodedBlobs is Map) {
-      for (final entry in encodedBlobs.entries) {
-        if (entry.value is String) {
-          blobs[entry.key.toString()] = base64Decode(entry.value as String);
-        }
-      }
-    }
-    return PortalGraphPackage(
-      document: GraphDocument.fromJson(documentJson),
-      blobs: blobs,
-      name: payload['name']?.toString() ?? 'BugMan Graph',
-    );
+    return PortalGraphPackage.fromResponse(payload);
   }
 
   @override

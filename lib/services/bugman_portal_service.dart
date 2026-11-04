@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import '../models/graph_document.dart';
@@ -13,11 +14,101 @@ class PortalAuthenticationException implements Exception {
 
 class PortalGraphPackage {
   const PortalGraphPackage(
-      {required this.document, required this.blobs, required this.name});
+      {required this.document,
+      required this.blobs,
+      required this.name,
+      this.finalization});
+
+  factory PortalGraphPackage.fromResponse(Map<String, dynamic> payload) {
+    final graph = payload['graph'];
+    if (graph is! Map || graph['document'] is! Map) {
+      throw const FormatException('This BugMan graph could not be opened.');
+    }
+    final documentJson = (graph['document'] as Map).map(
+      (key, value) => MapEntry(key.toString(), value),
+    );
+    final finalization =
+        PortalGraphFinalization.verify(payload, graph, documentJson);
+    final blobs = <String, Uint8List>{};
+    final encodedBlobs = graph['blobs'];
+    if (encodedBlobs is Map) {
+      for (final entry in encodedBlobs.entries) {
+        if (entry.value is String) {
+          blobs[entry.key.toString()] = base64Decode(entry.value as String);
+        }
+      }
+    }
+    return PortalGraphPackage(
+      document: GraphDocument.fromJson(documentJson),
+      blobs: blobs,
+      name: payload['name']?.toString() ?? 'BugMan Graph',
+      finalization: finalization,
+    );
+  }
 
   final GraphDocument document;
   final Map<String, Uint8List> blobs;
   final String name;
+  final PortalGraphFinalization? finalization;
+  bool get isFinalized => finalization != null;
+}
+
+class PortalFinalizationException implements Exception {
+  const PortalFinalizationException();
+  @override
+  String toString() =>
+      'Finalized graph verification failed. The saved file was not changed. Reload from OpsBrain.';
+}
+
+/// Retains the authenticated server's verified immutable-package identity.
+/// This validates matching claims; receipt cryptography remains server-side.
+class PortalGraphFinalization {
+  const PortalGraphFinalization._(this.finalizedAt, this.finalizedBy,
+      this.finalizedRole, this.snapshotSha256);
+  final String finalizedAt;
+  final String finalizedBy;
+  final String finalizedRole;
+  final String snapshotSha256;
+
+  static PortalGraphFinalization? verify(Map payload, Map graph, Map document) {
+    final metadata = document['metadata'];
+    final markers = [
+      payload['finalization'],
+      graph['_opsFinalization'],
+      document['_opsFinalization'],
+      if (metadata is Map) metadata['_opsFinalization']
+    ];
+    if (markers.every((marker) => marker == null)) return null;
+    final authoritative = markers[0], embedded = markers[1];
+    if (authoritative is! Map || embedded is! Map) {
+      throw const PortalFinalizationException();
+    }
+    const fields = [
+      'finalizedAt',
+      'finalizedBy',
+      'finalizedRole',
+      'snapshotSha256'
+    ];
+    for (final marker in markers.where((value) => value != null)) {
+      if (marker is! Map ||
+          marker['locked'] != true ||
+          marker['receiptVerified'] != true ||
+          fields.any((field) =>
+              marker[field] is! String ||
+              (marker[field] as String).isEmpty ||
+              marker[field] != authoritative[field])) {
+        throw const PortalFinalizationException();
+      }
+    }
+    final at = authoritative['finalizedAt'] as String;
+    final digest = authoritative['snapshotSha256'] as String;
+    if (DateTime.tryParse(at) == null ||
+        !RegExp(r'^[a-f0-9]{64}$').hasMatch(digest)) {
+      throw const PortalFinalizationException();
+    }
+    return PortalGraphFinalization._(at, authoritative['finalizedBy'] as String,
+        authoritative['finalizedRole'] as String, digest);
+  }
 }
 
 class PortalUploadResult {

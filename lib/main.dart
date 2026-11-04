@@ -6,10 +6,10 @@ import 'screens/cloud_drafts/graph_draft_entry_screen.dart';
 import 'services/cloud_drafts/graph_draft_workspace.dart';
 import 'services/cloud_drafts/graph_draft_authentication.dart';
 import 'services/bugman_portal_service.dart';
-import 'models/graph_document.dart';
 import 'models/job.dart';
 import 'screens/graph_canvas_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/cloud_graph_package_preview.dart';
 import 'screens/new_job_screen.dart';
 import 'services/bugman_portal_service_factory.dart';
 import 'services/customer_files_service.dart';
@@ -58,7 +58,7 @@ class _BugManGraphsAppState extends State<BugManGraphsApp> {
           .where((value) => value.isNotEmpty)
           .toSet() ??
       const <String>{};
-  late final Future<GraphDocument?>? _portalGraph =
+  late final Future<PortalGraphPackage?>? _portalGraph =
       _portalKey == null ? null : _loadPortalGraph(_portalKey);
   late final _JobPreselectionRequest? _jobPreselectionRequest =
       _portalKey == null ? _readJobPreselectionRequest() : null;
@@ -76,11 +76,13 @@ class _BugManGraphsAppState extends State<BugManGraphsApp> {
     return key;
   }
 
-  Future<GraphDocument?> _loadPortalGraph(String key) async {
+  Future<PortalGraphPackage?> _loadPortalGraph(String key) async {
     final package = await _portalService.loadGraph(key);
-    await _repository.saveGraph(package.document, blobs: package.blobs);
+    if (!package.isFinalized) {
+      await _repository.saveGraph(package.document, blobs: package.blobs);
+    }
     package.document.markClean();
-    return package.document;
+    return package;
   }
 
   /// Reads `?billTo=...&location=...` deep-link params (e.g. from Sales
@@ -138,10 +140,17 @@ class _BugManGraphsAppState extends State<BugManGraphsApp> {
     setState(() => _jobs.insert(0, job));
   }
 
+  Widget _finalizedPreview(PortalGraphPackage package) => CloudGraphPackagePreview(
+    package: package,
+    completePackagePreview: !_presentationMode,
+    presentationMarkerIds: _presentationMarkerIds,
+    presentationKey: _presentationMode ? _portalKey : null,
+  );
+
   Widget _accountEntry(BuildContext context, GraphDraftWorkspace workspace,
       VoidCallback onSignOut) {
     if (_portalGraph != null) {
-      return FutureBuilder<GraphDocument?>(
+      return FutureBuilder<PortalGraphPackage?>(
           future: _portalGraph,
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) {
@@ -154,9 +163,11 @@ class _BugManGraphsAppState extends State<BugManGraphsApp> {
                       child: Text(
                           'Customer Files access could not be verified. Sign in to OpsBrain separately and retry.')));
             }
+            final package = snapshot.data!;
+            if (package.isFinalized) return _finalizedPreview(package);
             return GraphDraftSharedEntryScreen(
                 workspace: workspace,
-                document: snapshot.data!,
+                document: package.document,
                 repository: _repository,
                 portalKey: _portalKey!,
                 onSignOut: onSignOut);
@@ -191,7 +202,7 @@ class _BugManGraphsAppState extends State<BugManGraphsApp> {
                       ? _accountEntry
                       : null)
           : _portalGraph != null
-              ? FutureBuilder<GraphDocument?>(
+              ? FutureBuilder<PortalGraphPackage?>(
                   future: _portalGraph,
                   builder: (context, snapshot) {
                     if (snapshot.connectionState != ConnectionState.done) {
@@ -203,8 +214,10 @@ class _BugManGraphsAppState extends State<BugManGraphsApp> {
                       return _PortalOpenError(
                           message: snapshot.error.toString());
                     }
+                    final package = snapshot.data!;
+                    if (package.isFinalized) return _finalizedPreview(package);
                     return GraphCanvasScreen(
-                      document: snapshot.data!,
+                      document: package.document,
                       repository: _repository,
                       portalKey: _portalKey,
                       presentationMode: _presentationMode,

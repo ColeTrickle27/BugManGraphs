@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../services/bugman_portal_service.dart';
-import '../services/bugman_portal_service_stub.dart';
 import '../services/cloud_graph_history.dart';
-import '../services/cloud_graph_preview_repository.dart';
 import '../services/portal_sign_in.dart';
-import 'graph_canvas_screen.dart';
+import 'cloud_graph_package_preview.dart';
 
 class CloudGraphHistoryScreen extends StatefulWidget {
   const CloudGraphHistoryScreen({
@@ -119,20 +117,13 @@ class _CloudGraphHistoryScreenState extends State<CloudGraphHistoryScreen> {
     try {
       final package = await portal.loadGraph(entry.key);
       if (!mounted || generation != _generation) return;
+      if (entry.finalized && !package.isFinalized) {
+        throw const PortalFinalizationException();
+      }
       // Never route through ?graph=, which saves into the local repository.
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => Scaffold(
-            appBar: AppBar(title: const Text('Cloud history · read only')),
-            body: GraphCanvasScreen(
-              document: package.document,
-              repository: CloudGraphPreviewRepository(package),
-              portalService: UnavailableBugManPortalService(),
-              presentationMode: true,
-              completePackagePreview: true,
-              presentationFitToContent: true,
-            ),
-          ),
+          builder: (_) => CloudGraphPackagePreview(package: package),
         ),
       );
     } on PortalAuthenticationException catch (error) {
