@@ -1,3 +1,4 @@
+import 'pending_graph_finalization_screen.dart';
 import 'package:flutter/material.dart';
 
 import '../services/bugman_portal_service.dart';
@@ -126,6 +127,11 @@ class _CloudGraphHistoryScreenState extends State<CloudGraphHistoryScreen> {
           builder: (_) => CloudGraphPackagePreview(package: package),
         ),
       );
+    } on PortalFinalizationPendingException {
+      if (!mounted || generation != _generation) return;
+      await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => PendingGraphFinalizationScreen(
+              portal: portal, graphKey: entry.key)));
     } on PortalAuthenticationException catch (error) {
       if (_current(generation)) {
         setState(() {

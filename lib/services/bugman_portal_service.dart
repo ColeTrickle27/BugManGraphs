@@ -60,6 +60,21 @@ class PortalFinalizationException implements Exception {
       'Finalized graph verification failed. The saved file was not changed. Reload from OpsBrain.';
 }
 
+/// A server-confirmed lock whose immutable receipt is not yet verified.
+/// No document is returned or persisted until verification completes.
+class PortalFinalizationPendingException extends PortalFinalizationException {
+  const PortalFinalizationPendingException(this.etag, this.claim);
+  final String etag;
+  final PortalGraphFinalization claim;
+  @override
+  String toString() =>
+      'Finalization receipt is pending. This graph remains read-only.';
+}
+
+abstract interface class PortalFinalizationRecovery {
+  Future<PortalGraphPackage> retryFinalization(String key);
+}
+
 /// Retains the authenticated server's verified immutable-package identity.
 /// This validates matching claims; receipt cryptography remains server-side.
 class PortalGraphFinalization {
@@ -82,6 +97,30 @@ class PortalGraphFinalization {
     final authoritative = markers[0], embedded = markers[1];
     if (authoritative is! Map || embedded is! Map) {
       throw const PortalFinalizationException();
+    }
+    if (authoritative['receiptVerified'] == false &&
+        (embedded['receiptVerified'] == null ||
+            embedded['receiptVerified'] == false) &&
+        markers.skip(2).whereType<Map>().every((m) =>
+            (m['receiptVerified'] == null || m['receiptVerified'] == false))) {
+      // Validate every other lock claim with the exact verified validator.
+      final checked = [
+        for (final marker in markers)
+          if (marker is Map) {...marker, 'receiptVerified': true} else marker
+      ];
+      final claim = verify({
+        'finalization': checked[0]
+      }, {
+        '_opsFinalization': checked[1]
+      }, {
+        '_opsFinalization': checked[2],
+        if (metadata is Map) 'metadata': {'_opsFinalization': checked[3]}
+      });
+      final etag = payload['etag'];
+      if (etag is! String || etag.trim().isEmpty) {
+        throw const PortalFinalizationException();
+      }
+      throw PortalFinalizationPendingException(etag, claim!);
     }
     const fields = [
       'finalizedAt',
@@ -170,4 +209,28 @@ abstract class BugManPortalService {
     required String billToNumber,
     required String locationNumber,
   });
+}
+
+/// Performs only conditional receipt repair; never saves graph content.
+Future<PortalGraphPackage> recoverPendingGraphFinalization({
+  required Future<PortalGraphPackage> Function() load,
+  required Future<void> Function(String etag) repair,
+}) async {
+  try {
+    final current = await load();
+    if (!current.isFinalized) throw const PortalFinalizationException();
+    return current;
+  } on PortalFinalizationPendingException catch (pending) {
+    await repair(pending.etag);
+    final verified = await load();
+    final claim = verified.finalization;
+    if (claim == null ||
+        claim.snapshotSha256 != pending.claim.snapshotSha256 ||
+        claim.finalizedAt != pending.claim.finalizedAt ||
+        claim.finalizedBy != pending.claim.finalizedBy ||
+        claim.finalizedRole != pending.claim.finalizedRole) {
+      throw const PortalFinalizationException();
+    }
+    return verified;
+  }
 }

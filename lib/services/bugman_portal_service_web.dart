@@ -10,7 +10,8 @@ import 'bugman_portal_service.dart';
 
 BugManPortalService createPortalService() => HttpBugManPortalService();
 
-class HttpBugManPortalService implements BugManPortalService {
+class HttpBugManPortalService
+    implements BugManPortalService, PortalFinalizationRecovery {
   static const _opsBrainOrigin = 'https://ops.holloman-ext.com';
   static const _cloudflareHosts = {
     'graphs.holloman-ext.com',
@@ -126,6 +127,20 @@ class HttpBugManPortalService implements BugManPortalService {
     final payload = _decodeResponse(response);
     return PortalGraphPackage.fromResponse(payload);
   }
+
+  @override
+  Future<PortalGraphPackage> retryFinalization(String key) =>
+      recoverPendingGraphFinalization(
+          load: () => loadGraph(key),
+          repair: (etag) async {
+            final response = await _client.post(
+              Uri.parse('$_apiOrigin/api/bugman-graphs/finalize'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode(
+                  {'key': key, 'confirm': true, 'expectedEtag': etag}),
+            );
+            _decodeResponse(response);
+          });
 
   @override
   String? buildSalesBrainReportUrl({

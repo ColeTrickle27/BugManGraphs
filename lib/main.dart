@@ -1,3 +1,4 @@
+import 'screens/pending_graph_finalization_screen.dart';
 import 'package:flutter/material.dart';
 
 import 'models/customer_file.dart';
@@ -140,12 +141,20 @@ class _BugManGraphsAppState extends State<BugManGraphsApp> {
     setState(() => _jobs.insert(0, job));
   }
 
-  Widget _finalizedPreview(PortalGraphPackage package) => CloudGraphPackagePreview(
-    package: package,
-    completePackagePreview: !_presentationMode,
-    presentationMarkerIds: _presentationMarkerIds,
-    presentationKey: _presentationMode ? _portalKey : null,
-  );
+  Widget _pendingPreview() => PendingGraphFinalizationScreen(
+      portal: _portalService,
+      graphKey: _portalKey!,
+      completePackagePreview: !_presentationMode,
+      presentationMarkerIds: _presentationMarkerIds,
+      presentationKey: _presentationMode ? _portalKey : null);
+
+  Widget _finalizedPreview(PortalGraphPackage package) =>
+      CloudGraphPackagePreview(
+        package: package,
+        completePackagePreview: !_presentationMode,
+        presentationMarkerIds: _presentationMarkerIds,
+        presentationKey: _presentationMode ? _portalKey : null,
+      );
 
   Widget _accountEntry(BuildContext context, GraphDraftWorkspace workspace,
       VoidCallback onSignOut) {
@@ -156,6 +165,9 @@ class _BugManGraphsAppState extends State<BugManGraphsApp> {
             if (snapshot.connectionState != ConnectionState.done) {
               return const Scaffold(
                   body: Center(child: CircularProgressIndicator()));
+            }
+            if (snapshot.error is PortalFinalizationPendingException) {
+              return _pendingPreview();
             }
             if (snapshot.hasError || snapshot.data == null) {
               return const Scaffold(
@@ -209,6 +221,9 @@ class _BugManGraphsAppState extends State<BugManGraphsApp> {
                       return const Scaffold(
                         body: Center(child: CircularProgressIndicator()),
                       );
+                    }
+                    if (snapshot.error is PortalFinalizationPendingException) {
+                      return _pendingPreview();
                     }
                     if (snapshot.hasError) {
                       return _PortalOpenError(

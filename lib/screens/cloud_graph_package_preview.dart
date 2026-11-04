@@ -26,6 +26,7 @@ class CloudGraphPackagePreview extends StatelessWidget {
                 : 'Cloud history · read only')),
         body: GraphCanvasScreen(
           document: package.document,
+          verifiedFinalization: package.finalization,
           repository: CloudGraphPreviewRepository(package),
           portalService: UnavailableBugManPortalService(),
           portalKey: presentationKey,
