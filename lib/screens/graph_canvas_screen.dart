@@ -86,6 +86,7 @@ class GraphCanvasScreen extends StatefulWidget {
     this.onCreateAccountGraph,
     this.presentationMode = false,
     this.completePackagePreview = false,
+    this.presentationFitToContent = false,
     this.presentationMarkerIds = const <String>{},
     super.key,
   }) : assert(job != null || document != null);
@@ -106,6 +107,7 @@ class GraphCanvasScreen extends StatefulWidget {
       onCreateAccountGraph;
   final bool presentationMode;
   final bool completePackagePreview;
+  final bool presentationFitToContent;
   final Set<String> presentationMarkerIds;
 
   @override
@@ -1672,6 +1674,13 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     _initialCanvasCentered = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      if (widget.presentationMode && widget.presentationFitToContent) {
+        _transformationController.value = EditorViewport.fit(
+          ExportBoundsCalculator.forDocument(_document),
+          Offset.zero & viewportSize,
+        );
+        return;
+      }
       if (_cloudSession != null &&
           (_wallSegments.isNotEmpty ||
               _traces.isNotEmpty ||

@@ -5,9 +5,14 @@ import 'package:http/http.dart' as http;
 import 'bugman_portal_service.dart';
 
 class CloudGraphHistoryEntry {
-  const CloudGraphHistoryEntry({required this.key, required this.name,
-    this.customerName = '', this.serviceAddress = '', this.updatedAt,
-    this.finalized = false});
+  const CloudGraphHistoryEntry({
+    required this.key,
+    required this.name,
+    this.customerName = '',
+    this.serviceAddress = '',
+    this.updatedAt,
+    this.finalized = false,
+  });
   final String key;
   final String name;
   final String customerName;
@@ -41,10 +46,12 @@ class HttpCloudGraphHistoryService implements CloudGraphHistoryService {
 
   @override
   Future<CloudGraphHistoryPage> list({String? cursor}) async {
-    final response = await client.get(origin.replace(
-      path: '/api/bugman-graphs/recent',
-      queryParameters: cursor == null ? null : {'cursor': cursor},
-    ));
+    final response = await client.get(
+      origin.replace(
+        path: '/api/bugman-graphs/recent',
+        queryParameters: cursor == null ? null : {'cursor': cursor},
+      ),
+    );
     if (response.statusCode == 401) {
       throw PortalAuthenticationException(origin.toString());
     }
@@ -53,7 +60,8 @@ class HttpCloudGraphHistoryService implements CloudGraphHistoryService {
       throw const FormatException('Cloud graph history is unavailable.');
     }
     final payload = jsonDecode(response.body);
-    if (payload is! Map || payload['graphs'] is! List ||
+    if (payload is! Map ||
+        payload['graphs'] is! List ||
         payload['truncated'] is! bool) {
       throw const FormatException('Invalid cloud history response.');
     }
@@ -64,19 +72,22 @@ class HttpCloudGraphHistoryService implements CloudGraphHistoryService {
     }
     final graphs = <CloudGraphHistoryEntry>[];
     for (final row in payload['graphs'] as List) {
-      if (row is! Map || row['key'] is! String ||
+      if (row is! Map ||
+          row['key'] is! String ||
           (row['key'] as String).isEmpty) {
         throw const FormatException('Invalid cloud history entry.');
       }
       final finalization = row['finalization'];
-      graphs.add(CloudGraphHistoryEntry(
-        key: row['key'] as String,
-        name: row['name']?.toString() ?? 'Saved graph',
-        customerName: row['customerName']?.toString() ?? '',
-        serviceAddress: row['serviceAddress']?.toString() ?? '',
-        updatedAt: DateTime.tryParse(row['updatedAt']?.toString() ?? ''),
-        finalized: finalization is Map && finalization['locked'] == true,
-      ));
+      graphs.add(
+        CloudGraphHistoryEntry(
+          key: row['key'] as String,
+          name: row['name']?.toString() ?? 'Saved graph',
+          customerName: row['customerName']?.toString() ?? '',
+          serviceAddress: row['serviceAddress']?.toString() ?? '',
+          updatedAt: DateTime.tryParse(row['updatedAt']?.toString() ?? ''),
+          finalized: finalization is Map && finalization['locked'] == true,
+        ),
+      );
     }
     return CloudGraphHistoryPage(graphs, truncated ? next as String : null);
   }

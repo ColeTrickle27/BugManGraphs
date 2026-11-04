@@ -39,12 +39,26 @@ credentialed CORS applies. No backend source is copied into this app.
 
 ## Validation status
 
-Added Flutter fixtures cover GET-only pagination, opaque cursor encoding,
-empty pages, malformed responses, 401/403 distinctions, duplicate results,
-read-only preview, same-ID local preservation, old flat documents, geometry,
-unknown fields and package photo-byte access. **These tests have not run.**
-Flutter/Dart SDK is absent. Official Flutter SDK release-index and archive
-requests returned HTTP 404 in this environment. No third-party SDK was used.
+Eleven added Flutter unit/widget cases pass. They cover GET-only pagination,
+opaque cursor encoding, empty pages, malformed responses, 401/403 distinctions,
+mid-pagination access expiry clearing, duplicate results, repeated cursor
+cycles, stale service responses, read-only preview, same-ID local preservation,
+old flat documents, geometry/calibration, unknown fields, package photo bytes
+and rejection of document/photo/delete/portal writes.
+
+Flutter stable 3.47.9 / Dart 3.13.7 was downloaded from the official manifest
+at `https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json`.
+SDK archive SHA256 matched
+`25ed8c3c29d51a7353f2a944310b478af8214920639524b19c50a19e6c044c5a`.
+Earlier not-found responses were caused by an incorrect extra `/flutter/`
+segment in the URL, not unavailable official downloads.
+Tool configuration, pub cache and analyzer state use temporary directories.
+The Dart hook compiler needed a narrowly approved writable local `.dart-tool`
+cache. HOME and application configuration were not repurposed.
+
+Analysis is clean; the full 374-test Flutter suite and release web build pass.
+These checks are repeated after the final opt-in viewport correction below.
+SDK-generated analysis options/lockfile changes are excluded from the patch.
 
 Separately, four Node synthetic checks passed against the exact deployed
 OpsBrain history/load function source in a sandbox with mocked storage and
@@ -55,7 +69,7 @@ storage writes. Authentication/CORS ordering was checked statically. These
 checks do not execute Flutter, the frontend HTTP service, real authentication,
 or a real R2 binding and must not be presented as full app validation.
 
-`git diff --check` passed. Before approval for release, run:
+`git diff --check` passed. Validation commands:
 
 ```sh
 flutter pub get
@@ -64,11 +78,22 @@ flutter test
 flutter build web --release
 ```
 
-Manually verify desktop/mobile history navigation, empty paginated pages,
-separate-tab sign-in recovery, finalized package preview, visible photo/marker
-rendering, same-ID local history preservation and access failure behavior.
+Local Chromium fixtures exercise desktop1440x1000 and mobile390x844 history,
+empty first page, finalized status, exact source-key GET, preview, same-ID
+IndexedDB preservation and mid-pagination401 clearing. Each uses three history
+GETs and one package GET, with zero writes. Screenshots are synthetic only.
+Manual source inspection and screenshot review found that the existing
+presentation canvas centers the3600x2600 canvas rather than off-center graph
+content. An opt-in `presentationFitToContent` flag now uses the existing
+ExportBoundsCalculator and EditorViewport.fit; it changes screen magnification
+only. The history preview enables it. A widget assertion verifies centered
+geometry without changing wall coordinates. All other callers default false.
+
+Real authenticated production browser behavior, actual historical package
+photo/marker rendering and the user's affected local browser remain unverified.
 Do not test with production writes or clear browser storage.
 
-The active expandable-action-card branch changes the editor and has no changed
-files in common with this patch. This branch does not alter the canvas editor
-or the separate file-manager work. No merge, push or deployment is authorized.
+The active expandable-action-card branch also changes graph_canvas_screen.dart.
+This patch adds only the opt-in constructor flag and initial viewport-fit block;
+normal editor interactions are unchanged. A local merge-tree check assesses
+integration without changing that branch. Separate file-manager work is untouched. No merge, push or deployment is authorized.
