@@ -1,0 +1,32 @@
+name: Expandable card checks
+
+on:
+  pull_request:
+    paths:
+      - lib/widgets/expandable_action_card.dart
+      - lib/screens/graph_canvas_screen.dart
+      - test/expandable_action_card_test.dart
+      - .github/workflows/expandable-cards-check.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build web --release --base-href /bugman-graphs/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: expandable-cards-web
+          path: build/web
+          retention-days: 7
