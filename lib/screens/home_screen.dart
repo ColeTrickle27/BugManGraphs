@@ -9,24 +9,43 @@ import '../theme/app_theme.dart';
 import '../widgets/ops_brain_home_button.dart';
 import 'graph_canvas_screen.dart';
 import 'new_job_screen.dart';
+import '../services/cloud_graph_history.dart';
+import '../services/cloud_graph_history_factory.dart';
+import '../services/bugman_portal_service.dart';
+import '../services/bugman_portal_service_factory.dart';
+import 'cloud_graph_history_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     this.jobs = const [],
     this.repository,
     this.cloudDraftWorkspace,
+    this.cloudHistoryService,
+    this.portalService,
     super.key,
   });
 
   final List<Job> jobs;
   final GraphRepository? repository;
   final GraphDraftWorkspace? cloudDraftWorkspace;
+  final CloudGraphHistoryService? cloudHistoryService;
+  final BugManPortalService? portalService;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  late final CloudGraphHistoryService? _cloudHistory =
+      widget.cloudHistoryService ?? createCloudGraphHistoryService();
+  late final BugManPortalService _portal =
+      widget.portalService ?? createBugManPortalService();
+
+  @override
+  void dispose() {
+    if (widget.cloudHistoryService == null) _cloudHistory?.close();
+    super.dispose();
+  }
   late Future<List<SavedGraphSummary>> _savedGraphs = _loadGraphs();
 
   Future<List<SavedGraphSummary>> _loadGraphs() async {
@@ -61,7 +80,13 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: const Color(0xFFF1F0F2),
       appBar: AppBar(
         title: const Text('BugManGraphs'),
-        actions: const [OpsBrainHomeButton()],
+        actions: [
+          if (_cloudHistory?.isAvailable == true && _portal.isAvailable)
+            IconButton(tooltip: 'Cloud graph history', icon: const Icon(Icons.cloud_outlined),
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => CloudGraphHistoryScreen(service: _cloudHistory!, portal: _portal)))),
+          const OpsBrainHomeButton(),
+        ],
         centerTitle: false,
         bottom: const PreferredSize(
           preferredSize: Size.fromHeight(4),

@@ -1,5 +1,7 @@
 import '../widgets/moisture_reading_dialog.dart';
 import 'dart:async';
+import 'dart:ui' as ui;
+import '../services/locked_graph_watermark.dart';
 import '../services/callout_geometry.dart';
 import '../services/graph_pdf_raster.dart';
 import '../services/curve_measurements.dart';
@@ -73,6 +75,7 @@ import '../services/trace_presentation.dart';
 
 class GraphCanvasScreen extends StatefulWidget {
   const GraphCanvasScreen({
+    this.verifiedFinalization,
     this.job,
     this.document,
     this.repository,
@@ -86,12 +89,14 @@ class GraphCanvasScreen extends StatefulWidget {
     this.onCreateAccountGraph,
     this.presentationMode = false,
     this.completePackagePreview = false,
+    this.presentationFitToContent = false,
     this.presentationMarkerIds = const <String>{},
     super.key,
   }) : assert(job != null || document != null);
 
   static const String routeName = '/graph-canvas';
 
+  final PortalGraphFinalization? verifiedFinalization;
   final Job? job;
   final GraphDocument? document;
   final GraphRepository? repository;
@@ -106,6 +111,7 @@ class GraphCanvasScreen extends StatefulWidget {
       onCreateAccountGraph;
   final bool presentationMode;
   final bool completePackagePreview;
+  final bool presentationFitToContent;
   final Set<String> presentationMarkerIds;
 
   @override
@@ -337,10 +343,34 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
           ),
       };
 
+  ui.Image? _lockedLogo;
+  Future<void>? _lockedLogoReady;
+
+  Future<void> _loadLockedLogo() async {
+    final logo = await LockedGraphWatermark.loadLogo();
+    if (!mounted) {
+      logo.dispose();
+      return;
+    }
+    setState(() => _lockedLogo = logo);
+  }
+
+  void _paintLockedWatermark(Canvas canvas, Size size) {
+    LockedGraphWatermark.paint(canvas,
+        locked: widget.verifiedFinalization != null,
+        structureBounds: LockedGraphWatermark.structureBounds(_document,
+            includeFreehand:
+                !widget.presentationMode || widget.completePackagePreview),
+        logo: _lockedLogo);
+  }
+
   @override
   void initState() {
     super.initState();
     _document = widget.document ?? GraphDocument.forJob(widget.job!);
+    if (widget.verifiedFinalization != null) {
+      _lockedLogoReady = _loadLockedLogo();
+    }
     _repository = widget.repository is GraphDraftEditorRepository
         ? widget.repository!
         : widget.cloudDraftSession == null
@@ -493,6 +523,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
 
   @override
   void dispose() {
+    _lockedLogo?.dispose();
     _contextTouchTimer?.cancel();
     _stopPresentationExport?.call();
     final cloud = _cloudSession;
@@ -1527,6 +1558,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   void _paintScene(Canvas canvas, Size size, {bool interaction = true}) {
+    _paintLockedWatermark(canvas, size);
     if (_traceLayerVisible) {
       TraceGeometryPainter(
         traces: _traces,
@@ -1672,6 +1704,21 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     _initialCanvasCentered = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      if (widget.presentationMode && widget.presentationFitToContent) {
+        final visibleDocument =
+            widget.completePackagePreview ? _document : _presentationDocument();
+        try {
+          _transformationController.value = EditorViewport.fit(
+            ExportBoundsCalculator.forDocument(visibleDocument,
+                treatmentVisible: widget.completePackagePreview,
+                photosVisible: widget.completePackagePreview),
+            Offset.zero & viewportSize,
+          );
+        } finally {
+          if (!identical(visibleDocument, _document)) visibleDocument.dispose();
+        }
+        return;
+      }
       if (_cloudSession != null &&
           (_wallSegments.isNotEmpty ||
               _traces.isNotEmpty ||
@@ -8411,26 +8458,29 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     );
   }
 
+  GraphDocument _presentationDocument() => GraphDocument(
+        customer: _document.customer,
+        wallSegments: _wallSegments,
+        shapes: _shapes,
+        traces: _traces,
+        annotations: _annotations
+            .where(
+              (annotation) =>
+                  annotation.kind == GraphAnnotationKind.marker &&
+                  widget.presentationMarkerIds.contains(annotation.id),
+            )
+            .toList(),
+      );
+
   Future<Uint8List> _capturePresentationPng() async {
+    await _lockedLogoReady;
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted || !widget.presentationMode) throw StateError('Unavailable');
     final boundary = _presentationBoundaryKey.currentContext?.findRenderObject()
         as GraphSceneRenderBoundary?;
     if (boundary == null) throw StateError('Not ready');
     // A separate filtered document keeps internal markup out of crop bounds too.
-    final presentation = GraphDocument(
-      customer: _document.customer,
-      wallSegments: _wallSegments,
-      shapes: _shapes,
-      traces: _traces,
-      annotations: _annotations
-          .where(
-            (annotation) =>
-                annotation.kind == GraphAnnotationKind.marker &&
-                widget.presentationMarkerIds.contains(annotation.id),
-          )
-          .toList(),
-    );
+    final presentation = _presentationDocument();
     try {
       return await GraphImageExport.capturePng(
         boundary,
@@ -8484,6 +8534,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                 key: _presentationBoundaryKey,
                 sceneBounds: _sceneBounds,
                 child: _CanvasSurface(
+                  paintToken: _lockedLogo,
+                  beforeGraph: (canvas, size) =>
+                      _paintLockedWatermark(canvas, size),
                   canvasSize: _canvasSize,
                   sceneBounds: _sceneBounds,
                   wallSegments: _wallSegments,
@@ -10234,6 +10287,8 @@ class _LayerRow extends StatelessWidget {
 
 class _CanvasSurface extends StatelessWidget {
   const _CanvasSurface({
+    this.beforeGraph,
+    this.paintToken,
     this.labels = const LabelPresentation(),
     this.drawingScale = const DrawingScale(),
     required this.canvasSize,
@@ -10271,6 +10326,8 @@ class _CanvasSurface extends StatelessWidget {
     required this.traceLayerVisible,
   });
 
+  final void Function(Canvas, Size)? beforeGraph;
+  final Object? paintToken;
   final Size canvasSize;
   final DrawingScale drawingScale;
   final LabelPresentation labels;
@@ -10324,6 +10381,8 @@ class _CanvasSurface extends StatelessWidget {
               drawingScale: drawingScale,
             ),
             foregroundPainter: _GraphOverlayPainter(
+              beforeGraph: beforeGraph,
+              paintToken: paintToken,
               labels: labels,
               sceneBounds: sceneBounds,
               wallSegments: wallSegments,
@@ -10373,9 +10432,13 @@ class _CanvasSurface extends StatelessWidget {
 }
 
 class _GraphOverlayPainter extends CustomPainter {
+  final void Function(Canvas, Size)? beforeGraph;
+  final Object? paintToken;
   final LabelPresentation labels;
   final Rect sceneBounds;
   const _GraphOverlayPainter({
+    this.beforeGraph,
+    this.paintToken,
     this.labels = const LabelPresentation(),
     required this.sceneBounds,
     required this.wallSegments,
@@ -10435,6 +10498,7 @@ class _GraphOverlayPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    beforeGraph?.call(canvas, size);
     if (shapesVisible) {
       GraphShapesPainter(
         labels: labels,
@@ -10519,7 +10583,9 @@ class _GraphOverlayPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _GraphOverlayPainter oldDelegate) {
-    return oldDelegate.labels.zoom != labels.zoom ||
+    return oldDelegate.paintToken != paintToken ||
+        oldDelegate.beforeGraph != beforeGraph ||
+        oldDelegate.labels.zoom != labels.zoom ||
         oldDelegate.labels.textScale != labels.textScale ||
         oldDelegate.sceneBounds != sceneBounds ||
         oldDelegate.wallSegments != wallSegments ||
