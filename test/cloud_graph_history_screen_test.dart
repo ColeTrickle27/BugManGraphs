@@ -67,6 +67,44 @@ class _ControlledHistory extends _History {
 
 void main() {
   testWidgets(
+      'cloud date display preserves instant sorting, exact offsets and unknown fallback',
+      (t) async {
+    final history = _ControlledHistory((_) async => CloudGraphHistoryPage([
+          CloudGraphHistoryEntry(
+              key: 'early',
+              name: 'Early repeat',
+              updatedAt: DateTime.parse('2026-11-01T01:45:00-04:00'),
+              updatedAtRaw: '2026-11-01T01:45:00-04:00'),
+          CloudGraphHistoryEntry(
+              key: 'late',
+              name: 'Late repeat',
+              updatedAt: DateTime.parse('2026-11-01T01:30:00-05:00'),
+              updatedAtRaw: '2026-11-01T01:30:00-05:00'),
+          const CloudGraphHistoryEntry(
+              key: 'invalid', name: 'Invalid date', updatedAtRaw: 'invalid'),
+          const CloudGraphHistoryEntry(key: 'missing', name: 'Missing date'),
+        ], null));
+    final doc = GraphDocument.forJob(Job(
+        customerName: 'Synthetic',
+        serviceAddress: '',
+        pestPacLocationNumber: '',
+        pestPacBillToNumber: '',
+        serviceType: '',
+        createdBy: '',
+        createdDate: DateTime(2026)));
+    await t.pumpWidget(MaterialApp(
+        home: CloudGraphHistoryScreen(service: history, portal: _Portal(doc))));
+    await t.pumpAndSettle();
+    expect(t.getTopLeft(find.text('Late repeat')).dy,
+        lessThan(t.getTopLeft(find.text('Early repeat')).dy));
+    expect(t.getTopLeft(find.text('Early repeat')).dy,
+        lessThan(t.getTopLeft(find.text('Invalid date')).dy));
+    expect(find.byTooltip('Exact timestamp: 2026-11-01T01:30:00-05:00'),
+        findsOneWidget);
+    expect(find.text('Date unavailable'), findsNWidgets(2));
+    expect(t.takeException(), isNull);
+  });
+  testWidgets(
     'cloud history paginates empty pages, deduplicates, previews without overwriting local identity',
     (tester) async {
       final local = MemoryGraphRepository();

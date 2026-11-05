@@ -11,6 +11,34 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  test(
+      'history retains exact timestamp offsets and rejects normalized invalid dates',
+      () async {
+    final service = HttpCloudGraphHistoryService(
+      origin: Uri.parse('https://ops.example.test/'),
+      client: MockClient((_) async => http.Response(
+          jsonEncode({
+            'graphs': [
+              {
+                'key': 'synthetic-valid',
+                'updatedAt': '2026-11-01T01:30:00.123-05:00'
+              },
+              {'key': 'synthetic-invalid', 'updatedAt': '2026-02-30T00:00:00Z'},
+              {'key': 'synthetic-missing'},
+            ],
+            'truncated': false,
+          }),
+          200)),
+    );
+    final page = await service.list();
+    expect(page.graphs.first.updatedAtRaw, '2026-11-01T01:30:00.123-05:00');
+    expect(
+        page.graphs.first.updatedAt, DateTime.utc(2026, 11, 1, 6, 30, 0, 123));
+    expect(page.graphs[1].updatedAt, isNull);
+    expect(page.graphs[1].updatedAtRaw, '2026-02-30T00:00:00Z');
+    expect(page.graphs[2].updatedAt, isNull);
+    service.close();
+  });
   test('history is GET only and preserves opaque pagination cursors', () async {
     final requests = <http.Request>[];
     final service = HttpCloudGraphHistoryService(
@@ -24,7 +52,8 @@ void main() {
                 ? []
                 : [
                     {
-                      'key': 'bill-tos/synthetic/location/bugman-graphs/old.bgraph',
+                      'key':
+                          'bill-tos/synthetic/location/bugman-graphs/old.bgraph',
                       'name': 'Historical graph',
                       'updatedAt': '2026-01-01T00:00:00Z',
                       'finalization': {'locked': true},
@@ -109,7 +138,9 @@ void main() {
     },
   );
 
-  test('old flat graph preview preserves geometry, photos and unknown fields without writes', () async {
+  test(
+      'old flat graph preview preserves geometry, photos and unknown fields without writes',
+      () async {
     final source = <String, Object?>{
       'id': 'historical-id',
       'job': {

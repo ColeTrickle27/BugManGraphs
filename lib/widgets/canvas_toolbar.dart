@@ -156,6 +156,7 @@ List<GraphMarkerType> get utilityToolbarMarkers =>
 
 class CanvasToolbar extends StatefulWidget {
   const CanvasToolbar({
+    this.width = 112,
     required this.selectedTool,
     required this.selectedMarkerType,
     required this.selectedDrawingPreset,
@@ -169,6 +170,7 @@ class CanvasToolbar extends StatefulWidget {
     super.key,
   });
 
+  final double width;
   final CanvasTool selectedTool;
   final GraphMarkerType selectedMarkerType;
   final GraphDrawingPreset? selectedDrawingPreset;
@@ -235,7 +237,7 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
       borderRadius: BorderRadius.circular(10),
       color: const Color(0xFF261F24),
       child: SizedBox(
-        width: 112,
+        width: widget.width,
         child: Padding(
           padding: const EdgeInsets.all(8),
           child: SingleChildScrollView(
@@ -1112,7 +1114,7 @@ class _ToolbarHeader extends StatelessWidget {
           ),
           IconButton(
             tooltip: 'Hide main toolbar',
-            constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+            constraints: const BoxConstraints.tightFor(width: 44, height: 44),
             padding: EdgeInsets.zero,
             visualDensity: VisualDensity.compact,
             onPressed: onCollapse,
@@ -1156,8 +1158,7 @@ class _CollapsibleToolbarSection extends StatelessWidget {
                     Expanded(
                       child: Text(
                         label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
                         style: const TextStyle(
                           color: Color(0xFFF8F2F5),
                           fontFamily: 'Raider Straight',

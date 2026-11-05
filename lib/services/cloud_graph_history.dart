@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'bugman_portal_service.dart';
+import 'history_timestamp.dart';
 
 class CloudGraphHistoryEntry {
   const CloudGraphHistoryEntry({
@@ -11,6 +12,7 @@ class CloudGraphHistoryEntry {
     this.customerName = '',
     this.serviceAddress = '',
     this.updatedAt,
+    this.updatedAtRaw,
     this.finalized = false,
   });
   final String key;
@@ -18,6 +20,7 @@ class CloudGraphHistoryEntry {
   final String customerName;
   final String serviceAddress;
   final DateTime? updatedAt;
+  final String? updatedAtRaw;
   final bool finalized;
 }
 
@@ -84,7 +87,8 @@ class HttpCloudGraphHistoryService implements CloudGraphHistoryService {
           name: row['name']?.toString() ?? 'Saved graph',
           customerName: row['customerName']?.toString() ?? '',
           serviceAddress: row['serviceAddress']?.toString() ?? '',
-          updatedAt: DateTime.tryParse(row['updatedAt']?.toString() ?? ''),
+          updatedAt: parseHistoryTimestamp(row['updatedAt']?.toString() ?? ''),
+          updatedAtRaw: row['updatedAt']?.toString(),
           finalized: finalization is Map && finalization['locked'] == true,
         ),
       );
