@@ -80,7 +80,7 @@ class GraphDocument extends ChangeNotifier {
       customer: source.customer,
       wallSegments: source.wallSegments,
       shapes: source.shapes,
-    );
+    ).._isDirty = true; // A new independent copy still needs its first save.
   }
 
   /// "Save As New" recovery (items 10 and 11 of the production pass):

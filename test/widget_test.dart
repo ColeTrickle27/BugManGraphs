@@ -871,9 +871,10 @@ void main() {
     document.setLayer('trace', const GraphLayerState(visible: true));
     await chooseFileAction(tester, 'Save Graph to BugMan Graphs');
     expect(portal.saveExistingKeys, [null]);
-    final openFolderAction = find.widgetWithText(SnackBarAction, 'Open folder');
+    final openFolderAction = find.widgetWithText(TextButton, 'Open folder');
     expect(openFolderAction, findsOneWidget);
-    tester.widget<SnackBarAction>(openFolderAction).onPressed();
+    await tester.tap(openFolderAction);
+    await tester.pumpAndSettle();
     expect(openedUrls, [portal.customerFolderUrl]);
 
     // Dirty it again and Save again -- same key gets overwritten (no
@@ -1043,9 +1044,10 @@ void main() {
         GraphFileKind.pdfExport,
       ),
     );
-    final openFolderAction = find.widgetWithText(SnackBarAction, 'Open folder');
+    final openFolderAction = find.widgetWithText(TextButton, 'Open folder');
     expect(openFolderAction, findsOneWidget);
-    tester.widget<SnackBarAction>(openFolderAction).onPressed();
+    await tester.tap(openFolderAction);
+    await tester.pumpAndSettle();
     expect(openedUrls, [portal.customerFolderUrl]);
 
     await chooseFileActionAndAwaitAsyncWork(tester, 'Save PNG to OpsBrain');

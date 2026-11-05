@@ -178,6 +178,7 @@ class _HomeScreenState extends State<HomeScreen> {
         MaterialPageRoute<void>(
           builder: (context) => GraphCanvasScreen(
             document: document,
+            fitToContentOnOpen: true,
             repository: repository,
           ),
         ),

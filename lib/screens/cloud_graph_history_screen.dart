@@ -1,4 +1,5 @@
 import 'pending_graph_finalization_screen.dart';
+import '../services/history_timestamp.dart';
 import 'package:flutter/material.dart';
 
 import '../services/bugman_portal_service.dart';
@@ -208,14 +209,23 @@ class _CloudGraphHistoryScreenState extends State<CloudGraphHistoryScreen> {
                           graph.finalized ? Icons.lock_outline : Icons.history,
                         ),
                         title: Text(graph.name),
-                        subtitle: Text(
-                          [
-                            graph.customerName,
-                            graph.serviceAddress,
-                            if (graph.updatedAt != null)
-                              graph.updatedAt!.toLocal().toString(),
-                            if (graph.finalized) 'Finalized',
-                          ].where((s) => s.isNotEmpty).join('\n'),
+                        subtitle: Tooltip(
+                          message:
+                              'Exact timestamp: ${graph.updatedAtRaw ?? graph.updatedAt?.toIso8601String() ?? 'unavailable'}',
+                          child: Text(
+                            [
+                              graph.customerName,
+                              graph.serviceAddress,
+                              historyDateLabel(
+                                  context,
+                                  graph.updatedAtRaw ??
+                                      graph.updatedAt
+                                          ?.toUtc()
+                                          .toIso8601String() ??
+                                      ''),
+                              if (graph.finalized) 'Finalized',
+                            ].where((s) => s.isNotEmpty).join('\n'),
+                          ),
                         ),
                         trailing: const Icon(Icons.visibility_outlined),
                         onTap: _opening || _loading ? null : () => _open(graph),
