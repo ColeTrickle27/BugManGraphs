@@ -128,6 +128,12 @@ void main() {
       final beforeTrace = document.traces.single.toJson();
       await tester.pumpWidget(MaterialApp(home: GraphCanvasScreen(document: document)));
       await tester.pumpAndSettle();
+      // These gestures target canvas overlaps, not the expanded tools overlay.
+      final hideTools = find.byTooltip('Hide main toolbar');
+      if (hideTools.evaluate().isNotEmpty) {
+        await tester.tap(hideTools);
+        await tester.pumpAndSettle();
+      }
       await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
       await tester.pump();
       final finder = find.byType(InteractiveViewer);
@@ -259,6 +265,12 @@ void main() {
       final beforeTrace=document.traces.single.toJson();
       await tester.pumpWidget(MaterialApp(home:GraphCanvasScreen(document:document)));
       await tester.pumpAndSettle();await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+      // Keep the original hit-test coordinates clear of the wider sidebar.
+      final hideTools = find.byTooltip('Hide main toolbar');
+      if (hideTools.evaluate().isNotEmpty) {
+        await tester.tap(hideTools);
+        await tester.pumpAndSettle();
+      }
       final finder=find.byType(InteractiveViewer);
       final viewer=tester.widget<InteractiveViewer>(finder);
       viewer.transformationController!.value=Matrix4.diagonal3Values(zoom,zoom,1)

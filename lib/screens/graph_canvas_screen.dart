@@ -227,7 +227,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   Timer? _canvasNoticeTimer;
 
   bool get _compactEditor => MediaQuery.sizeOf(context).shortestSide < 600;
-  double get _mainToolbarWidth => _compactEditor ? 208 : 112;
+  double get _mainToolbarWidth => 208;
 
   @override
   void didChangeDependencies() {
@@ -8017,6 +8017,17 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     final documentTitle = _document.customer.displayName;
     final propertyLineSummary = _latestPropertyLineMeasurementSummary;
     final viewportWidth = MediaQuery.sizeOf(context).width;
+    final landscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    // Keep room for the four drawing controls as well as the normal quick bar.
+    final toolbarsFitSideBySide = landscape &&
+        viewportWidth -
+                MediaQuery.paddingOf(context).horizontal -
+                canvasLeftInset -
+                _mainToolbarWidth -
+                12 -
+                canvasRightInset >=
+            200;
 
     return Scaffold(
       appBar: AppBar(
@@ -8203,7 +8214,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                     Positioned(
                       left: 12,
                       top: 54,
-                      bottom: 12,
+                      bottom: landscape && !toolbarsFitSideBySide ? 80 : 12,
                       width: _mainToolbarWidth,
                       child: Offstage(
                         offstage: _mainToolbarCollapsed,
@@ -8246,7 +8257,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                         ),
                       ),
                     Positioned(
-                      left: canvasLeftInset,
+                      left: !_mainToolbarCollapsed && toolbarsFitSideBySide
+                          ? canvasLeftInset + _mainToolbarWidth + 12
+                          : canvasLeftInset,
                       right: canvasRightInset,
                       bottom: 12,
                       child: Align(

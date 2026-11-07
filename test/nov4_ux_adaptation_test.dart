@@ -7,11 +7,38 @@ import 'package:bugman_graphs/services/export_bounds_calculator.dart';
 import 'package:bugman_graphs/widgets/canvas_toolbar.dart';
 import 'package:bugman_graphs/widgets/graph_title.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
-import 'dart:ui' show SemanticsAction;
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final size in [const Size(350, 300), const Size(414, 300)]) {
+    testWidgets(
+        'narrow landscape toolbars remain separate without overflow $size',
+        (t) async {
+      t.view.devicePixelRatio = 1;
+      t.view.physicalSize = size;
+      addTearDown(t.view.reset);
+      final doc = GraphDocument.forJob(Job(
+          customerName: 'Synthetic narrow layout',
+          serviceAddress: '',
+          pestPacLocationNumber: '990903',
+          pestPacBillToNumber: '990901',
+          serviceType: 'General Use',
+          createdBy: '',
+          createdDate: DateTime(2026)));
+      await t.pumpWidget(MaterialApp(home: GraphCanvasScreen(document: doc)));
+      await t.pumpAndSettle();
+      await t.tap(find.byTooltip('Show main toolbar'));
+      await t.pumpAndSettle();
+      expect(
+          t
+              .getRect(find.byType(CanvasToolbar))
+              .overlaps(t.getRect(find.byType(CanvasQuickToolbar))),
+          isFalse);
+      expect(t.takeException(), isNull);
+    });
+  }
   for (final size in [
     const Size(1440, 1100),
     const Size(390, 844),
@@ -53,6 +80,22 @@ void main() {
         await t.tap(find.byTooltip('Show main toolbar'));
         await t.pumpAndSettle();
       }
+      for (final label in [
+        'Annotate',
+        'Sketch Structure',
+        'Inspection Findings',
+        'Treatment Details'
+      ]) {
+        final text = t.renderObject<RenderParagraph>(find.text(label));
+        expect(text.didExceedMaxLines, isFalse, reason: label);
+      }
+      if (size.width > size.height) {
+        expect(
+            t
+                .getRect(find.byType(CanvasToolbar))
+                .overlaps(t.getRect(find.byType(CanvasQuickToolbar))),
+            isFalse);
+      }
       if (find.byTooltip('Fit drawing').evaluate().isEmpty) {
         await t.tap(find.byTooltip('Canvas options'));
         await t.pumpAndSettle();
@@ -64,8 +107,7 @@ void main() {
       final expandedBounds = MatrixUtils.transformRect(
           viewer.transformationController!.value,
           ExportBoundsCalculator.forDocument(doc, padding: 0));
-      expect(expandedBounds.left,
-          greaterThanOrEqualTo(size.shortestSide < 600 ? 208 : 112));
+      expect(expandedBounds.left, greaterThanOrEqualTo(208));
       await t.tap(find.byTooltip('Pan (H)'));
       await t.pumpAndSettle();
       if (find.byTooltip('Show main toolbar').evaluate().isNotEmpty) {
