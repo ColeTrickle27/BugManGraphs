@@ -833,7 +833,7 @@ class _NewJobScreenState extends State<NewJobScreen> {
         onChanged: _onSearchChanged,
         decoration: InputDecoration(
           labelText: 'Find Customer',
-          hintText: 'Search name, Bill-To, Location, or addressâ€¦',
+          hintText: 'Search name, Bill-To, Location, or address\u2026',
           prefixIcon: const Icon(Icons.search),
           suffixIcon: _searching
               ? const Padding(
@@ -896,7 +896,7 @@ class _NewJobScreenState extends State<NewJobScreen> {
         child: TextButton(
           key: const ValueKey('manual-entry-toggle'),
           onPressed: () => _toggleManualEntry(true),
-          child: const Text('Customer not found â€” New Customer'),
+          child: const Text('Customer not found \u2014 New Customer'),
         ),
       ),
       const SizedBox(height: 4),

@@ -37,6 +37,32 @@ void main() {
     return capture;
   }
 
+  testWidgets('existing-customer instructions show and announce clean punctuation',
+      (tester) async {
+    final semantics = tester.ensureSemantics();
+    await pumpNewJobScreen(tester,
+        service: _FakeCustomerFilesService(results: const []));
+    const hint = 'Search name, Bill-To, Location, or address\u2026';
+    const fallback = 'Customer not found \u2014 New Customer';
+    final search = find.byKey(const ValueKey('customer-search-field'));
+    expect(tester.widget<TextField>(search).decoration!.hintText, hint);
+    expect(find.text(fallback), findsOneWidget);
+    await tester.tap(search);
+    await tester.pumpAndSettle();
+    final searchData = tester
+        .getSemantics(find.descendant(
+            of: search, matching: find.byType(EditableText)))
+        .getSemanticsData();
+    expect('${searchData.label}\n${searchData.hint}', contains(hint));
+    expect(
+        tester
+            .getSemantics(find.byKey(const ValueKey('manual-entry-toggle')))
+            .getSemanticsData()
+            .label,
+        contains(fallback));
+    semantics.dispose();
+  });
+
   testWidgets('tapping selected New Customer preserves entered fields',
       (tester) async {
     final capture = await pumpNewJobScreen(tester,
