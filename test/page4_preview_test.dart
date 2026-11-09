@@ -326,6 +326,10 @@ void main() {
       }
       document.replaceWallSegments(segments);
       document.replaceShapes(shapes);
+      if (find.byTooltip('Show main toolbar').evaluate().isNotEmpty) {
+        await tester.tap(find.byTooltip('Show main toolbar'));
+        await tester.pumpAndSettle();
+      }
       tester
           .widget<CanvasToolbar>(find.byType(CanvasToolbar))
           .onToolSelected(CanvasTool.select);

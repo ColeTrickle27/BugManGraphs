@@ -363,7 +363,7 @@ void main() {
     expect(duplicate.annotations, isEmpty, reason: 'annotations must not carry over');
     expect(duplicate.attachments, isEmpty, reason: 'attachments must not carry over');
     expect(duplicate.metadata['nextPhotoNumber'], isNull, reason: 'metadata must not carry over');
-    expect(duplicate.isDirty, isFalse);
+    expect(duplicate.isDirty, isTrue, reason: 'a new structure copy must allow its first save before further edits');
     expect(duplicate.customer.name, source.customer.name);
 
     // Mutating the duplicate must never affect the original source document.

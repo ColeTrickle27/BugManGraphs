@@ -64,6 +64,7 @@ import '../services/sales_brain_navigation.dart';
 import '../services/trace_projection_service.dart';
 import '../services/trace_workspace_defaults.dart';
 import '../widgets/canvas_toolbar.dart';
+import '../widgets/graph_title.dart';
 import '../widgets/freehand_strokes_painter.dart';
 import '../widgets/graph_annotations_painter.dart';
 import '../widgets/graph_grid_painter.dart';
@@ -90,6 +91,7 @@ class GraphCanvasScreen extends StatefulWidget {
     this.presentationMode = false,
     this.completePackagePreview = false,
     this.presentationFitToContent = false,
+    this.fitToContentOnOpen = false,
     this.presentationMarkerIds = const <String>{},
     super.key,
   }) : assert(job != null || document != null);
@@ -112,6 +114,9 @@ class GraphCanvasScreen extends StatefulWidget {
   final bool presentationMode;
   final bool completePackagePreview;
   final bool presentationFitToContent;
+
+  /// Transient screen framing for explicitly opened local graphs and copies.
+  final bool fitToContentOnOpen;
   final Set<String> presentationMarkerIds;
 
   @override
@@ -215,6 +220,24 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   _SidePanelMode? _sidePanelMode;
   bool _layersCollapsed = true;
   bool _mainToolbarCollapsed = false;
+  bool _toolsLayoutInitialized = false;
+  Size? _editorViewportSize;
+  String? _canvasNotice;
+  SnackBarAction? _canvasNoticeAction;
+  Timer? _canvasNoticeTimer;
+
+  bool get _compactEditor => MediaQuery.sizeOf(context).shortestSide < 600;
+  double get _mainToolbarWidth => 208;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_toolsLayoutInitialized) {
+      _mainToolbarCollapsed = _compactEditor;
+      _toolsLayoutInitialized = true;
+    }
+  }
+
   bool _quickToolbarCollapsed = false;
   bool get _drawingActive =>
       _activeWallStart != null ||
@@ -523,6 +546,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
 
   @override
   void dispose() {
+    _canvasNoticeTimer?.cancel();
     _lockedLogo?.dispose();
     _contextTouchTimer?.cancel();
     _stopPresentationExport?.call();
@@ -1696,27 +1720,33 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   void _centerCanvasInViewport(Size viewportSize) {
-    if (_initialCanvasCentered ||
-        viewportSize.width <= 0 ||
-        viewportSize.height <= 0) {
+    if (viewportSize.width <= 0 || viewportSize.height <= 0) return;
+    final previous = _editorViewportSize;
+    _editorViewportSize = viewportSize;
+    if (_initialCanvasCentered) {
+      if (previous != null && previous != viewportSize) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _editorViewportSize != viewportSize) return;
+          final matrix = _transformationController.value.clone();
+          matrix.setEntry(0, 3,
+              matrix.entry(0, 3) + (viewportSize.width - previous.width) / 2);
+          matrix.setEntry(1, 3,
+              matrix.entry(1, 3) + (viewportSize.height - previous.height) / 2);
+          _transformationController.value = matrix;
+        });
+      }
       return;
     }
     _initialCanvasCentered = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (widget.presentationMode && widget.presentationFitToContent) {
-        final visibleDocument =
-            widget.completePackagePreview ? _document : _presentationDocument();
-        try {
-          _transformationController.value = EditorViewport.fit(
-            ExportBoundsCalculator.forDocument(visibleDocument,
-                treatmentVisible: widget.completePackagePreview,
-                photosVisible: widget.completePackagePreview),
-            Offset.zero & viewportSize,
-          );
-        } finally {
-          if (!identical(visibleDocument, _document)) visibleDocument.dispose();
-        }
+        _fitPresentationInViewport(viewportSize);
+        return;
+      }
+      if (widget.fitToContentOnOpen &&
+          (_wallSegments.isNotEmpty || _shapes.isNotEmpty)) {
+        _fitDrawing();
         return;
       }
       if (_cloudSession != null &&
@@ -5669,20 +5699,43 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
           _CanvasMessageSeverity.warning => _warningMessageDuration,
           _CanvasMessageSeverity.error => _errorMessageDuration,
         };
-    final dismissible = severity == _CanvasMessageSeverity.warning ||
-        severity == _CanvasMessageSeverity.error;
-
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          duration: resolvedDuration,
-          showCloseIcon: dismissible,
-          action: action,
-        ),
-      );
+    _canvasNoticeTimer?.cancel();
+    setState(() {
+      _canvasNotice = message;
+      _canvasNoticeAction = action;
+    });
+    _canvasNoticeTimer = Timer(resolvedDuration, () {
+      if (mounted) setState(() => _canvasNotice = null);
+    });
   }
+
+  Widget _buildCanvasNotice() => MaterialBanner(
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 80),
+          child: SingleChildScrollView(
+            child: Semantics(liveRegion: true, child: Text(_canvasNotice!)),
+          ),
+        ),
+        actions: [
+          if (_canvasNoticeAction != null)
+            TextButton(
+              onPressed: () {
+                final action = _canvasNoticeAction!;
+                _canvasNoticeTimer?.cancel();
+                setState(() => _canvasNotice = null);
+                action.onPressed();
+              },
+              child: Text(_canvasNoticeAction!.label),
+            ),
+          TextButton(
+            onPressed: () {
+              _canvasNoticeTimer?.cancel();
+              setState(() => _canvasNotice = null);
+            },
+            child: const Text('Dismiss'),
+          ),
+        ],
+      );
 
   SnackBarAction? _openCustomerFolderAction() {
     final customer = _document.customer;
@@ -6372,6 +6425,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       return;
     }
 
+    _canvasNoticeTimer?.cancel();
+    setState(() => _canvasNotice = null);
     final newDocument = GraphDocument.duplicateStructureFrom(_document);
     if (widget.onCreateAccountGraph != null) {
       await _openIndependentAccountGraph(newDocument);
@@ -6400,6 +6455,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
               )
             : GraphCanvasScreen(
                 document: newDocument,
+                fitToContentOnOpen: true,
                 repository: _repository,
                 photoPicker: _photoPicker,
                 portalService: _portalService,
@@ -7000,8 +7056,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     final box =
         _canvasViewportKey.currentContext?.findRenderObject() as RenderBox?;
     final size = box?.size ?? const Size(800, 600);
-    final left = _mainToolbarCollapsed ? 12.0 : 132.0;
-    return Rect.fromLTRB(left, 64, size.width - 16, size.height - 16);
+    if (widget.presentationMode) return Offset.zero & size;
+    final left = _mainToolbarCollapsed ? 0.0 : _mainToolbarWidth + 8;
+    return Rect.fromLTRB(left.clamp(0.0, math.max(0.0, size.width - 1)), 0,
+        size.width, size.height);
   }
 
   void _zoomBy(double factor) => _zoomAt(_usableViewport.center, factor);
@@ -7019,6 +7077,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     _transformationController.value = EditorViewport.fit(
       bounds,
       _usableViewport,
+      padding: 12,
     );
     setState(
       () =>
@@ -7952,10 +8011,23 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     const sidePanelWidth = 268.0;
     const canvasRightInset = 12.0;
     const canvasLeftInset = 12.0;
-    final canvasBottomInset = _quickToolbarCollapsed ? 12.0 : 82.0;
+    final canvasBottomInset = _quickToolbarCollapsed
+        ? 64.0
+        : (MediaQuery.sizeOf(context).width < 760 ? 126.0 : 82.0);
     final documentTitle = _document.customer.displayName;
     final propertyLineSummary = _latestPropertyLineMeasurementSummary;
     final viewportWidth = MediaQuery.sizeOf(context).width;
+    final landscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    // Keep room for the four drawing controls as well as the normal quick bar.
+    final toolbarsFitSideBySide = landscape &&
+        viewportWidth -
+                MediaQuery.paddingOf(context).horizontal -
+                canvasLeftInset -
+                _mainToolbarWidth -
+                12 -
+                canvasRightInset >=
+            200;
 
     return Scaffold(
       appBar: AppBar(
@@ -7969,7 +8041,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
           ),
         ),
         toolbarHeight: _cloudSession == null ? 40 : 48,
-        title: Text(
+        title: GraphTitle(
           (_cloudSession == null
                   ? _document.isDirty
                   : _cloudSession!.hasUnpersistedEdits)
@@ -8006,6 +8078,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         child: SafeArea(
           child: Column(
             children: [
+              if (_canvasNotice != null) _buildCanvasNotice(),
               Expanded(
                 child: Stack(
                   children: [
@@ -8138,27 +8211,33 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                           ),
                         ),
                       ),
-                    if (!_mainToolbarCollapsed)
-                      Positioned(
-                        left: 12,
-                        top: 54,
-                        bottom: 12,
-                        width: 112,
-                        child: CanvasToolbar(
-                          selectedTool: _selectedTool,
-                          selectedMarkerType: _selectedMarkerType,
-                          selectedDrawingPreset: _selectedDrawingPreset,
-                          onToolSelected: _selectTool,
-                          onMarkerSelected: _selectMarker,
-                          onDrawingPresetSelected: _selectDrawingPreset,
-                          traceLayerVisible: _traceLayerVisible,
-                          onToggleTraceLayer: () => _openTraceWorkspace(),
-                          onCollapse: () =>
-                              setState(() => _mainToolbarCollapsed = true),
-                          onActionDoubleTapped: _inspectToolbarAction,
+                    Positioned(
+                      left: 12,
+                      top: 54,
+                      bottom: landscape && !toolbarsFitSideBySide ? 80 : 12,
+                      width: _mainToolbarWidth,
+                      child: Offstage(
+                        offstage: _mainToolbarCollapsed,
+                        child: ExcludeFocus(
+                          excluding: _mainToolbarCollapsed,
+                          child: CanvasToolbar(
+                            width: _mainToolbarWidth,
+                            selectedTool: _selectedTool,
+                            selectedMarkerType: _selectedMarkerType,
+                            selectedDrawingPreset: _selectedDrawingPreset,
+                            onToolSelected: _selectTool,
+                            onMarkerSelected: _selectMarker,
+                            onDrawingPresetSelected: _selectDrawingPreset,
+                            traceLayerVisible: _traceLayerVisible,
+                            onToggleTraceLayer: () => _openTraceWorkspace(),
+                            onCollapse: () =>
+                                setState(() => _mainToolbarCollapsed = true),
+                            onActionDoubleTapped: _inspectToolbarAction,
+                          ),
                         ),
-                      )
-                    else
+                      ),
+                    ),
+                    if (_mainToolbarCollapsed)
                       Positioned(
                         left: 12,
                         top: 54,
@@ -8166,16 +8245,21 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                           elevation: 6,
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(10),
-                          child: IconButton(
-                            tooltip: 'Show main toolbar',
-                            onPressed: () =>
-                                setState(() => _mainToolbarCollapsed = false),
-                            icon: const Icon(Icons.chevron_right),
+                          child: Tooltip(
+                            message: 'Show main toolbar',
+                            child: TextButton.icon(
+                              onPressed: () =>
+                                  setState(() => _mainToolbarCollapsed = false),
+                              icon: const Icon(Icons.tune),
+                              label: const Text('Tools'),
+                            ),
                           ),
                         ),
                       ),
                     Positioned(
-                      left: canvasLeftInset,
+                      left: !_mainToolbarCollapsed && toolbarsFitSideBySide
+                          ? canvasLeftInset + _mainToolbarWidth + 12
+                          : canvasLeftInset,
                       right: canvasRightInset,
                       bottom: 12,
                       child: Align(
@@ -8497,6 +8581,28 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     }
   }
 
+  void _fitPresentationInViewport(Size size) {
+    final visible =
+        widget.completePackagePreview ? _document : _presentationDocument();
+    try {
+      _transformationController.value = EditorViewport.fit(
+        ExportBoundsCalculator.forDocument(visible,
+            treatmentVisible: widget.completePackagePreview,
+            photosVisible: widget.completePackagePreview),
+        Offset.zero & size,
+        padding: 12,
+      );
+    } finally {
+      if (!identical(visible, _document)) visible.dispose();
+    }
+  }
+
+  void _fitPresentationDrawing() {
+    final box =
+        _canvasViewportKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box != null) _fitPresentationInViewport(box.size);
+  }
+
   Widget _buildPresentationView(BuildContext context) {
     final visibleAnnotations = widget.completePackagePreview
         ? _annotations
@@ -8512,13 +8618,21 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       appBar: AppBar(
         toolbarHeight: 40,
         automaticallyImplyLeading: widget.completePackagePreview,
-        title: Text(_document.customer.displayName),
+        title: GraphTitle(_document.customer.displayName),
+        actions: [
+          if (widget.presentationFitToContent)
+            IconButton(
+                tooltip: 'Fit drawing',
+                onPressed: _fitPresentationDrawing,
+                icon: const Icon(Icons.fit_screen)),
+        ],
       ),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
             _centerCanvasInViewport(constraints.biggest);
             return InteractiveViewer(
+              key: _canvasViewportKey,
               transformationController: _transformationController,
               panEnabled: true,
               scaleEnabled: true,
