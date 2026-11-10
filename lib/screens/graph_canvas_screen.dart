@@ -63,6 +63,8 @@ import '../services/marker_defaults_store_factory.dart';
 import '../services/sales_brain_bridge.dart';
 import '../services/sales_brain_navigation.dart';
 import '../services/trace_projection_service.dart';
+import '../services/trace_imagery_service.dart';
+import '../services/trace_area_service.dart';
 import '../services/trace_workspace_defaults.dart';
 import '../widgets/canvas_toolbar.dart';
 import '../widgets/graph_title.dart';
@@ -3853,15 +3855,20 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     nextCanvasPoints[vertexIndex] = point;
     nextGeoPoints[vertexIndex] =
         TraceProjectionService.moveGeoPointByCanvasDelta(
-      point: sourceTrace.geoPoints[vertexIndex],
-      canvasDelta: canvasDelta,
-      metersPerCanvasUnit: metersPerCanvasUnit,
-    );
+          point: sourceTrace.geoPoints[vertexIndex],
+          canvasDelta: canvasDelta,
+          metersPerCanvasUnit: metersPerCanvasUnit,
+        );
     final nextTraces = <TraceGeometry>[..._traces];
-    nextTraces[traceIndex] = sourceTrace.copyWith(
+    final changedTrace = sourceTrace.copyWith(
       canvasPoints: nextCanvasPoints,
       geoPoints: nextGeoPoints,
     );
+    if (sourceTrace.exclusions.isNotEmpty &&
+        TraceAreaService.validate(changedTrace) != null) {
+      return;
+    }
+    nextTraces[traceIndex] = changedTrace;
     setState(() {
       _document.replaceTraces(nextTraces);
       _dragMoved = true;
@@ -3883,23 +3890,40 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     final metersPerCanvasUnit = sourceTrace.metersPerCanvasUnit;
     final nextGeoPoints =
         metersPerCanvasUnit == null || metersPerCanvasUnit <= 0
-            ? sourceTrace.geoPoints
-            : [
-                for (final geoPoint in sourceTrace.geoPoints)
-                  TraceProjectionService.moveGeoPointByCanvasDelta(
-                    point: geoPoint,
-                    canvasDelta: delta,
-                    metersPerCanvasUnit: metersPerCanvasUnit,
-                  ),
-              ];
+        ? sourceTrace.geoPoints
+        : [
+            for (final geoPoint in sourceTrace.geoPoints)
+              TraceProjectionService.moveGeoPointByCanvasDelta(
+                point: geoPoint,
+                canvasDelta: delta,
+                metersPerCanvasUnit: metersPerCanvasUnit,
+              ),
+          ];
     final nextTraces = <TraceGeometry>[..._traces];
-    nextTraces[traceIndex] = sourceTrace.copyWith(
-      canvasPoints: [
-        for (final canvasPoint in sourceTrace.canvasPoints)
-          GraphPoint.fromOffset(canvasPoint.offset + delta),
-      ],
-      geoPoints: nextGeoPoints,
-    );
+    nextTraces[traceIndex] = sourceTrace
+        .transformCanvas((p) => GraphPoint.fromOffset(p.offset + delta))
+        .copyWith(
+          geoPoints: nextGeoPoints,
+          exclusions: [
+            for (final e in sourceTrace.exclusions)
+              e
+                  .transformCanvas(
+                    (p) => GraphPoint.fromOffset(p.offset + delta),
+                  )
+                  .copyWith(
+                    geoPoints: metersPerCanvasUnit == null
+                        ? e.geoPoints
+                        : [
+                            for (final p in e.geoPoints)
+                              TraceProjectionService.moveGeoPointByCanvasDelta(
+                                point: p,
+                                canvasDelta: delta,
+                                metersPerCanvasUnit: metersPerCanvasUnit,
+                              ),
+                          ],
+                  ),
+          ],
+        );
     setState(() {
       _document.replaceTraces(nextTraces);
       _dragMoved = true;
@@ -3925,14 +3949,12 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     final nextTraces = <TraceGeometry>[..._traces];
     // Rotation is a canvas presentation edit. Geographic vertices remain the
     // source of truth for the property's map-derived measurements.
-    nextTraces[traceIndex] = sourceTrace.copyWith(
-      canvasPoints: [
-        for (final canvasPoint in sourceTrace.canvasPoints)
-          GraphPoint.fromOffset(
-            _rotateOffset(canvasPoint.offset, traceCenter.offset, deltaRadians),
-          ),
-      ],
+    nextTraces[traceIndex] = sourceTrace.transformCanvas(
+      (p) => GraphPoint.fromOffset(
+        _rotateOffset(p.offset, traceCenter.offset, deltaRadians),
+      ),
     );
+
     setState(() {
       _document.replaceTraces(nextTraces);
       _dragMoved = true;
@@ -6964,8 +6986,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   Future<Uint8List?> _renderExportBytes(GraphFileKind kind) async {
     final exportDocument = GraphDocument.fromJson(_document.toJson());
     final isPng = kind == GraphFileKind.pngExport;
-    final boundary = _canvasBoundaryKey.currentContext?.findRenderObject()
-        as GraphSceneRenderBoundary?;
+    final boundary =
+        _canvasBoundaryKey.currentContext?.findRenderObject()
+            as GraphSceneRenderBoundary?;
     if (isPng && boundary == null) {
       _showCanvasMessage(
         'Graph export is not ready yet',
@@ -6980,7 +7003,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       labels: _labels,
       sceneBounds: _sceneBounds,
       structureVisible: _isLayerVisible(_GraphLayer.structure),
-      shapesVisible: _isLayerVisible(_GraphLayer.structure) &&
+      shapesVisible:
+          _isLayerVisible(_GraphLayer.structure) &&
           _isLayerVisible(_GraphLayer.shapes),
       inspectionsVisible: _isLayerVisible(_GraphLayer.inspections),
       treatmentVisible: _isLayerVisible(_GraphLayer.treatment),
@@ -6995,9 +7019,14 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     );
     final brandingLogo = (await rootBundle.load(
       'assets/branding/holloman_exterminators.png',
-    ))
-        .buffer
-        .asUint8List();
+    )).buffer.asUint8List();
+    if (_traceLayerVisible) {
+      await Future.wait([
+        for (final trace in _traces)
+          if (trace.imagery != null)
+            TraceImageryCache.instance.load(trace.imagery!),
+      ]);
+    }
     final pngBytes = await GraphImageExport.capturePng(
       boundary!,
       bounds,
@@ -8561,8 +8590,15 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     await _lockedLogoReady;
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted || !widget.presentationMode) throw StateError('Unavailable');
-    final boundary = _presentationBoundaryKey.currentContext?.findRenderObject()
-        as GraphSceneRenderBoundary?;
+    await Future.wait([
+      for (final trace in _traces)
+        if (trace.imagery != null)
+          TraceImageryCache.instance.load(trace.imagery!),
+    ]);
+    await WidgetsBinding.instance.endOfFrame;
+    final boundary =
+        _presentationBoundaryKey.currentContext?.findRenderObject()
+            as GraphSceneRenderBoundary?;
     if (boundary == null) throw StateError('Not ready');
     // A separate filtered document keeps internal markup out of crop bounds too.
     final presentation = _presentationDocument();
@@ -9363,8 +9399,20 @@ class _PropertiesSidebar extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           _InspectorValue(
-            label: 'Area',
-            value: MeasurementFormat.squareFeet(measurement.squareFeet),
+            label: 'Total area',
+            value:
+                '${MeasurementFormat.acres(measurement.acres)} (${MeasurementFormat.squareFeet(measurement.squareFeet)})',
+          ),
+          _InspectorValue(
+            label: 'Excluded area',
+            value: MeasurementFormat.acres(
+              TraceAreaService.excludedSquareMeters(trace) / 4046.8564224,
+            ),
+          ),
+          _InspectorValue(
+            label: 'Net yard area',
+            value:
+                '${MeasurementFormat.acres(TraceAreaService.netSquareMeters(trace) / 4046.8564224)} (${MeasurementFormat.squareFeet(TraceAreaService.netSquareMeters(trace) * 10.763910416709722)})',
           ),
           ExpandableActionCard(
             title: 'Edge measurements',
@@ -10733,7 +10781,7 @@ class _GraphOverlayPainter extends CustomPainter {
   }
 }
 
-class _TraceLayer extends StatelessWidget {
+class _TraceLayer extends StatefulWidget {
   final LabelPresentation labels;
   const _TraceLayer({
     required this.labels,
@@ -10747,19 +10795,55 @@ class _TraceLayer extends StatelessWidget {
   final int? hoveredTraceIndex;
 
   @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: CustomPaint(
-        size: const Size(double.infinity, double.infinity),
-        painter: TraceGeometryPainter(
-          labels: labels,
-          traces: traces,
-          selectedTraceIndex: selectedTraceIndex,
-          hoveredTraceIndex: hoveredTraceIndex,
-        ),
-      ),
-    );
+  State<_TraceLayer> createState() => _TraceLayerState();
+}
+
+class _TraceLayerState extends State<_TraceLayer> {
+  @override
+  void initState() {
+    super.initState();
+    _load();
   }
+
+  @override
+  void didUpdateWidget(covariant _TraceLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _load();
+  }
+
+  void _load() {
+    TraceImageryCache.instance.retain(this, widget.traces);
+    for (final trace in widget.traces) {
+      if (trace.imagery != null) {
+        unawaited(
+          TraceImageryCache.instance.load(trace.imagery!).catchError((
+            Object error,
+          ) {
+            debugPrint('Trace imagery decode failed: $error');
+          }),
+        );
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    TraceImageryCache.instance.release(this);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    child: CustomPaint(
+      size: const Size(double.infinity, double.infinity),
+      painter: TraceGeometryPainter(
+        labels: widget.labels,
+        traces: widget.traces,
+        selectedTraceIndex: widget.selectedTraceIndex,
+        hoveredTraceIndex: widget.hoveredTraceIndex,
+      ),
+    ),
+  );
 }
 
 enum _UndoKind {

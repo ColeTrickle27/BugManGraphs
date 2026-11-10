@@ -1,4 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:image/image.dart' as img;
+import 'package:bugman_graphs/models/graph_point.dart';
+import 'package:bugman_graphs/services/trace_area_service.dart';
+import 'package:bugman_graphs/services/trace_imagery_service.dart';
 
 import 'package:bugman_graphs/models/trace_geometry.dart';
 import 'package:bugman_graphs/screens/trace_workspace_screen.dart';
@@ -9,6 +14,83 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets(
+      'phone workflow deducts a building, preserves failed transfer, and saves satellite imagery',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final provider = _FakeTraceMapProvider();
+    final imageryService = _FakeImageryService();
+    final image = img.Image(width: 32, height: 32)
+      ..clear(img.ColorRgb8(40, 130, 70));
+    imageryService.jpeg = base64Encode(img.encodeJpg(image));
+    await tester.runAsync(() => TraceImageryCache.instance.load(TraceImagery(
+        base64Jpeg: imageryService.jpeg, capturedAt: 'QA', corners: const [])));
+    TraceGeometry? result;
+    const original = TraceGeometry(id: 'yard', label: 'Yard', geoPoints: [
+      GeoPoint(latitude: 35, longitude: -78),
+      GeoPoint(latitude: 35, longitude: -77.999),
+      GeoPoint(latitude: 34.999, longitude: -77.999),
+      GeoPoint(latitude: 34.999, longitude: -78),
+    ], canvasPoints: []);
+    await tester.pumpWidget(MaterialApp(
+        home: Builder(
+            builder: (context) => Scaffold(
+                body: TextButton(
+                    onPressed: () async {
+                      result = await Navigator.push<TraceGeometry>(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => TraceWorkspaceScreen(
+                                  address: '',
+                                  canvasSize: const Size(3600, 2600),
+                                  traceLabel: 'Yard',
+                                  initialTrace: original,
+                                  provider: provider,
+                                  addressService:
+                                      _FakeAddressSuggestionService(),
+                                  imageryService: imageryService)));
+                    },
+                    child: const Text('Open'))))));
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('add-trace-exclusion')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField), 'Home');
+    await tester.tap(find.text('Trace area'));
+    await tester.pumpAndSettle();
+    for (final p in const [
+      GeoPoint(latitude: 34.9999, longitude: -77.9999),
+      GeoPoint(latitude: 34.9999, longitude: -77.9997),
+      GeoPoint(latitude: 34.9997, longitude: -77.9997),
+      GeoPoint(latitude: 34.9997, longitude: -77.9999)
+    ]) {
+      provider.tapPoint(p);
+      await tester.pump();
+    }
+    expect(find.text('Home'), findsOneWidget);
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('include-trace-imagery')));
+    await tester.tap(find.byKey(const ValueKey('include-trace-imagery')));
+    await tester.pumpAndSettle();
+    imageryService.fail = true;
+    await tester.tap(find.byKey(const ValueKey('finish-trace-button')));
+    await tester.pumpAndSettle();
+    expect(result, isNull);
+    expect(find.textContaining('Satellite transfer failed'), findsOneWidget);
+    expect(provider.points, hasLength(4));
+    imageryService.fail = false;
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    expect(result, isNotNull);
+    expect(result!.imagery, isNotNull);
+    expect(result!.exclusions.single.label, 'Home');
+    expect(result!.exclusions.single.canvasPoints, hasLength(4));
+    expect(TraceAreaService.netSquareMeters(result!),
+        lessThan(TraceAreaService.netSquareMeters(original)));
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('five address suggestions fit above the map on a phone',
       (tester) async {
     tester.view.physicalSize = const Size(390, 600);
@@ -193,7 +275,7 @@ void main() {
       geoPoints: [
         GeoPoint(latitude: 35.0, longitude: -86.0),
         GeoPoint(latitude: 35.0001, longitude: -86.0001),
-        GeoPoint(latitude: 35.0002, longitude: -86.0002),
+        GeoPoint(latitude: 35.0002, longitude: -86.0),
       ],
       canvasPoints: [],
     );
@@ -328,6 +410,8 @@ class _FakeTraceMapProvider implements TraceMapProvider {
   GeoPoint? selectedAddress;
   List<GeoPoint> points = const <GeoPoint>[];
   void Function(int index, GeoPoint point)? _onVertexMoved;
+  ValueChanged<GeoPoint>? _onMapTap;
+  void tapPoint(GeoPoint point) => _onMapTap!(point);
 
   @override
   Future<void> initialize() async {}
@@ -337,12 +421,14 @@ class _FakeTraceMapProvider implements TraceMapProvider {
     required GeoPoint center,
     required GeoPoint selectedAddress,
     required List<GeoPoint> points,
+    List<List<GeoPoint>> referencePolygons = const [],
     required ValueChanged<GeoPoint> onMapTap,
     required void Function(int index, GeoPoint point) onVertexMoved,
   }) {
     this.selectedAddress = selectedAddress;
     this.points = List<GeoPoint>.of(points);
     _onVertexMoved = onVertexMoved;
+    _onMapTap = onMapTap;
     return GestureDetector(
       key: const ValueKey('fake-trace-map'),
       behavior: HitTestBehavior.opaque,
@@ -463,4 +549,17 @@ class _ManySuggestionsService extends _FakeAddressSuggestionService {
               primaryText: '$i Main Street',
               secondaryText: 'Raleigh, NC'),
       ];
+}
+
+class _FakeImageryService extends TraceImageryService {
+  bool fail = false;
+  String jpeg = '';
+  @override
+  Future<TraceImagery> capture(
+      {required List<GeoPoint> corners,
+      required List<GraphPoint> canvasCorners}) async {
+    if (fail) throw StateError('Offline');
+    return TraceImagery(
+        base64Jpeg: jpeg, corners: canvasCorners, capturedAt: 'QA');
+  }
 }

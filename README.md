@@ -67,8 +67,24 @@ Census Geocoding API for address lookup and NC OneMap's latest statewide
 orthoimagery for the aerial tracing surface. No API key, cloud account,
 billing, or build-time secret is required.
 
-The imagery is an interactive tracing aid only. Graph exports retain the
-scaled trace geometry and measurements without copying the aerial tiles.
+Trace a yard boundary, then use **Exclude area** to draw and label homes,
+buildings, driveways, or other areas to deduct. Choose a boundary or exclusion
+chip to edit its corners; the chip's delete button removes an exclusion.
+The workspace shows total, excluded, and net yard acreage. Exclusions must be
+fully inside the boundary and cannot overlap or touch each other. Crossing
+edges and incomplete polygons must be corrected before saving.
+
+Select **Include satellite imagery in graph and exports** to transfer a bounded
+NC OneMap snapshot along with the scaled outlines. The snapshot keeps provider
+attribution, survives saving/reopening offline, and moves/rotates with the trace.
+PNG/PDF exports include the photo, exclusions, and acreage summary. Traces with
+imagery or exclusions use the rendered diagram in the PDF to preserve alignment;
+other graphs retain vector diagrams. No new provider, API key, or backend route
+is required. Transfer failures preserve the open trace for retry or outline-only
+save. Acreage is a map-derived estimate, not a survey or treatment recommendation.
+
+Optional `exclusions` and `imagery` trace fields extend the saved graph without
+changing existing fields or customer identity; older graphs load with neither.
 
 Each new trace stores its selected address as optional trace metadata. **Add new trace** defaults to the most recent trace address, including after reopening the graph; older graphs without this field fall back to the job address. Editing an existing trace uses that trace's own saved address. This does not change customer identity or measured geometry.
 

@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -6,24 +7,31 @@ import '../models/trace_geometry.dart';
 import '../editor/label_presentation.dart';
 import '../models/graph_point.dart';
 import '../services/trace_presentation.dart';
+import '../services/trace_imagery_service.dart';
+import '../services/trace_area_service.dart';
 import '../services/measurement_format.dart';
 import '../services/measurement_service.dart';
 import '../services/trace_projection_service.dart';
 
 class TraceGeometryPainter extends CustomPainter {
-  const TraceGeometryPainter({
+  TraceGeometryPainter({
     required this.traces,
     this.labels = const LabelPresentation(),
     this.selectedTraceIndex,
     this.hoveredTraceIndex,
-  });
+  }) : super(repaint: TraceImageryCache.instance);
 
   final List<TraceGeometry> traces;
   final LabelPresentation labels;
-  static double displayScaleFor(List<TraceGeometry> traces, LabelPresentation labels) {
+  static double displayScaleFor(
+      List<TraceGeometry> traces, LabelPresentation labels) {
     final scale = TracePresentation.labelScale(traces);
-    return labels.bounded ? (scale * labels.zoom * labels.textScale).clamp(0.75, 1.3) / labels.zoom : scale;
+    return labels.bounded
+        ? (scale * labels.zoom * labels.textScale).clamp(0.75, 1.3) /
+            labels.zoom
+        : scale;
   }
+
   final int? selectedTraceIndex;
   final int? hoveredTraceIndex;
 
@@ -36,15 +44,15 @@ class TraceGeometryPainter extends CustomPainter {
       final source = traces[traceIndex];
       // This temporary paint view leaves every vertex in the same world
       // location while text is sized independently of geographic measurements.
-      final trace = source.copyWith(
-        canvasPoints: [
-          for (final p in source.canvasPoints)
-            GraphPoint(x: p.x / displayScale, y: p.y / displayScale)
-        ],
-        metersPerCanvasUnit: source.metersPerCanvasUnit == null
-            ? null
-            : source.metersPerCanvasUnit! * displayScale,
-      );
+      final trace = source
+          .transformCanvas(
+              (p) => GraphPoint(x: p.x / displayScale, y: p.y / displayScale))
+          .copyWith(
+            metersPerCanvasUnit: source.metersPerCanvasUnit == null
+                ? null
+                : source.metersPerCanvasUnit! * displayScale,
+          );
+      _drawImagery(canvas, trace);
       final selected = traceIndex == selectedTraceIndex;
       final hovered = traceIndex == hoveredTraceIndex;
       if (trace.canvasPoints.length < 2) continue;
@@ -54,6 +62,15 @@ class TraceGeometryPainter extends CustomPainter {
         path.lineTo(point.x, point.y);
       }
       if (trace.closed && trace.canvasPoints.length >= 3) path.close();
+      path.fillType = PathFillType.evenOdd;
+      for (final e in trace.exclusions) {
+        if (e.canvasPoints.length < 3) continue;
+        path.moveTo(e.canvasPoints.first.x, e.canvasPoints.first.y);
+        for (final p in e.canvasPoints.skip(1)) {
+          path.lineTo(p.x, p.y);
+        }
+        path.close();
+      }
       if (trace.closed) {
         canvas.drawPath(
           path,
@@ -83,14 +100,86 @@ class TraceGeometryPainter extends CustomPainter {
                 selected ? const Color(0xFF1976D2) : const Color(0xFFCC2000),
         );
       }
+      for (final e in trace.exclusions) {
+        if (e.canvasPoints.length < 3) continue;
+        final exclusionPath = Path()
+          ..addPolygon(e.canvasPoints.map((p) => p.offset).toList(), true);
+        canvas.drawPath(
+            exclusionPath, Paint()..color = const Color(0x55FFB300));
+        canvas.drawPath(
+            exclusionPath,
+            Paint()
+              ..color = const Color(0xFF805000)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 4);
+        final label = TextPainter(
+            text: TextSpan(
+                text: '${e.label} (excluded)',
+                style: const TextStyle(
+                    fontFamily: 'Roboto',
+                    fontSize: 14,
+                    color: Colors.black,
+                    backgroundColor: Colors.white)),
+            textDirection: TextDirection.ltr)
+          ..layout(maxWidth: 220);
+        label.paint(canvas, e.canvasPoints.first.offset);
+      }
       _drawSegmentMeasurements(canvas, trace);
-      if (!labels.bounded || selected || hovered) {
+      if (!labels.bounded ||
+          selected ||
+          hovered ||
+          source.imagery != null ||
+          source.exclusions.isNotEmpty) {
         _drawSummary(canvas, trace);
       }
       _drawScaleBar(canvas, trace);
       if (selected) _drawRotationHandle(canvas, trace);
     }
     canvas.restore();
+  }
+
+  void _drawImagery(Canvas canvas, TraceGeometry trace) {
+    final imagery = trace.imagery;
+    if (imagery == null || imagery.corners.length != 3) return;
+    final image = TraceImageryCache.instance.image(imagery);
+    if (image == null) return;
+    final origin = imagery.corners[0].offset;
+    final x = imagery.corners[1].offset - origin,
+        y = imagery.corners[2].offset - origin;
+    canvas.save();
+    canvas.transform(Float64List.fromList([
+      x.dx / image.width,
+      x.dy / image.width,
+      0,
+      0,
+      y.dx / image.height,
+      y.dy / image.height,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      origin.dx,
+      origin.dy,
+      0,
+      1
+    ]));
+    canvas.drawImage(
+        image, Offset.zero, Paint()..filterQuality = FilterQuality.medium);
+    canvas.restore();
+    final bounds = imagery.bounds!;
+    final attribution = TextPainter(
+        text: TextSpan(
+            text: imagery.attribution,
+            style: const TextStyle(
+                fontFamily: 'Roboto',
+                fontSize: 11,
+                color: Colors.black,
+                backgroundColor: Colors.white)),
+        textDirection: TextDirection.ltr)
+      ..layout(maxWidth: bounds.width);
+    attribution.paint(canvas, Offset(bounds.left, bounds.bottom + 44));
   }
 
   static Rect? canvasBounds(TraceGeometry trace) {
@@ -152,8 +241,10 @@ class TraceGeometryPainter extends CustomPainter {
       var normal =
           Offset(-segment.dy / segmentLength, segment.dx / segmentLength);
       final towardMidpoint = midpoint - center;
-      if (trace.closed ? signedArea > 0 :
-          (normal.dx * towardMidpoint.dx) + (normal.dy * towardMidpoint.dy) < 0) {
+      if (trace.closed
+          ? signedArea > 0
+          : (normal.dx * towardMidpoint.dx) + (normal.dy * towardMidpoint.dy) <
+              0) {
         normal = Offset(-normal.dx, -normal.dy);
       }
 
@@ -203,8 +294,9 @@ class TraceGeometryPainter extends CustomPainter {
       }
       // Never force an unresolved badge or a long leader across the drawing.
       // Zooming in reveals short-edge detail as neighboring edges separate.
-      if (labels.bounded && (placedLabelRects.any((r) => r.inflate(4).overlaps(labelRect)) ||
-          (labelCenter - midpoint).distance > labelHalfExtent + 40)) {
+      if (labels.bounded &&
+          (placedLabelRects.any((r) => r.inflate(4).overlaps(labelRect)) ||
+              (labelCenter - midpoint).distance > labelHalfExtent + 40)) {
         continue;
       }
       placedLabelRects.add(labelRect);
@@ -261,7 +353,8 @@ class TraceGeometryPainter extends CustomPainter {
         text: '${trace.label}\n'
             '${MeasurementFormat.linearFeet(measurement.linearFeet)} • '
             '${MeasurementFormat.squareFeet(measurement.squareFeet)} • '
-            '${MeasurementFormat.acres(measurement.acres)}',
+            '${MeasurementFormat.acres(measurement.acres)}'
+            '${trace.exclusions.isEmpty ? '' : '\nTotal: ${MeasurementFormat.acres(measurement.acres)} · Excluded: ${MeasurementFormat.acres(TraceAreaService.excludedSquareMeters(trace) / 4046.8564224)}\nNet yard: ${MeasurementFormat.acres(TraceAreaService.netSquareMeters(trace) / 4046.8564224)} (${MeasurementFormat.squareFeet(TraceAreaService.netSquareMeters(trace) * 10.763910416709722)})'}',
         style: const TextStyle(
           color: Color(0xFF0E3056),
           fontFamily: 'Roboto',
