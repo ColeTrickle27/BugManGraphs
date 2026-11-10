@@ -1,3 +1,4 @@
+import '../widgets/unsaved_graph_guard.dart';
 import '../widgets/moisture_reading_dialog.dart';
 import '../widgets/expandable_action_card.dart';
 import 'dart:async';
@@ -6017,30 +6018,30 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   // overwrite that existing file or save the changes as a new file,
   // rather than silently overwriting.
   bool _publicationInFlight = false;
-  Future<void> _handleGraphFileSaveTapped() async {
+  Future<bool> _handleGraphFileSaveTapped() async {
     if (_publicationInFlight) {
       _showCanvasMessage('A graph save is already in progress.');
-      return;
+      return false;
     }
     if (!_document.isDirty && _cloudSession == null) {
       _showCanvasMessage(
         'No changes to save',
         severity: _CanvasMessageSeverity.info,
       );
-      return;
+      return false;
     }
     if (_portalKey != null) {
       final choice = await _confirmOverwriteOrSaveAsNew();
       if (choice == null ||
           choice == _SaveConflictChoice.cancel ||
           _publicationInFlight) {
-        return;
+        return false;
       }
       if (choice == _SaveConflictChoice.saveAsNew) {
         _replaceDocumentWithNewIdentity();
       }
     }
-    await _saveDocument();
+    return await _saveDocument();
   }
 
   Future<_SaveConflictChoice?> _confirmOverwriteOrSaveAsNew() {
@@ -6100,6 +6101,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     }
     _publicationInFlight = true;
     GraphDocument? publishingDocument;
+    String? publishingState;
     GraphDraftEditorSession? publishingSession;
     var savedOnDevice = false;
     try {
@@ -6126,6 +6128,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       if (retainedAttachments.length != _document.attachments.length) {
         _document.replaceAttachments(retainedAttachments);
       }
+      publishingState = jsonEncode(_document.toJson());
+      publishingDocument = GraphDocument.fromJson(
+          (jsonDecode(publishingState) as Map).cast<String, Object?>());
       final portalBlobs = _portalService.isAvailable
           ? await _collectPortalBlobs()
           : const <String, Uint8List>{};
@@ -6139,7 +6144,6 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         throw StateError(
             'Sign in to the original account to publish this graph.');
       }
-      publishingDocument = GraphDocument.fromJson(_document.toJson());
       publishingSession = _cloudSession;
       PortalUploadResult? portalResult;
       var recoveredAsNew = false;
@@ -6157,6 +6161,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
           // a renamed key by filename similarity.
           if (_portalKey != null && _isGraphNotFoundError(error)) {
             _replaceDocumentWithNewIdentity();
+            publishingDocument.dispose();
+            publishingState = jsonEncode(_document.toJson());
+            publishingDocument = GraphDocument.fromJson(
+                (jsonDecode(publishingState) as Map).cast<String, Object?>());
             if (_repository is GraphDraftEditorRepository) {
               await _repository.ensureSession(
                 _document,
@@ -6171,8 +6179,6 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                     'Sign in to the original account to publish this graph.');
               }
             }
-            publishingDocument.dispose();
-            publishingDocument = GraphDocument.fromJson(_document.toJson());
             publishingSession = _cloudSession;
             portalResult = await _portalService.saveGraph(
               publishingDocument,
@@ -6189,8 +6195,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         await publishingSession.updatePortalKey(portalResult.key);
       }
       if (!mounted || _document.id != publishingDocument.id) return false;
-      final unchanged = jsonEncode(_document.toJson()) ==
-          jsonEncode(publishingDocument.toJson());
+      final unchanged = jsonEncode(_document.toJson()) == publishingState;
       setState(() {
         if (portalResult != null) {
           _portalKey = portalResult.key;
@@ -8031,7 +8036,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                 canvasRightInset >=
             200;
 
-    return Scaffold(
+    final scaffold = Scaffold(
       appBar: AppBar(
         flexibleSpace: const DecoratedBox(
           decoration: BoxDecoration(
@@ -8541,6 +8546,16 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
           ),
         ),
       ),
+    );
+    return UnsavedGraphGuard(
+      enabled: _cloudSession == null,
+      hasChanges: () => _document.isDirty ||
+          _inlineTextAnnotationIndex != null ||
+          _inlineTextShapeIndex != null,
+      isSaving: () => _publicationInFlight,
+      save: _handleGraphFileSaveTapped,
+      beforeExit: _finishInlineTextEditing,
+      child: scaffold,
     );
   }
 
