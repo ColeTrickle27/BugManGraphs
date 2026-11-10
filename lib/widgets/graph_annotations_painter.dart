@@ -12,6 +12,7 @@ class GraphAnnotationsPainter extends CustomPainter {
   const GraphAnnotationsPainter({
     this.labels = const LabelPresentation(),
     this.sceneBounds,
+    this.screenMarkerMinimum = true,
     required this.annotations,
     required this.selectedAnnotationIndex,
     this.hoveredAnnotationIndex,
@@ -24,6 +25,7 @@ class GraphAnnotationsPainter extends CustomPainter {
   final List<GraphAnnotation> annotations;
   final LabelPresentation labels;
   final Rect? sceneBounds;
+  final bool screenMarkerMinimum;
   final int? selectedAnnotationIndex;
   final int? hoveredAnnotationIndex;
   final bool inspectionsVisible;
@@ -102,7 +104,7 @@ class GraphAnnotationsPainter extends CustomPainter {
     final font = labels.fontSize(base);
     final text = TextPainter(text: TextSpan(text: annotation.label, style: TextStyle(fontSize: font, fontWeight: FontWeight.w800)),
       textDirection: TextDirection.ltr)..layout(maxWidth: 240 * font / base);
-    final top = annotation.point.y + 17 * annotation.size + (2.5 * annotation.size).clamp(2.0, 8.0);
+    final top = annotation.point.y + _markerIconSize(annotation, labels) / 2 + (2.5 * annotation.size).clamp(2.0, 8.0);
     return Rect.fromLTWH(annotation.point.x - text.width / 2 - 8, top, text.width + 16, text.height + 8).inflate(6 / zoom).contains(point);
   }
 
@@ -182,10 +184,16 @@ class GraphAnnotationsPainter extends CustomPainter {
     }
   }
 
+  // Screen-only minimum; unbounded export geometry keeps its original size.
+  static double _markerIconSize(GraphAnnotation annotation, LabelPresentation labels, {bool screenMinimum = true}) =>
+      labels.bounded && screenMinimum
+          ? math.max(34 * annotation.size, 18 / labels.zoom.clamp(0.001, 100.0))
+          : 34 * annotation.size;
+
   void _drawMarker(Canvas canvas, GraphAnnotation annotation, Size canvasSize) {
     final center = annotation.point.offset;
     final color = annotation.color ?? annotation.markerType.defaultColor;
-    final iconSize = 34 * annotation.size;
+    final iconSize = _markerIconSize(annotation, labels, screenMinimum: screenMarkerMinimum);
     final icon = iconForGraphMarker(annotation.markerType);
 
     canvas.save();
@@ -243,7 +251,9 @@ class GraphAnnotationsPainter extends CustomPainter {
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.8;
+      ..strokeWidth = labels.bounded && screenMarkerMinimum
+          ? math.max(1.8, 1.2 / labels.zoom.clamp(0.001, 100.0))
+          : 1.8;
     final r = size / 2;
     if (type == GraphMarkerType.gasLine || type == GraphMarkerType.waterLine) {
       for (var x = -r; x < r; x += size / 4) {

@@ -1593,6 +1593,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     _GraphOverlayPainter(
       sceneBounds: _sceneBounds,
       labels: _labels,
+      screenMarkerMinimum: interaction,
       wallSegments: _wallSegments,
       annotations: _annotations,
       shapes: _shapes,
@@ -10551,11 +10552,13 @@ class _GraphOverlayPainter extends CustomPainter {
   final void Function(Canvas, Size)? beforeGraph;
   final Object? paintToken;
   final LabelPresentation labels;
+  final bool screenMarkerMinimum;
   final Rect sceneBounds;
   const _GraphOverlayPainter({
     this.beforeGraph,
     this.paintToken,
     this.labels = const LabelPresentation(),
+    this.screenMarkerMinimum = true,
     required this.sceneBounds,
     required this.wallSegments,
     required this.annotations,
@@ -10686,6 +10689,7 @@ class _GraphOverlayPainter extends CustomPainter {
           ];
     GraphAnnotationsPainter(
       labels: labels,
+      screenMarkerMinimum: screenMarkerMinimum,
       sceneBounds: sceneBounds,
       annotations: previewAnnotations,
       selectedAnnotationIndex: selectedAnnotationIndex,
