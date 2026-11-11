@@ -91,6 +91,27 @@ void main() {
         lessThan(TraceAreaService.netSquareMeters(original)));
     expect(tester.takeException(), isNull);
   });
+  testWidgets('search errors remain visible while a saved trace is displayed',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+        home: TraceWorkspaceScreen(
+            address: 'A failing address',
+            canvasSize: const Size(3600, 2600),
+            traceLabel: 'Test',
+            provider: _FakeTraceMapProvider(),
+            addressService: _FailedAddressService(),
+            initialTrace:
+                const TraceGeometry(id: 'saved', label: 'Saved', geoPoints: [
+              GeoPoint(latitude: 35, longitude: -78),
+              GeoPoint(latitude: 35.001, longitude: -78),
+              GeoPoint(latitude: 35.001, longitude: -78.001)
+            ], canvasPoints: []))));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('fake-trace-map')), findsOneWidget);
+    expect(find.textContaining('Address search could not be reached.'),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('trace-workspace-error')), findsOneWidget);
+  });
   testWidgets('five address suggestions fit above the map on a phone',
       (tester) async {
     tester.view.physicalSize = const Size(390, 600);
@@ -562,4 +583,11 @@ class _FakeImageryService extends TraceImageryService {
     return TraceImagery(
         base64Jpeg: jpeg, corners: canvasCorners, capturedAt: 'QA');
   }
+}
+
+class _FailedAddressService extends _FakeAddressSuggestionService {
+  @override
+  Future<List<AddressSuggestion>> suggest(String query,
+          {required String sessionToken}) async =>
+      throw Exception('Address search could not be reached.');
 }

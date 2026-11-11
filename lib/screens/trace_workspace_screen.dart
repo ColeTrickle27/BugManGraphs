@@ -31,10 +31,12 @@ class TraceWorkspaceScreen extends StatefulWidget {
     this.autoSelectJobAddress = true,
     this.onPortalSignIn,
     this.imageryService = const TraceImageryService(),
+    this.addressAttribution,
     super.key,
   });
 
   final TraceImageryService imageryService;
+  final Widget? addressAttribution;
   final GraphDraftAccount? account;
   final String address;
   final Size canvasSize;
@@ -649,6 +651,19 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
                 padding: EdgeInsets.only(top: 10),
                 child: LinearProgressIndicator(),
               ),
+            if (_error != null)
+              Semantics(
+                key: const ValueKey('trace-workspace-error'),
+                liveRegion: true,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    _error!,
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ),
+              ),
             if (_suggestions.isNotEmpty) _buildSuggestions(),
             if (selection != null) _buildAddressQuality(selection),
             _buildAreaControls(),
@@ -680,11 +695,11 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
                     : () => _selectAddress(suggestion),
               ),
             const Divider(height: 1),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Align(
                 alignment: Alignment.centerRight,
-                child: _GoogleAttribution(),
+                child: widget.addressAttribution ?? const _GoogleAttribution(),
               ),
             ),
           ],

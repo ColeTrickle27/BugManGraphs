@@ -97,3 +97,20 @@ flutter analyze
 flutter test
 flutter build web --release
 ```
+
+## Standalone satellite preview
+
+Build the review app with `python3 tool/build_satellite_preview.py` (Flutter must
+be on PATH). This opens the sample tracer directly and offers **Start a new
+property** after returning to the preview menu. Graphs stay in memory and the
+preview cannot write customer records.
+
+Publish the output only to a Pages preview branch, including its `_worker.js`,
+`_routes.json`, and `_headers` files. The worker supplies a same-origin,
+North-Carolina-only public Census address lookup for this preview; it does not
+call protected OpsBrain APIs. Census locations are approximate and require
+review. Production continues to use the authenticated address service.
+
+The preview shows startup/download errors, uses versioned JavaScript, and
+unregisters old preview service workers rather than silently loading an older
+review build.
