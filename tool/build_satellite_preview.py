@@ -16,6 +16,7 @@ output = Path(args.output).resolve()
 subprocess.run([args.flutter, 'build', 'web', '--release', '--no-pub', '-t',
                 'tool/satellite_preview.dart', '--output', str(output)], cwd=root, check=True)
 
+release = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
 index = output / 'index.html'
 html = index.read_text().replace('<title>BugManGraphs</title>', '<title>Satellite acreage preview</title>')
 html = html.replace('<body>', '''<body>
@@ -25,11 +26,12 @@ html = html.replace('<body>', '''<body>
   <p style="font-size:14px">The first visit may take a few seconds.</p>
   <button id="preview-retry" hidden onclick="location.reload()" style="padding:12px;font:inherit">Try again</button>
 </section>''')
-html = html.replace('src="flutter_bootstrap.js" async', 'src="flutter_bootstrap.js" async onerror="document.getElementById(\'preview-status\').textContent=\'The preview could not download. Check your connection and try again.\';document.getElementById(\'preview-retry\').hidden=false"')
+failure = "document.getElementById('preview-status').textContent='The preview could not download. Check your connection and try again.';document.getElementById('preview-retry').hidden=false"
+html = re.sub(r'src="flutter_bootstrap\.js(?:\?[^"]*)?" async',
+              lambda match: f'src="flutter_bootstrap.js?preview={release}" async onerror="{failure}"', html)
 index.write_text(html)
 bootstrap = output / 'flutter_bootstrap.js'
 js = bootstrap.read_text()
-release = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
 js = re.sub(r"const bugManRelease = '[^']+';", f'const bugManRelease = {json.dumps(release)};', js)
 js = js.rsplit('_flutter.loader.load(', 1)[0] + '''
 const startup = document.getElementById('preview-startup');
