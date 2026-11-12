@@ -29,6 +29,7 @@ class TraceWorkspaceScreen extends StatefulWidget {
     this.addressService,
     this.initialTrace,
     this.autoSelectJobAddress = true,
+    this.metersPerCanvasUnit = 0.3048 / 24,
     this.onPortalSignIn,
     this.imageryService = const TraceImageryService(),
     this.addressAttribution,
@@ -45,6 +46,9 @@ class TraceWorkspaceScreen extends StatefulWidget {
   final AddressSuggestionService? addressService;
   final TraceGeometry? initialTrace;
   final bool autoSelectJobAddress;
+
+  /// Canvas scale for new or edited geometry; unchanged saved frames are kept.
+  final double metersPerCanvasUnit;
   final ValueChanged<String>? onPortalSignIn;
 
   @override
@@ -291,6 +295,39 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
     return GeoPoint(latitude: latitude, longitude: longitude);
   }
 
+  // Reuse the imagery transfer's affine mapping for newly captured imagery
+  // and deductions when main preserves an existing canvas frame.
+  List<GraphPoint>? _reframeCanvasPoints(
+    List<GraphPoint> points,
+    List<GraphPoint> from,
+    List<GraphPoint> to,
+  ) {
+    if (from.length < 3 || from.length != to.length) return null;
+    var anchor = -1;
+    for (var i = 2; i < from.length; i++) {
+      final u = from[1].offset - from[0].offset;
+      final v = from[i].offset - from[0].offset;
+      if ((u.dx * v.dy - u.dy * v.dx).abs() > .0001) {
+        anchor = i;
+        break;
+      }
+    }
+    if (anchor < 0) return null;
+    final u = from[1].offset - from[0].offset;
+    final v = from[anchor].offset - from[0].offset;
+    final determinant = u.dx * v.dy - u.dy * v.dx;
+    return points.map((point) {
+      final d = point.offset - from[0].offset;
+      final a = (d.dx * v.dy - d.dy * v.dx) / determinant;
+      final b = (u.dx * d.dy - u.dy * d.dx) / determinant;
+      return GraphPoint.fromOffset(
+        to[0].offset +
+            (to[1].offset - to[0].offset) * a +
+            (to[anchor].offset - to[0].offset) * b,
+      );
+    }).toList();
+  }
+
   Future<void> _finish() async {
     if (_saving || widget.account?.active == false || _points.length < 3) {
       return;
@@ -298,55 +335,80 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     final validation = TraceAreaService.validate(_preview);
     if (validation != null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(validation)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(validation)));
       return;
     }
     setState(() => _saving = true);
     try {
-      final projection = TraceProjectionService.projectToCanvas(_points,
-          canvasSize: widget.canvasSize);
+      final original = widget.initialTrace;
+      final scale = original?.metersPerCanvasUnit;
+      final unchanged =
+          original != null &&
+          original.geoPoints.length == _points.length &&
+          List.generate(
+            _points.length,
+            (i) =>
+                original.geoPoints[i].latitude == _points[i].latitude &&
+                original.geoPoints[i].longitude == _points[i].longitude,
+          ).every((v) => v);
+      // Preserve the calibration fix from main, including moved/rotated frames.
+      final preserveFrame =
+          original != null &&
+          unchanged &&
+          original.canvasPoints.length == _points.length &&
+          scale != null &&
+          scale.isFinite &&
+          scale > 0;
+      final projection = preserveFrame
+          ? TraceProjectionResult(
+              canvasPoints: List.of(original.canvasPoints),
+              metersPerCanvasUnit: scale,
+            )
+          : TraceProjectionService.projectToCanvas(
+              _points,
+              canvasSize: widget.canvasSize,
+              metersPerCanvasUnit: widget.metersPerCanvasUnit,
+            );
+      final canonicalFrame = preserveFrame
+          ? TraceProjectionService.projectToCanvas(
+              _points,
+              canvasSize: widget.canvasSize,
+              metersPerCanvasUnit: projection.metersPerCanvasUnit,
+            ).canvasPoints
+          : projection.canvasPoints;
+      List<GraphPoint> projectInFrame(List<GeoPoint> points) {
+        final canonical = TraceProjectionService.projectToCanvas(
+          points,
+          canvasSize: widget.canvasSize,
+          referencePoints: _points,
+          metersPerCanvasUnit: projection.metersPerCanvasUnit,
+        ).canvasPoints;
+        return preserveFrame
+            ? _reframeCanvasPoints(
+                    canonical,
+                    canonicalFrame,
+                    projection.canvasPoints,
+                  ) ??
+                  (throw StateError('Cannot align the saved trace frame'))
+            : canonical;
+      }
+
       TraceImagery? imagery;
       if (_includeImagery) {
-        final original = widget.initialTrace;
-        final unchanged = original != null &&
-            original.geoPoints.length == _points.length &&
-            List.generate(
-                    _points.length,
-                    (i) =>
-                        original.geoPoints[i].latitude == _points[i].latitude &&
-                        original.geoPoints[i].longitude == _points[i].longitude)
-                .every((v) => v);
-        // Re-project the old image corners only when reusing an unchanged map.
-        // Finish always establishes the same canonical canvas frame.
-        if (unchanged &&
-            original.imagery != null &&
-            original.canvasPoints.isNotEmpty) {
-          final old = original.canvasPoints;
-          final next = projection.canvasPoints;
-          // Recover the original affine frame, including canvas rotations.
-          var anchor = -1;
-          for (var i = 2; i < old.length; i++) {
-            final u = old[1].offset - old[0].offset,
-                v = old[i].offset - old[0].offset;
-            if ((u.dx * v.dy - u.dy * v.dx).abs() > 0.0001) {
-              anchor = i;
-              break;
+        if (unchanged && original.imagery != null) {
+          if (preserveFrame) {
+            imagery = original.imagery;
+          } else {
+            final corners = _reframeCanvasPoints(
+              original.imagery!.corners,
+              original.canvasPoints,
+              projection.canvasPoints,
+            );
+            if (corners != null) {
+              imagery = original.imagery!.copyWith(corners: corners);
             }
-          }
-          if (anchor >= 0) {
-            final u = old[1].offset - old[0].offset,
-                v = old[anchor].offset - old[0].offset;
-            final determinant = u.dx * v.dy - u.dy * v.dx;
-            imagery = original.imagery!.copyWith(
-                corners: original.imagery!.corners.map((p) {
-              final d = p.offset - old[0].offset;
-              final a = (d.dx * v.dy - d.dy * v.dx) / determinant;
-              final b = (u.dx * d.dy - u.dy * d.dx) / determinant;
-              return GraphPoint.fromOffset(next[0].offset +
-                  (next[1].offset - next[0].offset) * a +
-                  (next[anchor].offset - next[0].offset) * b);
-            }).toList());
           }
         }
         if (imagery == null) {
@@ -359,54 +421,52 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
           final corners = [
             GeoPoint(latitude: north + dy, longitude: west - dx),
             GeoPoint(latitude: north + dy, longitude: east + dx),
-            GeoPoint(latitude: south - dy, longitude: west - dx)
+            GeoPoint(latitude: south - dy, longitude: west - dx),
           ];
-          final imageProjection = TraceProjectionService.projectToCanvas(
-              corners,
-              canvasSize: widget.canvasSize,
-              referencePoints: _points);
           imagery = await widget.imageryService.capture(
-              corners: corners, canvasCorners: imageProjection.canvasPoints);
+            corners: corners,
+            canvasCorners: projectInFrame(corners),
+          );
           await TraceImageryCache.instance.load(imagery);
         }
       }
       if (!mounted || widget.account?.active == false) return;
       Navigator.pop(
-          context,
-          TraceGeometry(
-            id: widget.initialTrace?.id ?? newGraphId(),
-            label: widget.initialTrace?.label ?? widget.traceLabel,
-            address: _selectedAddress?.standardizedAddress ??
-                ((widget.initialTrace?.address.trim().isNotEmpty ?? false)
-                    ? widget.initialTrace!.address
-                    : widget.address.trim()),
-            geoPoints: List<GeoPoint>.of(_points),
-            canvasPoints: projection.canvasPoints,
-            metersPerCanvasUnit: projection.metersPerCanvasUnit,
-            imagery: imagery,
-            exclusions: [
-              for (final e in _exclusions)
-                e.copyWith(
-                    canvasPoints: TraceProjectionService.projectToCanvas(
-                            e.geoPoints,
-                            canvasSize: widget.canvasSize,
-                            referencePoints: _points)
-                        .canvasPoints)
-            ],
-          ));
+        context,
+        TraceGeometry(
+          id: widget.initialTrace?.id ?? newGraphId(),
+          label: widget.initialTrace?.label ?? widget.traceLabel,
+          address:
+              _selectedAddress?.standardizedAddress ??
+              ((widget.initialTrace?.address.trim().isNotEmpty ?? false)
+                  ? widget.initialTrace!.address
+                  : widget.address.trim()),
+          geoPoints: List<GeoPoint>.of(_points),
+          canvasPoints: projection.canvasPoints,
+          metersPerCanvasUnit: projection.metersPerCanvasUnit,
+          imagery: imagery,
+          exclusions: [
+            for (final e in _exclusions)
+              e.copyWith(canvasPoints: projectInFrame(e.geoPoints)),
+          ],
+        ),
+      );
     } catch (error) {
       debugPrint('Satellite transfer failed: $error');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
             action: SnackBarAction(label: 'Retry', onPressed: _finish),
             content: const Text(
-                'Satellite transfer failed. Retry or turn off Include satellite imagery to save outlines.')));
+              'Satellite transfer failed. Retry or turn off Include satellite imagery to save outlines.',
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
-
   Future<void> _addExclusion() async {
     var areaLabel = 'Excluded area ${_exclusions.length + 1}';
     final label = await showDialog<String>(
