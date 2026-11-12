@@ -181,6 +181,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('mobile-tool-Features')));
     await tester.pumpAndSettle();
+    final semantics = tester.ensureSemantics();
+    expect(
+        tester
+            .getSemantics(
+                find.widgetWithText(PopupMenuItem<CanvasToolbarAction>, 'HVAC'))
+            .label,
+        'HVAC');
+    semantics.dispose();
     await tester.tap(find.byTooltip('Add HVAC to quick tools'));
     await tester.pumpAndSettle();
     expect(find.byType(CanvasToolbar), findsNothing);

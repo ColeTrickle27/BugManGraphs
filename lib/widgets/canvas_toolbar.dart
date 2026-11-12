@@ -249,7 +249,7 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
                 ))
                   const Icon(Icons.check, size: 20),
                 if (widget.onActionAdded != null)
-                  IconButton(
+                  ExcludeSemantics(child: IconButton(
                     tooltip: 'Add ${action.label} to quick tools',
                     constraints: const BoxConstraints.tightFor(
                       width: 44,
@@ -261,7 +261,7 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
                       widget.onCollapse();
                     },
                     icon: const Icon(Icons.push_pin_outlined, size: 20),
-                  ),
+                  )),
               ],
             ),
           ),
