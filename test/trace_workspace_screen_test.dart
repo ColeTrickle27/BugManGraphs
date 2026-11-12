@@ -70,6 +70,8 @@ void main() {
       await tester.pump();
     }
     expect(find.text('Home'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('trace-options')));
+    await tester.pumpAndSettle();
     await tester
         .ensureVisible(find.byKey(const ValueKey('include-trace-imagery')));
     await tester.tap(find.byKey(const ValueKey('include-trace-imagery')));
@@ -89,6 +91,52 @@ void main() {
     expect(result!.exclusions.single.canvasPoints, hasLength(4));
     expect(TraceAreaService.netSquareMeters(result!),
         lessThan(TraceAreaService.netSquareMeters(original)));
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets(
+      'phone keeps controls compact with help and imagery options available',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+        home: TraceWorkspaceScreen(
+      address: '',
+      canvasSize: const Size(3600, 2600),
+      traceLabel: 'Sample yard',
+      provider: _FakeTraceMapProvider(),
+      addressService: _FakeAddressSuggestionService(),
+      initialTrace:
+          const TraceGeometry(id: 'sample', label: 'Sample yard', geoPoints: [
+        GeoPoint(latitude: 35, longitude: -78),
+        GeoPoint(latitude: 35.001, longitude: -78),
+        GeoPoint(latitude: 35.001, longitude: -78.001)
+      ], canvasPoints: [], exclusions: [
+        TraceGeometry(
+            id: 'home', label: 'Home', geoPoints: [], canvasPoints: [])
+      ]),
+    )));
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(find.byKey(const ValueKey('fake-trace-map'))).dy,
+        lessThan(180));
+    expect(find.textContaining('Tap the yard boundary corners.'), findsNothing);
+    await tester.tap(find.byTooltip('Trace help'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Acreage is estimated'), findsOneWidget);
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('trace-options')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('include-trace-imagery')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('trace-options')));
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<CheckedPopupMenuItem<String>>(
+                find.byKey(const ValueKey('include-trace-imagery')))
+            .checked,
+        isTrue);
     expect(tester.takeException(), isNull);
   });
   testWidgets('search errors remain visible while a saved trace is displayed',

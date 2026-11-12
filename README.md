@@ -70,7 +70,10 @@ billing, or build-time secret is required.
 Trace a yard boundary, then use **Exclude area** to draw and label homes,
 buildings, driveways, or other areas to deduct. Choose a boundary or exclusion
 chip to edit its corners; the chip's delete button removes an exclusion.
-The workspace shows total, excluded, and net yard acreage. Exclusions must be
+The workspace shows total, excluded, and net yard acreage. On phones, the
+**Trace options** sliders button contains the imagery toggle, and **?** opens
+tracing help. Boundary and exclusion chips scroll horizontally to keep the map
+visible. Exclusions must be
 fully inside the boundary and cannot overlap or touch each other. Crossing
 edges and incomplete polygons must be corrected before saving.
 

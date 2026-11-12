@@ -438,46 +438,111 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
     });
   }
 
-  Widget _buildAreaControls() =>
-      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Wrap(spacing: 8, runSpacing: 4, children: [
-          ChoiceChip(
-              label: const Text('Yard boundary'),
-              selected: _activeExclusion == null,
-              onSelected: _saving
+  List<Widget> _areaChips() => [
+        ChoiceChip(
+            label: const Text('Yard boundary'),
+            selected: _activeExclusion == null,
+            onSelected: _saving
+                ? null
+                : (_) => setState(() => _activeExclusion = null)),
+        for (var i = 0; i < _exclusions.length; i++)
+          InputChip(
+              label: Text(_exclusions[i].label),
+              selected: _activeExclusion == i,
+              onPressed:
+                  _saving ? null : () => setState(() => _activeExclusion = i),
+              onDeleted: _saving
                   ? null
-                  : (_) => setState(() => _activeExclusion = null)),
-          for (var i = 0; i < _exclusions.length; i++)
-            InputChip(
-                label: Text(_exclusions[i].label),
-                selected: _activeExclusion == i,
-                onPressed:
-                    _saving ? null : () => setState(() => _activeExclusion = i),
-                onDeleted: _saving
-                    ? null
-                    : () => setState(() {
-                          _exclusions.removeAt(i);
-                          _activeExclusion = null;
-                        })),
-          TextButton.icon(
-              key: const ValueKey('add-trace-exclusion'),
-              onPressed: _saving || _points.length < 3 ? null : _addExclusion,
-              icon: const Icon(Icons.add),
-              label: const Text('Exclude area')),
-        ]),
-        CheckboxListTile(
-            key: const ValueKey('include-trace-imagery'),
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-            controlAffinity: ListTileControlAffinity.leading,
-            title: const Text('Include satellite imagery in graph and exports'),
-            value: _includeImagery,
-            onChanged:
-                _saving ? null : (v) => setState(() => _includeImagery = v!)),
-        const Text(
-            'Acreage is estimated from your traced boundary and exclusions.',
-            style: TextStyle(fontSize: 12)),
+                  : () => setState(() {
+                        _exclusions.removeAt(i);
+                        _activeExclusion = null;
+                      })),
+      ];
+
+  Widget _buildAreaControls({bool compact = false}) {
+    if (compact) {
+      return Row(children: [
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              for (final chip in _areaChips())
+                Padding(padding: const EdgeInsets.only(right: 6), child: chip),
+            ]),
+          ),
+        ),
+        IconButton(
+            key: const ValueKey('add-trace-exclusion'),
+            tooltip: 'Exclude area',
+            onPressed: _saving || _points.length < 3 ? null : _addExclusion,
+            icon: const Icon(Icons.add)),
+        PopupMenuButton<String>(
+            key: const ValueKey('trace-options'),
+            tooltip: 'Trace options',
+            enabled: !_saving,
+            icon: Icon(_includeImagery ? Icons.satellite_alt : Icons.tune,
+                color: _includeImagery
+                    ? Theme.of(context).colorScheme.primary
+                    : null),
+            onSelected: (value) {
+              if (value == 'imagery') {
+                setState(() => _includeImagery = !_includeImagery);
+              } else {
+                _showTraceHelp();
+              }
+            },
+            itemBuilder: (_) => [
+                  CheckedPopupMenuItem(
+                      key: const ValueKey('include-trace-imagery'),
+                      value: 'imagery',
+                      checked: _includeImagery,
+                      child: const Text('Include satellite imagery')),
+                  const PopupMenuItem(value: 'help', child: Text('Trace help')),
+                ]),
       ]);
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Wrap(spacing: 8, runSpacing: 4, children: [
+        ..._areaChips(),
+        TextButton.icon(
+            key: const ValueKey('add-trace-exclusion'),
+            onPressed: _saving || _points.length < 3 ? null : _addExclusion,
+            icon: const Icon(Icons.add),
+            label: const Text('Exclude area')),
+      ]),
+      CheckboxListTile(
+          key: const ValueKey('include-trace-imagery'),
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          controlAffinity: ListTileControlAffinity.leading,
+          title: const Text('Include satellite imagery in graph and exports'),
+          value: _includeImagery,
+          onChanged:
+              _saving ? null : (v) => setState(() => _includeImagery = v!)),
+      const Text(
+          'Acreage is estimated from your traced boundary and exclusions.',
+          style: TextStyle(fontSize: 12)),
+    ]);
+  }
+
+  void _showTraceHelp() {
+    showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+              title: const Text('Trace help'),
+              content: SingleChildScrollView(
+                  child: Text(
+                      '${_activeExclusion == null ? 'Tap the yard boundary corners. Drag numbered points to refine the outline.' : 'Trace ${_exclusions[_activeExclusion!].label}. Keep it inside the yard boundary and separate from other exclusions.'}\n\n'
+                      'Use + to exclude a home, building, or other area. Select a chip to edit that outline, or its × to remove an exclusion.\n\n'
+                      'Trace options lets you include satellite imagery in the saved graph and exports.\n\n'
+                      'Acreage is estimated from your traced boundary and exclusions.')),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close'))
+              ],
+            ));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -515,95 +580,100 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      body: LayoutBuilder(
-          builder: (context, constraints) => Column(
-                children: [
-                  ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxHeight: constraints.maxHeight * 0.5,
+      body: LayoutBuilder(builder: (context, constraints) {
+        final compact =
+            constraints.maxWidth < 600 || constraints.maxHeight < 430;
+        return Column(
+          children: [
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: constraints.maxHeight * 0.5,
+              ),
+              child: SingleChildScrollView(
+                  child: _buildAddressSearch(compact: compact)),
+            ),
+            if (_signInUrl != null)
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
+                  children: [
+                    const Text(
+                        'Sign in in a separate tab, then return and retry. Your trace stays open.'),
+                    TextButton.icon(
+                      onPressed: () => (widget.onPortalSignIn ??
+                          openPortalSignIn)(_signInUrl!),
+                      icon: const Icon(Icons.open_in_new),
+                      label: const Text('Sign in to OpsBrain'),
                     ),
-                    child: SingleChildScrollView(child: _buildAddressSearch()),
-                  ),
-                  if (_signInUrl != null)
-                    Padding(
-                      padding: const EdgeInsets.all(12),
+                  ],
+                ),
+              ),
+            Expanded(child: _buildMapBody(compact: compact)),
+            Material(
+              elevation: 8,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                child: Row(
+                  children: [
+                    Expanded(
                       child: Wrap(
-                        alignment: WrapAlignment.center,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 12,
+                        spacing: 18,
+                        runSpacing: 4,
                         children: [
-                          const Text(
-                              'Sign in in a separate tab, then return and retry. Your trace stays open.'),
-                          TextButton.icon(
-                            onPressed: () => (widget.onPortalSignIn ??
-                                openPortalSignIn)(_signInUrl!),
-                            icon: const Icon(Icons.open_in_new),
-                            label: const Text('Sign in to OpsBrain'),
-                          ),
+                          Text('${_activePoints.length} points'),
+                          Text(MeasurementFormat.linearFeet(
+                            measurement.linearFeet,
+                          )),
+                          Text(MeasurementFormat.squareFeet(
+                            measurement.squareFeet,
+                          )),
+                          Text(
+                              'Total: ${MeasurementFormat.acres(measurement.acres)}'),
+                          Text(
+                              'Excluded: ${MeasurementFormat.acres(TraceAreaService.excludedSquareMeters(_preview) / 4046.8564224)}'),
+                          Text(
+                              'Net yard: ${MeasurementFormat.acres(TraceAreaService.netSquareMeters(_preview) / 4046.8564224)}',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold)),
                         ],
                       ),
                     ),
-                  Expanded(child: _buildMapBody()),
-                  Material(
-                    elevation: 8,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Wrap(
-                              spacing: 18,
-                              runSpacing: 4,
-                              children: [
-                                Text('${_activePoints.length} points'),
-                                Text(MeasurementFormat.linearFeet(
-                                  measurement.linearFeet,
-                                )),
-                                Text(MeasurementFormat.squareFeet(
-                                  measurement.squareFeet,
-                                )),
-                                Text(
-                                    'Total: ${MeasurementFormat.acres(measurement.acres)}'),
-                                Text(
-                                    'Excluded: ${MeasurementFormat.acres(TraceAreaService.excludedSquareMeters(_preview) / 4046.8564224)}'),
-                                Text(
-                                    'Net yard: ${MeasurementFormat.acres(TraceAreaService.netSquareMeters(_preview) / 4046.8564224)}',
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                          ),
-                          FilledButton.icon(
-                            key: const ValueKey('finish-trace-button'),
-                            onPressed: !_saving && _points.length >= 3
-                                ? _finish
-                                : null,
-                            icon: const Icon(Icons.check),
-                            label: Text(_saving
-                                ? 'Transferring…'
-                                : editingTrace
-                                    ? 'Save Trace'
-                                    : 'Finish Trace'),
-                          ),
-                        ],
-                      ),
+                    FilledButton.icon(
+                      key: const ValueKey('finish-trace-button'),
+                      onPressed:
+                          !_saving && _points.length >= 3 ? _finish : null,
+                      icon: const Icon(Icons.check),
+                      label: Text(_saving
+                          ? 'Transferring…'
+                          : editingTrace
+                              ? 'Save Trace'
+                              : 'Finish Trace'),
                     ),
-                  ),
-                ],
-              )),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      }),
     );
   }
 
-  Widget _buildAddressSearch() {
+  Widget _buildAddressSearch({bool compact = false}) {
     final selection = _selectedAddress;
     return Material(
       elevation: 2,
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: compact
+            ? const EdgeInsets.fromLTRB(8, 4, 8, 4)
+            : const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (widget.address.trim().isNotEmpty)
+            if (!compact && widget.address.trim().isNotEmpty)
               const Padding(
                 padding: EdgeInsets.only(bottom: 8),
                 child: Row(
@@ -628,22 +698,40 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
                     onChanged: _onAddressChanged,
                     onSubmitted: (_) =>
                         _scheduleSuggestionSearch(immediate: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Location Address',
-                      hintText:
-                          'Use this job address or choose another property',
-                      prefixIcon: Icon(Icons.location_on_outlined),
+                    decoration: InputDecoration(
+                      isDense: compact,
+                      contentPadding: compact
+                          ? const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 10)
+                          : null,
+                      labelText: compact ? null : 'Location Address',
+                      hintText: compact
+                          ? 'Location address'
+                          : 'Use this job address or choose another property',
+                      prefixIcon: const Icon(Icons.location_on_outlined),
+                      prefixIconConstraints: compact
+                          ? const BoxConstraints(minWidth: 40, minHeight: 44)
+                          : null,
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                FilledButton.icon(
-                  onPressed: _saving || _initializingMap || _selecting
-                      ? null
-                      : () => _scheduleSuggestionSearch(immediate: true),
-                  icon: const Icon(Icons.search),
-                  label: const Text('Search'),
-                ),
+                if (compact)
+                  IconButton.filled(
+                    tooltip: 'Search',
+                    onPressed: _saving || _initializingMap || _selecting
+                        ? null
+                        : () => _scheduleSuggestionSearch(immediate: true),
+                    icon: const Icon(Icons.search),
+                  )
+                else
+                  FilledButton.icon(
+                    onPressed: _saving || _initializingMap || _selecting
+                        ? null
+                        : () => _scheduleSuggestionSearch(immediate: true),
+                    icon: const Icon(Icons.search),
+                    label: const Text('Search'),
+                  ),
               ],
             ),
             if (_searching || _selecting)
@@ -666,7 +754,7 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
               ),
             if (_suggestions.isNotEmpty) _buildSuggestions(),
             if (selection != null) _buildAddressQuality(selection),
-            _buildAreaControls(),
+            _buildAreaControls(compact: compact),
           ],
         ),
       ),
@@ -737,7 +825,7 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
     );
   }
 
-  Widget _buildMapBody() {
+  Widget _buildMapBody({bool compact = false}) {
     if (_initializingMap) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -794,21 +882,33 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
             }),
           ),
         ),
-        Positioned(
-          left: 12,
-          right: 64,
-          top: 12,
-          child: Card(
-            child: Padding(
-              padding: const EdgeInsets.all(10),
-              child: Text(
-                _activeExclusion == null
-                    ? 'Tap the yard boundary corners. Drag numbered points to refine, then exclude buildings or other areas.'
-                    : 'Trace ${_exclusions[_activeExclusion!].label}. Keep it inside the yard boundary and separate from other exclusions.',
+        if (compact)
+          Positioned(
+            left: 8,
+            top: 8,
+            child: Card(
+                child: IconButton(
+              tooltip: 'Trace help',
+              onPressed: _showTraceHelp,
+              icon: const Icon(Icons.help_outline),
+            )),
+          )
+        else
+          Positioned(
+            left: 12,
+            right: 64,
+            top: 12,
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Text(
+                  _activeExclusion == null
+                      ? 'Tap the yard boundary corners. Drag numbered points to refine, then exclude buildings or other areas.'
+                      : 'Trace ${_exclusions[_activeExclusion!].label}. Keep it inside the yard boundary and separate from other exclusions.',
+                ),
               ),
             ),
           ),
-        ),
       ],
     );
   }
