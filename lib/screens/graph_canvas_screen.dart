@@ -482,11 +482,13 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   void _scheduleCloudCapture() {
-    if (_cloudSession == null || _cloudCaptureScheduled) return;
+    if (_document.requiresStationWorkspace ||
+        _cloudSession == null ||
+        _cloudCaptureScheduled) return;
     _cloudCaptureScheduled = true;
     Future<void>.microtask(() async {
       _cloudCaptureScheduled = false;
-      if (!mounted) return;
+      if (!mounted || _document.requiresStationWorkspace) return;
       final repository = _repository as GraphDraftEditorRepository;
       final session = await repository.ensureSession(
         _document,
@@ -556,7 +558,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     cloud?.removeListener(_cloudChanged);
     cloud?.workspace.account.removeListener(_cloudChanged);
     _observedCloudSession?.removeListener(_cloudChanged);
-    if (cloud != null && cloud.id == _document.id) {
+    if (cloud != null &&
+        cloud.id == _document.id &&
+        !_document.requiresStationWorkspace) {
       cloud.capture(
         _document.toJson(),
         pendingBlobs: _pendingPhotoBlobs,
@@ -8046,9 +8050,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                   const Text(GraphDocument.stationWorkspaceMessage),
                   const SizedBox(height: 20),
                   FilledButton.icon(
-                    onPressed: () =>
-                        (widget.onPortalSignIn ?? openPortalSignIn)(
-                            opsBrainHomeUrl(Uri.base)),
+                    onPressed: () => (widget.onPortalSignIn ??
+                        openPortalSignIn)(opsBrainHomeUrl(Uri.base)),
                     icon: const Icon(Icons.open_in_new),
                     label: const Text('Open OpsBrain'),
                   ),
@@ -8596,7 +8599,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     );
     return UnsavedGraphGuard(
       enabled: _cloudSession == null,
-      hasChanges: () => _document.isDirty ||
+      hasChanges: () =>
+          _document.isDirty ||
           _inlineTextAnnotationIndex != null ||
           _inlineTextShapeIndex != null,
       isSaving: () => _publicationInFlight,
