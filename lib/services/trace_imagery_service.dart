@@ -1,21 +1,52 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:image/image.dart' as img;
+import 'trace_image_encoder.dart';
 import '../models/trace_geometry.dart';
 import '../models/graph_point.dart';
 
+class TraceImageryCancellation {
+  final _cancelled = Completer<void>();
+  bool get isCancelled => _cancelled.isCompleted;
+  Future<void> get whenCancelled => _cancelled.future;
+  void cancel() {
+    if (!isCancelled) _cancelled.complete();
+  }
+}
+
+class TraceImageryCancelledException implements Exception {
+  const TraceImageryCancelledException();
+}
+
+class TraceImageryProgress {
+  const TraceImageryProgress(this.completed, this.total,
+      {this.preparing = false});
+  final int completed;
+  final int total;
+  final bool preparing;
+  String get message =>
+      preparing ? 'Preparing image…' : 'Downloading image $completed/$total';
+}
+
 class TraceImageryService {
-  const TraceImageryService({this.client});
+  const TraceImageryService(
+      {this.client, this.transferTimeout = const Duration(seconds: 45)});
   final http.Client? client;
+  final Duration transferTimeout;
   static const tileEndpoint =
       'https://services.nconemap.gov/secure/rest/services/Imagery/Orthoimagery_Latest_cached/ImageServer/tile';
 
   Future<TraceImagery> capture(
       {required List<GeoPoint> corners,
-      required List<GraphPoint> canvasCorners}) async {
+      required List<GraphPoint> canvasCorners,
+      TraceImageryCancellation? cancellation,
+      ValueChanged<TraceImageryProgress>? onProgress}) async {
+    if (cancellation?.isCancelled == true) {
+      throw const TraceImageryCancelledException();
+    }
     final west = corners[0].longitude, east = corners[1].longitude;
     final north = corners[0].latitude, south = corners[2].latitude;
     if (!(west < east && south < north)) {
@@ -56,28 +87,61 @@ class TraceImageryService {
     ];
     final images = <({int x, int y}), ui.Image>{};
     final connection = client ?? http.Client();
-    try {
+    var stopped = false;
+    void checkActive() {
+      if (stopped || cancellation?.isCancelled == true) {
+        throw const TraceImageryCancelledException();
+      }
+    }
+
+    Future<TraceImagery> transfer() async {
       // Use the same public cached tiles as the map. Dynamic exportImage on
       // this service requires a token; cached imagery needs no credentials.
       // Four workers bound connection and decode pressure on field devices.
       var next = 0;
-      await Future.wait(List.generate(math.min(4, tiles.length), (_) async {
-        while (next < tiles.length) {
-          final tile = tiles[next++];
-          final response = await connection
-              .get(Uri.parse('$tileEndpoint/$zoom/${tile.y}/${tile.x}'))
-              .timeout(const Duration(seconds: 30));
-          if (response.statusCode != 200) {
-            throw StateError('Satellite tile unavailable');
-          }
-          final codec = await ui.instantiateImageCodec(response.bodyBytes);
-          try {
-            images[tile] = (await codec.getNextFrame()).image;
-          } finally {
-            codec.dispose();
-          }
-        }
-      }));
+      var completed = 0;
+      onProgress?.call(TraceImageryProgress(0, tiles.length));
+      await Future.wait(
+          List.generate(math.min(4, tiles.length), (_) async {
+            while (next < tiles.length) {
+              checkActive();
+              final tile = tiles[next++];
+              final response = await connection
+                  .get(Uri.parse('$tileEndpoint/$zoom/${tile.y}/${tile.x}'))
+                  .timeout(const Duration(seconds: 30));
+              checkActive();
+              if (response.statusCode != 200) {
+                throw StateError('Satellite tile unavailable');
+              }
+              final codec = await ui
+                  .instantiateImageCodec(response.bodyBytes)
+                  .then((codec) {
+                if (stopped || cancellation?.isCancelled == true) {
+                  codec.dispose();
+                  throw const TraceImageryCancelledException();
+                }
+                return codec;
+              }).timeout(const Duration(seconds: 8));
+              try {
+                final frame = await codec.getNextFrame().then((frame) {
+                  if (stopped || cancellation?.isCancelled == true) {
+                    frame.image.dispose();
+                    throw const TraceImageryCancelledException();
+                  }
+                  return frame;
+                }).timeout(const Duration(seconds: 8));
+                images[tile] = frame.image;
+                onProgress
+                    ?.call(TraceImageryProgress(++completed, tiles.length));
+              } finally {
+                codec.dispose();
+              }
+            }
+          }),
+          eagerError: true);
+      checkActive();
+      onProgress?.call(
+          TraceImageryProgress(completed, tiles.length, preparing: true));
       final recorder = ui.PictureRecorder();
       final canvas = ui.Canvas(recorder)
         ..clipRect(ui.Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()));
@@ -101,22 +165,39 @@ class TraceImageryService {
             ui.Paint()..filterQuality = ui.FilterQuality.medium);
       }
       final picture = recorder.endRecording();
-      final snapshot = await picture.toImage(width, height);
-      picture.dispose();
       try {
-        final png = await snapshot.toByteData(format: ui.ImageByteFormat.png);
-        // Compress the bounded snapshot for saved graph size. JPEG is used only
-        // for the photographic layer; measured geometry remains structured.
-        final jpeg = img.encodeJpg(img.decodePng(png!.buffer.asUint8List())!,
-            quality: 85);
-        return TraceImagery(
-            base64Jpeg: base64Encode(jpeg),
-            corners: canvasCorners,
-            capturedAt: DateTime.now().toUtc().toIso8601String());
+        final snapshot = await picture.toImage(width, height).then((image) {
+          if (stopped || cancellation?.isCancelled == true) {
+            image.dispose();
+            throw const TraceImageryCancelledException();
+          }
+          return image;
+        }).timeout(const Duration(seconds: 8));
+        try {
+          final jpeg = await encodeTraceImage(snapshot)
+              .timeout(const Duration(seconds: 10));
+          checkActive();
+          return TraceImagery(
+              base64Jpeg: base64Encode(jpeg),
+              corners: canvasCorners,
+              capturedAt: DateTime.now().toUtc().toIso8601String());
+        } finally {
+          snapshot.dispose();
+        }
       } finally {
-        snapshot.dispose();
+        picture.dispose();
       }
+    }
+
+    try {
+      return await Future.any([
+        transfer().timeout(transferTimeout),
+        if (cancellation != null)
+          cancellation.whenCancelled.then<TraceImagery>(
+              (_) => throw const TraceImageryCancelledException()),
+      ]);
     } finally {
+      stopped = true;
       if (client == null) connection.close();
       for (final image in images.values) {
         image.dispose();

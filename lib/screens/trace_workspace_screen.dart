@@ -67,6 +67,8 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
   int? _activeExclusion;
   bool _includeImagery = false;
   bool _saving = false;
+  TraceImageryCancellation? _activeTransfer;
+  TraceImageryProgress? _transferProgress;
   List<GeoPoint> get _activePoints => _activeExclusion == null
       ? _points
       : _exclusions[_activeExclusion!].geoPoints;
@@ -106,6 +108,7 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
 
   void _accountChanged() {
     if (widget.account?.active == false) {
+      _activeTransfer?.cancel();
       _searchDebounce?.cancel();
       ++_searchRequest;
     }
@@ -114,6 +117,7 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
 
   @override
   void dispose() {
+    _activeTransfer?.cancel();
     widget.account?.removeListener(_accountChanged);
     _searchDebounce?.cancel();
     _addressController.dispose();
@@ -340,7 +344,12 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
       ).showSnackBar(SnackBar(content: Text(validation)));
       return;
     }
-    setState(() => _saving = true);
+    final operation = TraceImageryCancellation();
+    setState(() {
+      _saving = true;
+      _activeTransfer = operation;
+      _transferProgress = null;
+    });
     try {
       final original = widget.initialTrace;
       final scale = original?.metersPerCanvasUnit;
@@ -423,14 +432,38 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
             GeoPoint(latitude: north + dy, longitude: east + dx),
             GeoPoint(latitude: south - dy, longitude: west - dx),
           ];
-          imagery = await widget.imageryService.capture(
-            corners: corners,
-            canvasCorners: projectInFrame(corners),
-          );
-          await TraceImageryCache.instance.load(imagery);
+          final captured = await Future.any<TraceImagery>([
+            widget.imageryService.capture(
+              corners: corners,
+              canvasCorners: projectInFrame(corners),
+              cancellation: operation,
+              onProgress: (progress) {
+                if (mounted && identical(_activeTransfer, operation)) {
+                  setState(() => _transferProgress = progress);
+                }
+              },
+            ),
+            operation.whenCancelled.then<TraceImagery>(
+              (_) => throw const TraceImageryCancelledException(),
+            ),
+          ]);
+          await Future.any([
+            TraceImageryCache.instance
+                .load(captured)
+                .timeout(const Duration(seconds: 8)),
+            operation.whenCancelled.then<void>(
+              (_) => throw const TraceImageryCancelledException(),
+            ),
+          ]);
+          imagery = captured;
         }
       }
-      if (!mounted || widget.account?.active == false) return;
+      if (!mounted ||
+          operation.isCancelled ||
+          !identical(_activeTransfer, operation) ||
+          widget.account?.active == false) {
+        return;
+      }
       Navigator.pop(
         context,
         TraceGeometry(
@@ -452,20 +485,40 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
         ),
       );
     } catch (error) {
+      if (operation.isCancelled || !identical(_activeTransfer, operation)) {
+        return;
+      }
       debugPrint('Satellite transfer failed: $error');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             action: SnackBarAction(label: 'Retry', onPressed: _finish),
-            content: const Text(
-              'Satellite transfer failed. Retry or turn off Include satellite imagery to save outlines.',
+            content: Text(
+              error is TimeoutException
+                  ? 'Satellite transfer timed out. Your boundary and excluded areas are unchanged. Retry or turn off Include satellite imagery to save outlines.'
+                  : 'Satellite transfer failed. Retry or turn off Include satellite imagery to save outlines.',
             ),
           ),
         );
       }
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted && identical(_activeTransfer, operation)) {
+        setState(() {
+          _saving = false;
+          _activeTransfer = null;
+          _transferProgress = null;
+        });
+      }
     }
+  }
+
+  void _cancelTransfer() {
+    _activeTransfer?.cancel();
+    setState(() {
+      _activeTransfer = null;
+      _saving = false;
+      _transferProgress = null;
+    });
   }
   Future<void> _addExclusion() async {
     var areaLabel = 'Excluded area ${_exclusions.length + 1}';
@@ -701,16 +754,47 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
                         ],
                       ),
                     ),
-                    FilledButton.icon(
-                      key: const ValueKey('finish-trace-button'),
-                      onPressed:
-                          !_saving && _points.length >= 3 ? _finish : null,
-                      icon: const Icon(Icons.check),
-                      label: Text(_saving
-                          ? 'Transferring…'
-                          : editingTrace
-                              ? 'Save Trace'
-                              : 'Finish Trace'),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_saving) ...[
+                          Semantics(
+                            liveRegion: true,
+                            child: Text(
+                              _transferProgress?.message ?? 'Preparing image…',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                        ],
+                        FilledButton.icon(
+                          key: const ValueKey('finish-trace-button'),
+                          onPressed: _saving
+                              ? _cancelTransfer
+                              : _points.length >= 3
+                              ? _finish
+                              : null,
+                          icon: _saving
+                              ? const ExcludeSemantics(
+                                  child: SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                )
+                              : const Icon(Icons.check),
+                          label: Text(
+                            _saving
+                                ? 'Cancel transfer'
+                                : editingTrace
+                                ? 'Save Trace'
+                                : 'Finish Trace',
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

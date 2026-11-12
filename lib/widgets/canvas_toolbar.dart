@@ -590,6 +590,8 @@ class CanvasQuickToolbar extends StatelessWidget {
     this.showHistory = true,
     this.canUndo = true,
     this.canRedo = true,
+    this.primarySaveMenu,
+    this.primaryMoreMenu,
     required this.actions,
     required this.selectedTool,
     required this.selectedMarkerType,
@@ -608,6 +610,8 @@ class CanvasQuickToolbar extends StatelessWidget {
     super.key,
   });
 
+  final Widget? primarySaveMenu;
+  final Widget? primaryMoreMenu;
   final List<CanvasToolbarAction> actions;
   final CanvasTool selectedTool;
   final GraphMarkerType selectedMarkerType;
@@ -624,8 +628,79 @@ class CanvasQuickToolbar extends StatelessWidget {
   final bool propertiesSelected;
   final bool layersSelected;
 
+  Widget _primaryTool(CanvasTool tool) {
+    final selected = selectedTool == tool;
+    return Tooltip(
+      message: '${tool.label} (${tool.shortcut})',
+      child: Semantics(
+        selected: selected,
+        child: TextButton(
+          key: ValueKey('primary-${tool.name}'),
+          style: TextButton.styleFrom(
+            foregroundColor: selected ? Colors.white : const Color(0xFF303B48),
+            backgroundColor: selected ? AppColors.red : const Color(0xFFEDF0F4),
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            minimumSize: const Size(56, 52),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+          onPressed: () => onActionSelected(CanvasToolbarAction.tool(tool)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(tool.icon, size: 27, applyTextScaling: false),
+              Text(
+                tool.label,
+                style: const TextStyle(
+                  fontFamily: 'Bitter',
+                  fontSize: 11,
+                  height: 1.1,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _primaryToolbar() => Material(
+    key: const ValueKey('canvas-quick-toolbar'),
+    elevation: 3,
+    color: Colors.white,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(24),
+      side: const BorderSide(color: Color(0xFFDADDE1)),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+      // Every primary action has a fixed place. Favorites remain in More.
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _primaryTool(CanvasTool.select),
+          _primaryTool(CanvasTool.pan),
+          const _QuickToolbarDivider(),
+          primarySaveMenu!,
+          IconButton(
+            tooltip: 'Object properties',
+            constraints: const BoxConstraints.tightFor(width: 44, height: 48),
+            visualDensity: VisualDensity.standard,
+            onPressed: onToggleProperties,
+            icon: const Icon(Icons.edit_note, size: 23),
+          ),
+          primaryMoreMenu!,
+        ],
+      ),
+    ),
+  );
+
   @override
-  Widget build(BuildContext context) => _QuickToolbarRegion(
+  Widget build(BuildContext context) => primarySaveMenu != null
+      ? _primaryToolbar()
+      : _QuickToolbarRegion(
         builder: (expanded, expandLabel) => DragTarget<CanvasToolbarAction>(
           onWillAcceptWithDetails: (_) => true,
           onAcceptWithDetails: (details) => onActionAdded(details.data),

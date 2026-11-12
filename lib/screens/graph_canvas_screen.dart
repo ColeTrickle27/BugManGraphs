@@ -67,6 +67,7 @@ import '../services/trace_projection_service.dart';
 import '../services/trace_imagery_service.dart';
 import '../services/trace_area_service.dart';
 import '../services/trace_workspace_defaults.dart';
+import '../services/address_suggestion_service.dart';
 import '../widgets/canvas_toolbar.dart';
 import '../widgets/graph_title.dart';
 import '../widgets/freehand_strokes_painter.dart';
@@ -96,6 +97,8 @@ class GraphCanvasScreen extends StatefulWidget {
     this.completePackagePreview = false,
     this.presentationFitToContent = false,
     this.fitToContentOnOpen = false,
+    this.traceAddressService,
+    this.traceAddressAttribution,
     this.presentationMarkerIds = const <String>{},
     super.key,
   }) : assert(job != null || document != null);
@@ -121,6 +124,8 @@ class GraphCanvasScreen extends StatefulWidget {
 
   /// Transient screen framing for explicitly opened local graphs and copies.
   final bool fitToContentOnOpen;
+  final AddressSuggestionService? traceAddressService;
+  final Widget? traceAddressAttribution;
   final Set<String> presentationMarkerIds;
 
   @override
@@ -5915,6 +5920,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       MaterialPageRoute(
         builder: (context) => TraceWorkspaceScreen(
           account: _cloudSession?.workspace.account,
+          addressService: widget.traceAddressService,
+          addressAttribution: widget.traceAddressAttribution,
           address: traceWorkspaceAddress(
             _traces,
             _document.customer.serviceAddress,
@@ -6883,6 +6890,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
             child: PopupMenuButton<String>(
               tooltip: 'Switch editor panel',
               onSelected: (value) {
+                if (value == 'fit') {
+                  _fitDrawing();
+                  return;
+                }
                 if (value == 'undo') {
                   _undoLastAction();
                   return;
@@ -6918,6 +6929,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                     child: Text(panel),
                   ),
                 const PopupMenuDivider(),
+                const PopupMenuItem(value: 'fit', child: Text('Fit drawing')),
                 PopupMenuItem(
                   value: 'undo',
                   enabled: _undoStack.isNotEmpty || _activeWallStart != null,
@@ -6955,16 +6967,6 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                 ),
               ),
             ),
-          ),
-          IconButton(
-            tooltip: 'Undo',
-            constraints: const BoxConstraints.tightFor(width: 44, height: 44),
-            padding: EdgeInsets.zero,
-            onPressed: _undoStack.isNotEmpty || _activeWallStart != null
-                ? _undoLastAction
-                : null,
-            color: foreground,
-            icon: const Icon(Icons.undo, size: 22),
           ),
           if (_drawingActive) ...[
             if (!narrow)
@@ -7336,9 +7338,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
 
   Rect _compactTraceFitRect(Rect viewport) {
     // Phone acreage/attribution live outside the image. Reserve only the
-    // selected rotation handle and a small border, in screen pixels.
-    final top = math.min(52.0, viewport.height * .4);
-    final bottom = math.min(20.0, viewport.height * .2);
+    // on-canvas controls and selected rotation handle, in screen pixels.
+    final top = math.min(96.0, viewport.height * .4);
+    final bottom = math.min(68.0, viewport.height * .25);
     final horizontal = math.min(20.0, viewport.width * .1);
     return Rect.fromLTRB(viewport.left + horizontal, viewport.top + top,
         viewport.right - horizontal, viewport.bottom - bottom);
@@ -8325,7 +8327,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
             : _quickToolbarCollapsed
                 ? 64.0
                 : compactPanels
-                    ? 76.0
+                    ? 84.0
                     : (MediaQuery.sizeOf(context).width < 760 ? 126.0 : 82.0)) +
         (attribution != null ? 18 : 0);
     final documentTitle = _document.customer.displayName;
@@ -8342,6 +8344,57 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                 12 -
                 canvasRightInset >=
             200;
+
+    Widget editorToolbar(_EditorToolbarPart part) =>
+        ValueListenableBuilder<Matrix4>(
+          valueListenable: _transformationController,
+          builder: (context, matrix, child) => _TopEditorToolbar(
+            part: part,
+            onToggleLayers: _toggleLayersPanel,
+            onDeleteSelection: _deleteSelection,
+            quickActions: _quickToolbarActions,
+            onQuickAction: _activateToolbarAction,
+            onResetQuickTools: _resetQuickToolbar,
+            onChooseOverlap: traceOverviewShown && chooseOverlapAvailable
+                ? () => _chooseOverlappingObjects(_lastTapSceneOffset!)
+                : null,
+            onChangeShapeType: traceOverviewShown && changeShapeTypeAvailable
+                ? () => _classifySketch(_selection!.shapeIndex!, editing: true)
+                : null,
+            drawingRatioLabel: _scaleLabel,
+            onDrawingRatioChanged: _setScaleLabel,
+            onLabelSmaller: () => setState(
+              () => _labelTextScale = (_labelTextScale - 0.15).clamp(0.7, 1.6),
+            ),
+            onLabelLarger: () => setState(
+              () => _labelTextScale = (_labelTextScale + 0.15).clamp(0.7, 1.6),
+            ),
+            onFinish: _finishWallPath,
+            finishLabel: _selectedTool == CanvasTool.wall
+                ? 'Finish Line'
+                : 'Close Shape',
+            onClear: _confirmClearGraph,
+            onSaveGraphFile: _handleGraphFileSaveTapped,
+            onEditGraphInformation: _editGraphInformation,
+            onSavePng: () => _openFileHandoff(GraphFileAction.savePng),
+            onSavePdf: () => _openFileHandoff(GraphFileAction.savePdf),
+            onEmailPdf: () => _openFileHandoff(GraphFileAction.emailPdf),
+            onExportPdf: _exportGraphPdf,
+            onExportPng: _exportGraphPng,
+            onSaveAndCreateSalesBrainReport: _saveAndCreateSalesBrainReport,
+            onNewWithExistingStructure: _newGraphWithExistingStructure,
+            onZoomIn: () => _zoomBy(1.2),
+            onZoomOut: () => _zoomBy(1 / 1.2),
+            onResetZoom: _resetZoom,
+            gridVisible: _gridVisible,
+            onToggleGrid: _toggleGridVisible,
+            snapToGrid: _snapToGrid,
+            onToggleSnapToGrid: _toggleSnapToGrid,
+            onFitDrawing: _fitDrawing,
+            scaleLabel: EditorViewport.label(matrix),
+            onScaleChanged: _setZoomPercent,
+          ),
+        );
 
     final scaffold = Scaffold(
       appBar: AppBar(
@@ -8401,8 +8454,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                       ? (keyboardVisible
                           ? 8.0
                           : overviewTrace != null
-                          ? 72.0 + overviewHeight
-                          : 64.0)
+                          ? 16.0 + overviewHeight
+                          : 8.0)
                       : 54.0;
                   final panelBottom =
                       constraints.maxHeight - canvasBottomInset - 8;
@@ -8561,6 +8614,62 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                           },
                         ),
                       ),
+                      if (compactPanels && !keyboardVisible) ...[
+                        Positioned(
+                          top: canvasRect.top + 4,
+                          right: constraints.maxWidth - canvasRect.right + 4,
+                          child: Material(
+                            key: const ValueKey('canvas-history-controls'),
+                            elevation: 2,
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  tooltip: 'Undo',
+                                  constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+                                  padding: EdgeInsets.zero,
+                                  onPressed: _undoStack.isNotEmpty || _activeWallStart != null
+                                      ? _undoLastAction
+                                      : null,
+                                  icon: const Icon(Icons.undo),
+                                ),
+                                IconButton(
+                                  tooltip: 'Redo',
+                                  constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+                                  padding: EdgeInsets.zero,
+                                  onPressed: _redoStack.isNotEmpty ? _redoLastAction : null,
+                                  icon: const Icon(Icons.redo),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (canvasRect.height >= 180 && canvasRect.width >= 260)
+                          Positioned(
+                            left: canvasRect.left + 4,
+                            top: canvasRect.top + 4,
+                            width: math.min(260.0, canvasRect.width - 104),
+                            child: _CanvasZoomSlider(
+                              controller: _transformationController,
+                              anchor: () => _usableViewport.center,
+                            ),
+                          ),
+                        Positioned(
+                          right: constraints.maxWidth - canvasRect.right + 8,
+                          bottom: constraints.maxHeight - canvasRect.bottom + 8,
+                          child: FloatingActionButton(
+                            key: const ValueKey('canvas-tools-button'),
+                            tooltip: 'Show main toolbar',
+                            backgroundColor: const Color(0xFFB90916),
+                            foregroundColor: Colors.white,
+                            shape: const CircleBorder(),
+                            onPressed: _showMainToolbar,
+                            child: const Icon(Icons.handyman_outlined, size: 25),
+                          ),
+                        ),
+                      ],
                       if (_isInlineTextEditing)
                         Positioned.fromRect(
                           rect: canvasRect,
@@ -8680,18 +8789,19 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                                           child: Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              IconButton(
+                                              if (!compactPanels) IconButton(
                                                 tooltip: 'Undo',
                                                 icon: const Icon(Icons.undo),
                                                 onPressed: _undoLastAction,
                                               ),
-                                              IconButton(
+                                              if (!compactPanels) IconButton(
                                                 tooltip: 'Redo',
                                                 icon: const Icon(Icons.redo),
                                                 onPressed: _redoStack.isEmpty
                                                     ? null
                                                     : _redoLastAction,
                                               ),
+                                              if (compactPanels) editorToolbar(_EditorToolbarPart.save),
                                               IconButton(
                                                 tooltip: 'Cancel drawing',
                                                 icon: const Icon(Icons.close),
@@ -8707,7 +8817,11 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                                         ),
                                       )
                                     : CanvasQuickToolbar(
-                                        showHistory: true,
+                                        showHistory: !compactPanels,
+                                        primarySaveMenu: compactPanels
+                                            ? editorToolbar(_EditorToolbarPart.save) : null,
+                                        primaryMoreMenu: compactPanels
+                                            ? editorToolbar(_EditorToolbarPart.options) : null,
                                         canUndo: _undoStack.isNotEmpty ||
                                             _activeWallStart != null,
                                         canRedo: _redoStack.isNotEmpty,
@@ -8752,71 +8866,13 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                             ),
                           ),
                         ),
-                      if (!keyboardVisible) Positioned(
+                      if (!compactPanels && !keyboardVisible) Positioned(
                         left: 12,
                         right: 12,
                         top: 8,
                         child: Tooltip(
                           message: _canvasStatus,
-                          child: ValueListenableBuilder<Matrix4>(
-                            valueListenable: _transformationController,
-                            builder: (context, matrix, child) =>
-                                _TopEditorToolbar(
-                              onChooseOverlap:
-                                  traceOverviewShown && chooseOverlapAvailable
-                                      ? () => _chooseOverlappingObjects(
-                                          _lastTapSceneOffset!)
-                                      : null,
-                              onChangeShapeType:
-                                  traceOverviewShown && changeShapeTypeAvailable
-                                      ? () => _classifySketch(
-                                          _selection!.shapeIndex!,
-                                          editing: true)
-                                      : null,
-                              onShowTools:
-                                  compactPanels ? _showMainToolbar : null,
-                              toolsVisible: !_mainToolbarCollapsed,
-                              drawingRatioLabel: _scaleLabel,
-                              onDrawingRatioChanged: _setScaleLabel,
-                              onLabelSmaller: () => setState(
-                                () => _labelTextScale =
-                                    (_labelTextScale - 0.15).clamp(0.7, 1.6),
-                              ),
-                              onLabelLarger: () => setState(
-                                () => _labelTextScale =
-                                    (_labelTextScale + 0.15).clamp(0.7, 1.6),
-                              ),
-                              onFinish: _finishWallPath,
-                              finishLabel: _selectedTool == CanvasTool.wall
-                                  ? 'Finish Line'
-                                  : 'Close Shape',
-                              onClear: _confirmClearGraph,
-                              onSaveGraphFile: _handleGraphFileSaveTapped,
-                              onEditGraphInformation: _editGraphInformation,
-                              onSavePng: () =>
-                                  _openFileHandoff(GraphFileAction.savePng),
-                              onSavePdf: () =>
-                                  _openFileHandoff(GraphFileAction.savePdf),
-                              onEmailPdf: () =>
-                                  _openFileHandoff(GraphFileAction.emailPdf),
-                              onExportPdf: _exportGraphPdf,
-                              onExportPng: _exportGraphPng,
-                              onSaveAndCreateSalesBrainReport:
-                                  _saveAndCreateSalesBrainReport,
-                              onNewWithExistingStructure:
-                                  _newGraphWithExistingStructure,
-                              onZoomIn: () => _zoomBy(1.2),
-                              onZoomOut: () => _zoomBy(1 / 1.2),
-                              onResetZoom: _resetZoom,
-                              gridVisible: _gridVisible,
-                              onToggleGrid: _toggleGridVisible,
-                              snapToGrid: _snapToGrid,
-                              onToggleSnapToGrid: _toggleSnapToGrid,
-                              onFitDrawing: _fitDrawing,
-                              scaleLabel: EditorViewport.label(matrix),
-                              onScaleChanged: _setZoomPercent,
-                            ),
-                          ),
+                          child: editorToolbar(_EditorToolbarPart.full),
                         ),
                       ),
                       if (changeShapeTypeAvailable && !traceOverviewShown)
@@ -8947,7 +9003,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                         ),
                       if (overviewTrace != null && !keyboardVisible)
                         Positioned(
-                          top: 64,
+                          top: 8,
                           left: 12,
                           right: 12,
                           height: overviewHeight,
@@ -9149,12 +9205,90 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 }
 
+/// Continuous magnification, separate from the drawing's calibrated scale.
+class _CanvasZoomSlider extends StatelessWidget {
+  const _CanvasZoomSlider({required this.controller, required this.anchor});
+
+  final TransformationController controller;
+  final Offset Function() anchor;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<Matrix4>(
+    valueListenable: controller,
+    builder: (context, matrix, _) {
+      final minimum = math.log(EditorViewport.minScale);
+      final range = math.log(EditorViewport.maxScale) - minimum;
+      final value = ((math.log(matrix.getMaxScaleOnAxis()) - minimum) / range)
+          .clamp(0.0, 1.0);
+      return Material(
+        elevation: 2,
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        child: SizedBox(
+          height: 44,
+          child: Row(
+            children: [
+              Expanded(
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 3,
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 7,
+                    ),
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 18,
+                    ),
+                  ),
+                  child: Slider(
+                    key: const ValueKey('canvas-zoom-slider'),
+                    value: value,
+                    // A logarithmic track gives fine control at yard-map zoom
+                    // levels while still reaching the full existing zoom range.
+                    onChanged: (position) =>
+                        controller.value = EditorViewport.zoomAt(
+                          controller.value,
+                          anchor(),
+                          math.exp(minimum + position * range),
+                        ),
+                    semanticFormatterCallback: (position) {
+                      final percent =
+                          math.exp(minimum + position * range) * 100;
+                      return 'Zoom ${percent.toStringAsFixed(1)}%';
+                    },
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 44,
+                child: Text(
+                  EditorViewport.label(matrix),
+                  key: const ValueKey('viewport-zoom-label'),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+enum _EditorToolbarPart { full, save, options }
+
 class _TopEditorToolbar extends StatelessWidget {
   const _TopEditorToolbar({
+    this.part = _EditorToolbarPart.full,
+    this.onToggleLayers,
+    this.onDeleteSelection,
+    this.quickActions = const [],
+    this.onQuickAction,
+    this.onResetQuickTools,
     this.onChooseOverlap,
     this.onChangeShapeType,
-    this.onShowTools,
-    this.toolsVisible = false,
     required this.drawingRatioLabel,
     required this.onDrawingRatioChanged,
     required this.onLabelSmaller,
@@ -9183,10 +9317,14 @@ class _TopEditorToolbar extends StatelessWidget {
     required this.onScaleChanged,
   });
 
-  final VoidCallback? onShowTools;
+  final _EditorToolbarPart part;
+  final VoidCallback? onToggleLayers;
+  final VoidCallback? onDeleteSelection;
+  final List<CanvasToolbarAction> quickActions;
+  final ValueChanged<CanvasToolbarAction>? onQuickAction;
+  final VoidCallback? onResetQuickTools;
   final VoidCallback? onChooseOverlap;
   final VoidCallback? onChangeShapeType;
-  final bool toolsVisible;
   final String drawingRatioLabel;
   final ValueChanged<String> onDrawingRatioChanged;
   final VoidCallback onLabelSmaller;
@@ -9219,6 +9357,291 @@ class _TopEditorToolbar extends StatelessWidget {
     // The fully labelled desktop toolbar exceeds common tablet and compact
     // laptop widths. The icon treatment also fits phones without scrolling.
     final mobile = MediaQuery.sizeOf(context).width < 1120;
+    final fileMenu = PopupMenuButton<_EditorFileAction>(
+      tooltip: 'Save and share',
+      onSelected: (action) => switch (action) {
+        _EditorFileAction.editGraphInformation => onEditGraphInformation(),
+        _EditorFileAction.saveGraphFile => onSaveGraphFile(),
+        _EditorFileAction.exportPdf => onExportPdf(),
+        _EditorFileAction.exportPng => onExportPng(),
+        _EditorFileAction.savePng => onSavePng(),
+        _EditorFileAction.savePdf => onSavePdf(),
+        _EditorFileAction.emailPdf => onEmailPdf(),
+        _EditorFileAction.saveAndCreateSalesBrainReport =>
+          onSaveAndCreateSalesBrainReport(),
+        _EditorFileAction.newWithExistingStructure =>
+          onNewWithExistingStructure(),
+      },
+      itemBuilder: (context) => [
+        if (part == _EditorToolbarPart.save)
+          const PopupMenuItem(
+            value: _EditorFileAction.editGraphInformation,
+            child: ListTile(
+              leading: Icon(Icons.contact_page_outlined),
+              title: Text('Edit Graph Information'),
+            ),
+          ),
+        const PopupMenuItem(
+          enabled: false,
+          height: 28,
+          child: Text(
+            'SAVE TO OPS BRAIN',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: Colors.black54,
+            ),
+          ),
+        ),
+        const PopupMenuItem(
+          value: _EditorFileAction.saveGraphFile,
+          child: ListTile(
+            leading: Icon(Icons.save_outlined),
+            title: Text(
+              'Save Graph to BugMan Graphs',
+              maxLines: 2,
+              softWrap: true,
+            ),
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          enabled: false,
+          height: 28,
+          child: Text(
+            'EXPORT FILE',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: Colors.black54,
+            ),
+          ),
+        ),
+        const PopupMenuItem(
+          value: _EditorFileAction.savePng,
+          child: ListTile(
+            leading: Icon(Icons.image_outlined),
+            title: Text('Save PNG…'),
+          ),
+        ),
+        const PopupMenuItem(
+          value: _EditorFileAction.savePdf,
+          child: ListTile(
+            leading: Icon(Icons.picture_as_pdf_outlined),
+            title: Text('Save PDF…'),
+          ),
+        ),
+        const PopupMenuItem(
+          value: _EditorFileAction.emailPdf,
+          child: ListTile(
+            leading: Icon(Icons.email_outlined),
+            title: Text('Email PDF…'),
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: _EditorFileAction.newWithExistingStructure,
+          child: ListTile(
+            leading: Icon(Icons.difference_outlined),
+            title: Text('Copy Structure to New Graph'),
+          ),
+        ),
+      ],
+      child: mobile
+          ? SizedBox(
+              width: 48,
+              height: 56,
+              child: part == _EditorToolbarPart.save
+                  ? const Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.save_outlined,
+                          size: 23,
+                          applyTextScaling: false,
+                        ),
+                        Text(
+                          'Save',
+                          style: TextStyle(
+                            fontFamily: 'Bitter',
+                            fontSize: 10,
+                            height: 1.1,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    )
+                  : const Icon(Icons.ios_share),
+            )
+          : const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.ios_share, size: 18),
+                  Icon(Icons.arrow_drop_down),
+                ],
+              ),
+            ),
+    );
+    final optionsMenu = PopupMenuButton<Object>(
+      tooltip: 'Canvas options',
+      onSelected: (action) {
+        if (action is CanvasToolbarAction) {
+          onQuickAction?.call(action);
+          return;
+        }
+        switch (action as _EditorOptionAction) {
+          case _EditorOptionAction.resetQuickTools:
+            onResetQuickTools?.call();
+          case _EditorOptionAction.layers:
+            onToggleLayers?.call();
+          case _EditorOptionAction.deleteSelection:
+            onDeleteSelection?.call();
+          case _EditorOptionAction.chooseOverlap:
+            onChooseOverlap?.call();
+          case _EditorOptionAction.changeShapeType:
+            onChangeShapeType?.call();
+          case _EditorOptionAction.smallerLabels:
+            onLabelSmaller();
+          case _EditorOptionAction.largerLabels:
+            onLabelLarger();
+          case _EditorOptionAction.clearGraph:
+            onClear();
+          case _EditorOptionAction.resetZoom:
+            onResetZoom();
+          case _EditorOptionAction.fitDrawing:
+            onFitDrawing();
+          case _EditorOptionAction.scale1:
+            onDrawingRatioChanged('1:1');
+          case _EditorOptionAction.scale2:
+            onDrawingRatioChanged('2:1');
+          case _EditorOptionAction.scale3:
+            onDrawingRatioChanged('3:1');
+          case _EditorOptionAction.scale4:
+            onDrawingRatioChanged('4:1');
+          case _EditorOptionAction.scale10:
+            onDrawingRatioChanged('10:1');
+          case _EditorOptionAction.grid:
+            onToggleGrid();
+          case _EditorOptionAction.snapGrid:
+            onToggleSnapToGrid();
+        }
+      },
+      itemBuilder: (context) => [
+        if (part == _EditorToolbarPart.options) ...[
+          const PopupMenuItem(
+            value: _EditorOptionAction.layers,
+            child: ListTile(
+              leading: Icon(Icons.layers_outlined),
+              title: Text('Layers'),
+            ),
+          ),
+          const PopupMenuItem(
+            value: _EditorOptionAction.deleteSelection,
+            child: ListTile(
+              leading: Icon(Icons.delete_outline),
+              title: Text('Delete selection'),
+            ),
+          ),
+          for (final action in quickActions)
+            if (action.tool != CanvasTool.select &&
+                action.tool != CanvasTool.pan)
+              PopupMenuItem<Object>(
+                value: action,
+                child: ListTile(
+                  leading: Icon(action.icon),
+                  title: Text(action.label),
+                ),
+              ),
+          if (quickActions.length > 2)
+            const PopupMenuItem(
+              value: _EditorOptionAction.resetQuickTools,
+              child: Text('Reset quick toolbar'),
+            ),
+          const PopupMenuDivider(),
+        ],
+        if (onChooseOverlap != null)
+          const PopupMenuItem(
+            value: _EditorOptionAction.chooseOverlap,
+            child: Text('Choose overlap'),
+          ),
+        if (onChangeShapeType != null)
+          const PopupMenuItem(
+            value: _EditorOptionAction.changeShapeType,
+            child: Text('Change shape type'),
+          ),
+        CheckedPopupMenuItem(
+          value: _EditorOptionAction.grid,
+          checked: gridVisible,
+          child: const Text('Grid'),
+        ),
+        CheckedPopupMenuItem(
+          value: _EditorOptionAction.snapGrid,
+          checked: snapToGrid,
+          child: const Text('Snap to grid'),
+        ),
+        const PopupMenuItem(
+          value: _EditorOptionAction.clearGraph,
+          child: Text('Clear Graph'),
+        ),
+        const PopupMenuItem(
+          value: _EditorOptionAction.resetZoom,
+          child: Text('Reset zoom to 100%'),
+        ),
+        const PopupMenuItem(
+          value: _EditorOptionAction.fitDrawing,
+          child: Text('Fit drawing'),
+        ),
+        const PopupMenuItem(
+          value: _EditorOptionAction.smallerLabels,
+          child: Text('Smaller labels'),
+        ),
+        const PopupMenuItem(
+          value: _EditorOptionAction.largerLabels,
+          child: Text('Larger labels'),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          enabled: false,
+          child: Text('Drawing ratio — feet per grid square'),
+        ),
+        for (final entry in const {
+          _EditorOptionAction.scale1: '1:1',
+          _EditorOptionAction.scale2: '2:1',
+          _EditorOptionAction.scale3: '3:1',
+          _EditorOptionAction.scale4: '4:1',
+          _EditorOptionAction.scale10: '10:1',
+        }.entries)
+          CheckedPopupMenuItem(
+            value: entry.key,
+            checked: drawingRatioLabel == entry.value,
+            child: Text(entry.value),
+          ),
+      ],
+      child: mobile
+          ? SizedBox(
+              width: 48,
+              height: 48,
+              child: Icon(
+                part == _EditorToolbarPart.options
+                    ? Icons.more_horiz
+                    : Icons.display_settings_outlined,
+              ),
+            )
+          : const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.display_settings_outlined, size: 18),
+                  SizedBox(width: 5),
+                  Text('Options'),
+                  Icon(Icons.arrow_drop_down),
+                ],
+              ),
+            ),
+    );
+    if (part == _EditorToolbarPart.save) return fileMenu;
+    if (part == _EditorToolbarPart.options) return optionsMenu;
     return Material(
       elevation: 2,
       shadowColor: Colors.black.withValues(alpha: .12),
@@ -9234,136 +9657,8 @@ class _TopEditorToolbar extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Row(
             children: [
-              if (onShowTools != null)
-                IconButton(
-                  tooltip: toolsVisible ? 'Tools shown' : 'Show main toolbar',
-                  onPressed: onShowTools,
-                  color: toolsVisible
-                      ? Theme.of(context).colorScheme.primary
-                      : null,
-                  constraints:
-                      const BoxConstraints.tightFor(width: 48, height: 48),
-                  padding: EdgeInsets.zero,
-                  visualDensity: VisualDensity.standard,
-                  icon: const Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.tune, size: 18),
-                      Text('Tools', maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 10, height: 1.2)),
-                    ],
-                  ),
-                ),
-              PopupMenuButton<_EditorFileAction>(
-                tooltip: 'Save and share',
-                onSelected: (action) => switch (action) {
-                  _EditorFileAction.editGraphInformation =>
-                    onEditGraphInformation(),
-                  _EditorFileAction.saveGraphFile => onSaveGraphFile(),
-                  _EditorFileAction.exportPdf => onExportPdf(),
-                  _EditorFileAction.exportPng => onExportPng(),
-                  _EditorFileAction.savePng => onSavePng(),
-                  _EditorFileAction.savePdf => onSavePdf(),
-                  _EditorFileAction.emailPdf => onEmailPdf(),
-                  _EditorFileAction.saveAndCreateSalesBrainReport =>
-                    onSaveAndCreateSalesBrainReport(),
-                  _EditorFileAction.newWithExistingStructure =>
-                    onNewWithExistingStructure(),
-                },
-                itemBuilder: (context) => [
-                  if (onShowTools != null)
-                    const PopupMenuItem(
-                      value: _EditorFileAction.editGraphInformation,
-                      child: ListTile(
-                        leading: Icon(Icons.contact_page_outlined),
-                        title: Text('Edit Graph Information'),
-                      ),
-                    ),
-                  const PopupMenuItem(
-                    enabled: false,
-                    height: 28,
-                    child: Text(
-                      'SAVE TO OPS BRAIN',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black54,
-                      ),
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: _EditorFileAction.saveGraphFile,
-                    child: ListTile(
-                      leading: Icon(Icons.save_outlined),
-                      title: Text(
-                        'Save Graph to BugMan Graphs',
-                        maxLines: 2,
-                        softWrap: true,
-                      ),
-                    ),
-                  ),
-                  const PopupMenuDivider(),
-                  const PopupMenuItem(
-                    enabled: false,
-                    height: 28,
-                    child: Text(
-                      'EXPORT FILE',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black54,
-                      ),
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: _EditorFileAction.savePng,
-                    child: ListTile(
-                      leading: Icon(Icons.image_outlined),
-                      title: Text('Save PNG…'),
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: _EditorFileAction.savePdf,
-                    child: ListTile(
-                      leading: Icon(Icons.picture_as_pdf_outlined),
-                      title: Text('Save PDF…'),
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: _EditorFileAction.emailPdf,
-                    child: ListTile(
-                      leading: Icon(Icons.email_outlined),
-                      title: Text('Email PDF…'),
-                    ),
-                  ),
-                  const PopupMenuDivider(),
-                  const PopupMenuItem(
-                    value: _EditorFileAction.newWithExistingStructure,
-                    child: ListTile(
-                      leading: Icon(Icons.difference_outlined),
-                      title: Text('Copy Structure to New Graph'),
-                    ),
-                  ),
-                ],
-                child: mobile
-                    ? const SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: Icon(Icons.ios_share),
-                      )
-                    : const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4),
-                        child: Row(
-                          children: [
-                            Icon(Icons.ios_share, size: 18),
-                            Icon(Icons.arrow_drop_down),
-                          ],
-                        ),
-                      ),
-              ),
-              if (onShowTools == null)
-                _IconOnlyButton(
+              fileMenu,
+              _IconOnlyButton(
                   icon: Icons.contact_page_outlined,
                   tooltip: 'Edit Graph Information',
                   onPressed: onEditGraphInformation,
@@ -9429,107 +9724,7 @@ class _TopEditorToolbar extends StatelessWidget {
                   onPressed: onClear,
                 ),
               if (!mobile) const _ToolbarDivider(),
-              PopupMenuButton<_EditorOptionAction>(
-                tooltip: 'Canvas options',
-                onSelected: (action) {
-                  switch (action) {
-                    case _EditorOptionAction.chooseOverlap:
-                      onChooseOverlap?.call();
-                    case _EditorOptionAction.changeShapeType:
-                      onChangeShapeType?.call();
-                    case _EditorOptionAction.smallerLabels:
-                      onLabelSmaller();
-                    case _EditorOptionAction.largerLabels:
-                      onLabelLarger();
-                    case _EditorOptionAction.clearGraph:
-                      onClear();
-                    case _EditorOptionAction.resetZoom:
-                      onResetZoom();
-                    case _EditorOptionAction.fitDrawing:
-                      onFitDrawing();
-                    case _EditorOptionAction.scale1:
-                      onDrawingRatioChanged('1:1');
-                    case _EditorOptionAction.scale2:
-                      onDrawingRatioChanged('2:1');
-                    case _EditorOptionAction.scale3:
-                      onDrawingRatioChanged('3:1');
-                    case _EditorOptionAction.scale4:
-                      onDrawingRatioChanged('4:1');
-                    case _EditorOptionAction.scale10:
-                      onDrawingRatioChanged('10:1');
-                    case _EditorOptionAction.grid:
-                      onToggleGrid();
-                    case _EditorOptionAction.snapGrid:
-                      onToggleSnapToGrid();
-                  }
-                },
-                itemBuilder: (context) => [
-                  if (onChooseOverlap != null)
-                    const PopupMenuItem(
-                        value: _EditorOptionAction.chooseOverlap,
-                        child: Text('Choose overlap')),
-                  if (onChangeShapeType != null)
-                    const PopupMenuItem(
-                        value: _EditorOptionAction.changeShapeType,
-                        child: Text('Change shape type')),
-                  CheckedPopupMenuItem(
-                    value: _EditorOptionAction.grid,
-                    checked: gridVisible,
-                    child: const Text('Grid'),
-                  ),
-                  CheckedPopupMenuItem(
-                    value: _EditorOptionAction.snapGrid,
-                    checked: snapToGrid,
-                    child: const Text('Snap to grid'),
-                  ),
-                  const PopupMenuItem(
-                      value: _EditorOptionAction.clearGraph,
-                      child: Text('Clear Graph')),
-                  const PopupMenuItem(
-                      value: _EditorOptionAction.resetZoom,
-                      child: Text('Reset zoom to 100%')),
-                  const PopupMenuItem(
-                      value: _EditorOptionAction.fitDrawing,
-                      child: Text('Fit drawing')),
-                  const PopupMenuItem(
-                      value: _EditorOptionAction.smallerLabels,
-                      child: Text('Smaller labels')),
-                  const PopupMenuItem(
-                      value: _EditorOptionAction.largerLabels,
-                      child: Text('Larger labels')),
-                  const PopupMenuDivider(),
-                  const PopupMenuItem(
-                      enabled: false,
-                      child: Text('Drawing ratio — feet per grid square')),
-                  for (final entry in const {
-                    _EditorOptionAction.scale1: '1:1',
-                    _EditorOptionAction.scale2: '2:1',
-                    _EditorOptionAction.scale3: '3:1',
-                    _EditorOptionAction.scale4: '4:1',
-                    _EditorOptionAction.scale10: '10:1'
-                  }.entries)
-                    CheckedPopupMenuItem(
-                        value: entry.key,
-                        checked: drawingRatioLabel == entry.value,
-                        child: Text(entry.value)),
-                ],
-                child: mobile
-                    ? const SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: Icon(Icons.display_settings_outlined))
-                    : const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4),
-                        child: Row(
-                          children: [
-                            Icon(Icons.display_settings_outlined, size: 18),
-                            SizedBox(width: 5),
-                            Text('Options'),
-                            Icon(Icons.arrow_drop_down),
-                          ],
-                        ),
-                      ),
-              ),
+              optionsMenu,
             ],
           ),
         ),
@@ -11790,6 +11985,9 @@ enum _EditorFileAction {
 }
 
 enum _EditorOptionAction {
+  resetQuickTools,
+  layers,
+  deleteSelection,
   chooseOverlap,
   changeShapeType,
   scale1,

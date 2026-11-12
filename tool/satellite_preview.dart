@@ -80,7 +80,7 @@ class _SatellitePreviewHomeState extends State<SatellitePreviewHome> {
     final document = GraphDocument(
         customer: const GraphCustomerInfo(
             name: 'Satellite acreage preview',
-            serviceAddress: 'Preview only · no customer records saved',
+            serviceAddress: '',
             pestPacLocationNumber: '',
             pestPacBillToNumber: '',
             serviceType: 'Yard measurement',
@@ -94,12 +94,21 @@ class _SatellitePreviewHomeState extends State<SatellitePreviewHome> {
     await _showGraph();
   }
 
-  Future<void> _showGraph() =>
-      Navigator.of(context).push(MaterialPageRoute<void>(
+  Future<void> _showGraph() async {
+    final addresses = PreviewAddressService();
+    try {
+      await Navigator.of(context).push(MaterialPageRoute<void>(
           builder: (_) => GraphCanvasScreen(
               document: _document!,
               repository: _repository,
+              traceAddressService: addresses,
+              traceAddressAttribution: const Text('U.S. Census Geocoder',
+                  style: TextStyle(fontSize: 11)),
               portalService: UnavailableBugManPortalService())));
+    } finally {
+      addresses.dispose();
+    }
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(

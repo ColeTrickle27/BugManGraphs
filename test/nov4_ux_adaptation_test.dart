@@ -111,7 +111,8 @@ void main() {
         if (compact) expect(find.byType(CanvasQuickToolbar), findsNothing);
       }
       if (find.byTooltip('Fit drawing').evaluate().isEmpty) {
-        await t.tap(find.byTooltip('Canvas options'));
+        await t.tap(
+            find.byTooltip(compact ? 'Switch editor panel' : 'Canvas options'));
         await t.pumpAndSettle();
         await t.tap(find.text('Fit drawing'));
       } else {
@@ -131,10 +132,12 @@ void main() {
       }
       final viewerRect = t.getRect(viewerFinder);
       final toolsRect = t.getRect(find.byType(CanvasToolbar));
-      await t.tapAt(Offset(
-          viewerRect.right - 24,
-          (toolsRect.bottom + 8)
-              .clamp(viewerRect.top + 8, viewerRect.bottom - 8)));
+      await t.tapAt(compact
+          ? viewerRect.center
+          : Offset(
+              viewerRect.right - 24,
+              (toolsRect.bottom + 8)
+                  .clamp(viewerRect.top + 8, viewerRect.bottom - 8)));
       await t.pump();
       expect(find.byType(MaterialBanner), findsOneWidget);
       final noticeRect = t.getRect(find.byType(MaterialBanner));

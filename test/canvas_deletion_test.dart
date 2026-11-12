@@ -13,6 +13,21 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'support/crowded_canvas_fixture.dart';
 
+Future<void> deleteThroughToolbar(WidgetTester tester,
+    {TestGesture? mouse}) async {
+  Finder target = find.byTooltip('Delete selection');
+  if (target.evaluate().isEmpty) {
+    await tester.tap(find.byTooltip('Canvas options'));
+    await tester.pumpAndSettle();
+    target = find.widgetWithText(PopupMenuItem<Object>, 'Delete selection');
+  }
+  await tester.ensureVisible(target);
+  await tester.pumpAndSettle();
+  if (mouse != null) await mouse.moveTo(tester.getCenter(target));
+  await tester.tap(target);
+  await tester.pump();
+}
+
 void main() {
   for (final size in [const Size(390, 844), const Size(1400, 900)]) {
     testWidgets(
@@ -40,8 +55,12 @@ void main() {
       ]);
       final extended = document.toJson();
       final objects = extended['graphObjects'] as Map;
-      for (final wall in objects['wallSegments'] as List) { (wall as Map)['futureWall'] = {'source': (wall['start'] as Map)['x']}; }
-      for (final shape in objects['shapes'] as List) { (shape as Map)['futureShape'] = shape['name']; }
+      for (final wall in objects['wallSegments'] as List) {
+        (wall as Map)['futureWall'] = {'source': (wall['start'] as Map)['x']};
+      }
+      for (final shape in objects['shapes'] as List) {
+        (shape as Map)['futureShape'] = shape['name'];
+      }
       document = GraphDocument.fromJson(extended);
       final original = document.toJson();
       await tester
@@ -68,11 +87,7 @@ void main() {
           .widget<CustomPaint>(find.byKey(const ValueKey('graph-canvas-paint')))
           .foregroundPainter as dynamic;
       expect(painter().hoveredShapeIndex, 2);
-      await tester.ensureVisible(find.byTooltip('Delete selection'));
-      await tester.pumpAndSettle();
-      await mouse.moveTo(tester.getCenter(find.byTooltip('Delete selection')));
-      await tester.tap(find.byTooltip('Delete selection'));
-      await tester.pump();
+      await deleteThroughToolbar(tester, mouse: mouse);
       expect(tester.takeException(), isNull);
       expect(painter().hoveredShapeIndex, isNull);
       expect(
@@ -145,12 +160,7 @@ void main() {
           await mouse.moveTo(point);
           await tester.tapAt(point);
           await tester.pump();
-          await tester.ensureVisible(find.byTooltip('Delete selection'));
-          await tester.pumpAndSettle();
-          await mouse
-              .moveTo(tester.getCenter(find.byTooltip('Delete selection')));
-          await tester.tap(find.byTooltip('Delete selection'));
-          await tester.pump();
+          await deleteThroughToolbar(tester, mouse: mouse);
           expect(tester.takeException(), isNull);
           expect(find.byType(ErrorWidget), findsNothing);
           final deleted = document.toJson();
@@ -170,8 +180,7 @@ void main() {
                 ((original['graphObjects'] as Map)['annotations'] as List)
                     .last);
           }
-          await tester.tap(find.byTooltip('Delete selection'));
-          await tester.pump();
+          await deleteThroughToolbar(tester);
           await tester.sendKeyEvent(LogicalKeyboardKey.escape);
           await tester.pump();
           expect(document.toJson()['graphObjects'], objects);
@@ -220,11 +229,7 @@ void main() {
       await tester.pump();
       await tester.tapAt(point);
       await tester.pump();
-      await tester.ensureVisible(find.byTooltip('Delete selection'));
-      await tester.pumpAndSettle();
-      await mouse.moveTo(tester.getCenter(find.byTooltip('Delete selection')));
-      await tester.tap(find.byTooltip('Delete selection'));
-      await tester.pump();
+      await deleteThroughToolbar(tester, mouse: mouse);
       expect(tester.takeException(), isNull);
       expect(document.shapes, hasLength(1));
       expect(find.byType(ErrorWidget), findsNothing);

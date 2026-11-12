@@ -233,7 +233,9 @@ class FrameImageryService extends TraceImageryService {
   @override
   Future<TraceImagery> capture(
       {required List<GeoPoint> corners,
-      required List<GraphPoint> canvasCorners}) async {
+      required List<GraphPoint> canvasCorners,
+      TraceImageryCancellation? cancellation,
+      ValueChanged<TraceImageryProgress>? onProgress}) async {
     calls++;
     geoCorners = corners;
     return TraceImagery(

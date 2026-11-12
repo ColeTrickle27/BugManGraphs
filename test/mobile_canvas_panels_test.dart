@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 
 import 'package:bugman_graphs/editor/label_presentation.dart';
+import 'package:bugman_graphs/editor/editor_interaction_controller.dart';
 import 'package:bugman_graphs/models/graph_document.dart';
 import 'package:bugman_graphs/models/graph_annotation.dart';
 import 'package:bugman_graphs/models/trace_geometry.dart';
@@ -167,6 +168,98 @@ Future<void> expectPaintedLabelsUnclipped(
 }
 
 void main() {
+  for (final size in [
+    const Size(320, 568),
+    const Size(390, 640),
+    const Size(844, 390)
+  ]) {
+    testWidgets(
+        'primary controls fit without scrolling and zoom continuously at $size',
+        (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final document = yardDocument();
+      final before = document.toJson();
+      await tester.pumpWidget(MaterialApp(
+          theme: buildBugManTheme(),
+          home: GraphCanvasScreen(document: document)));
+      await tester.pumpAndSettle();
+      final primary = find.byType(CanvasQuickToolbar);
+      final bar = tester.getRect(primary);
+      expect(find.descendant(of: primary, matching: find.byType(Scrollable)),
+          findsNothing);
+      for (final control in [
+        find.byTooltip('Select (V)'),
+        find.byTooltip('Pan (H)'),
+        find.byTooltip('Save and share'),
+        find.byTooltip('Object properties'),
+        find.byTooltip('Canvas options')
+      ]) {
+        final rect = tester.getRect(control);
+        expect(bar.inflate(.1).contains(rect.topLeft), isTrue);
+        expect(bar.inflate(.1).contains(rect.bottomRight), isTrue);
+        expect(rect.width, greaterThanOrEqualTo(44));
+        expect(rect.height, greaterThanOrEqualTo(44));
+      }
+      final canvas = tester.getRect(find.byType(InteractiveViewer));
+      final history =
+          tester.getRect(find.byKey(const ValueKey('canvas-history-controls')));
+      final tools =
+          tester.getRect(find.byKey(const ValueKey('canvas-tools-button')));
+      expect(canvas.contains(history.topLeft), isTrue);
+      expect(canvas.contains(history.bottomRight), isTrue);
+      expect(canvas.contains(tools.topLeft), isTrue);
+      expect(canvas.contains(tools.bottomRight), isTrue);
+      expect(history.center.dx, greaterThan(canvas.center.dx));
+      expect(tools.center.dy, greaterThan(canvas.center.dy));
+      expect(find.byKey(const ValueKey('canvas-bottom-undo')), findsNothing);
+      await tester.tap(find.byTooltip('Save and share'));
+      await tester.pumpAndSettle();
+      expect(find.text('Save Graph to BugMan Graphs'), findsOneWidget);
+      await tester.tapAt(const Offset(4, 4));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Canvas options'));
+      await tester.pumpAndSettle();
+      expect(find.text('Layers'), findsOneWidget);
+      expect(find.text('Fit drawing'), findsOneWidget);
+      await tester.tapAt(const Offset(4, 4));
+      await tester.pumpAndSettle();
+      final controller = viewportController(tester);
+      final center = controller.toScene(canvas.size.center(Offset.zero));
+      final scales = <double>{};
+      void recordScale() => scales.add(controller.value.getMaxScaleOnAxis());
+      controller.addListener(recordScale);
+      final slider = find.byKey(const ValueKey('canvas-zoom-slider'));
+      expect(tester.widget<Slider>(slider).divisions, isNull);
+      final rect = tester.getRect(slider);
+      final start = rect.center;
+      final gesture = await tester.startGesture(start);
+      for (var i = 1; i <= 16; i++) {
+        await gesture.moveTo(start + Offset(i.toDouble(), 0));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
+      controller.removeListener(recordScale);
+      expect(scales.length, greaterThan(12));
+      expect(
+          (controller.toScene(canvas.size.center(Offset.zero)) - center)
+              .distance,
+          lessThan(.001));
+      expect(document.toJson(), before);
+      await tester.tap(find.byTooltip('Pan (H)'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<CanvasQuickToolbar>(primary).selectedTool,
+          CanvasTool.pan);
+      await tester.tap(find.byTooltip('Select (V)'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<CanvasQuickToolbar>(primary).selectedTool,
+          CanvasTool.select);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('mobile tool menus can pin a reachable quick tool',
       (tester) async {
     tester.view.physicalSize = const Size(390, 640);
@@ -192,8 +285,9 @@ void main() {
     await tester.tap(find.byTooltip('Add HVAC to quick tools'));
     await tester.pumpAndSettle();
     expect(find.byType(CanvasToolbar), findsNothing);
-    await tester.ensureVisible(find.byTooltip('HVAC'));
-    await tester.tap(find.byTooltip('HVAC'));
+    await tester.tap(find.byTooltip('Canvas options'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(PopupMenuItem<Object>, 'HVAC'));
     await tester.pumpAndSettle();
     expect(
         tester
@@ -514,7 +608,8 @@ void main() {
         .pumpWidget(MaterialApp(home: GraphCanvasScreen(document: document)));
     await tester.pumpAndSettle();
     final controller = viewportController(tester);
-    await tester.tap(find.byTooltip('Zoom in'));
+    await tester.drag(
+        find.byKey(const ValueKey('canvas-zoom-slider')), const Offset(15, 0));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Pan (H)'));
     await tester.pumpAndSettle();

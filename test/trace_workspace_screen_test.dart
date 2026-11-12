@@ -15,6 +15,107 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets(
+      'cancel and retry preserve both deductions and ignore a late transfer',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final provider = _FakeTraceMapProvider();
+    final service = _FakeImageryService();
+    service.jpeg = base64Encode(img.encodeJpg(img.Image(width: 2, height: 2)));
+    await tester.runAsync(() => TraceImageryCache.instance.load(TraceImagery(
+        base64Jpeg: service.jpeg, capturedAt: 'QA', corners: const [])));
+    final first = Completer<TraceImagery>();
+    service.pending = first;
+    TraceGeometry? saved;
+    const original = TraceGeometry(id: 'yard', label: 'Yard', geoPoints: [
+      GeoPoint(latitude: 35, longitude: -78),
+      GeoPoint(latitude: 35, longitude: -77.999),
+      GeoPoint(latitude: 34.999, longitude: -77.999),
+      GeoPoint(latitude: 34.999, longitude: -78),
+    ], canvasPoints: [], exclusions: [
+      TraceGeometry(id: 'home', label: 'Home', geoPoints: [
+        GeoPoint(latitude: 34.9999, longitude: -77.9999),
+        GeoPoint(latitude: 34.9999, longitude: -77.9997),
+        GeoPoint(latitude: 34.9997, longitude: -77.9997),
+      ], canvasPoints: []),
+      TraceGeometry(id: 'garage', label: 'Garage', geoPoints: [
+        GeoPoint(latitude: 34.9999, longitude: -77.9993),
+        GeoPoint(latitude: 34.9999, longitude: -77.9991),
+        GeoPoint(latitude: 34.9997, longitude: -77.9991),
+      ], canvasPoints: []),
+    ]);
+    await tester.pumpWidget(MaterialApp(
+        home: Builder(
+            builder: (context) => Scaffold(
+                body: TextButton(
+                    onPressed: () async {
+                      saved = await Navigator.push<TraceGeometry>(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => TraceWorkspaceScreen(
+                                  address: '',
+                                  canvasSize: const Size(3600, 2600),
+                                  traceLabel: 'Yard',
+                                  initialTrace: original,
+                                  provider: provider,
+                                  addressService:
+                                      _FakeAddressSuggestionService(),
+                                  imageryService: service)));
+                    },
+                    child: const Text('Open'))))));
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('trace-options')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('include-trace-imagery')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('finish-trace-button')));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Downloading image 0/4'), findsOneWidget);
+    final semantics = tester.ensureSemantics();
+    expect(
+        tester.getSemantics(find.byKey(const ValueKey('finish-trace-button'))),
+        matchesSemantics(
+            label: 'Cancel transfer',
+            isButton: true,
+            hasEnabledState: true,
+            isEnabled: true,
+            hasTapAction: true,
+            hasFocusAction: true,
+            isFocusable: true));
+    semantics.dispose();
+    await tester.tap(find.text('Cancel transfer'));
+    await tester.pumpAndSettle();
+    expect(saved, isNull);
+    expect(provider.points, original.geoPoints);
+    expect(find.text('Home'), findsOneWidget);
+    expect(find.text('Garage'), findsOneWidget);
+    final second = Completer<TraceImagery>();
+    service.pending = second;
+    await tester.tap(find.byKey(const ValueKey('finish-trace-button')));
+    await tester.pump(const Duration(milliseconds: 100));
+    first.complete(TraceImagery(
+        base64Jpeg: service.jpeg,
+        corners: service.capturedCorners,
+        capturedAt: 'Cancelled result'));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(saved, isNull);
+    expect(find.text('Cancel transfer'), findsOneWidget);
+    second.complete(TraceImagery(
+        base64Jpeg: service.jpeg,
+        corners: service.capturedCorners,
+        capturedAt: 'Current result'));
+    await tester.pumpAndSettle();
+    expect(saved!.imagery!.capturedAt, 'Current result');
+    expect(saved!.geoPoints, original.geoPoints);
+    expect(saved!.exclusions.map((e) => e.label), ['Home', 'Garage']);
+    expect(TraceAreaService.netSquareMeters(saved!),
+        closeTo(TraceAreaService.netSquareMeters(original), .00001));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
       'phone workflow deducts a building, preserves failed transfer, and saves satellite imagery',
       (tester) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -623,11 +724,18 @@ class _ManySuggestionsService extends _FakeAddressSuggestionService {
 class _FakeImageryService extends TraceImageryService {
   bool fail = false;
   String jpeg = '';
+  Completer<TraceImagery>? pending;
+  List<GraphPoint> capturedCorners = const [];
   @override
   Future<TraceImagery> capture(
       {required List<GeoPoint> corners,
-      required List<GraphPoint> canvasCorners}) async {
+      required List<GraphPoint> canvasCorners,
+      TraceImageryCancellation? cancellation,
+      ValueChanged<TraceImageryProgress>? onProgress}) async {
+    capturedCorners = canvasCorners;
+    onProgress?.call(const TraceImageryProgress(0, 4));
     if (fail) throw StateError('Offline');
+    if (pending != null) return pending!.future;
     return TraceImagery(
         base64Jpeg: jpeg, corners: canvasCorners, capturedAt: 'QA');
   }

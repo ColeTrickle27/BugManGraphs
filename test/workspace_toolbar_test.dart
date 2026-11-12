@@ -9,8 +9,7 @@ void main() {
     const Size(390, 844),
     const Size(1400, 900)
   ]) {
-    testWidgets(
-        'history stays visible at bottom with clear share/settings labels at $size',
+    testWidgets('history and primary save remain visible at $size',
         (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = size;
@@ -20,23 +19,34 @@ void main() {
       await tester.pumpWidget(MaterialApp(
           home: GraphCanvasScreen(document: crowdedCanvasFixture())));
       await tester.pumpAndSettle();
-      for (final key in ['canvas-bottom-undo', 'canvas-bottom-redo']) {
-        final finder = find.byKey(ValueKey(key));
+      final compact = size.shortestSide < 600;
+      for (final tooltip in ['Undo', 'Redo']) {
+        final finder = find.byTooltip(tooltip);
         final rect = tester.getRect(finder);
-        expect(rect.top, greaterThan(size.height / 2));
+        expect(rect.top,
+            compact ? lessThan(size.height / 2) : greaterThan(size.height / 2));
         expect(rect.left, greaterThanOrEqualTo(0));
         expect(rect.right, lessThanOrEqualTo(size.width));
         expect(rect.width, greaterThanOrEqualTo(44));
         expect(rect.height, greaterThanOrEqualTo(44));
-        expect(tester.widget<IconButton>(finder).onPressed, isNull);
+        expect(
+            tester
+                .widget<IconButton>(find.widgetWithIcon(
+                    IconButton, tooltip == 'Undo' ? Icons.undo : Icons.redo))
+                .onPressed,
+            isNull);
       }
       expect(find.byTooltip('Undo'), findsOneWidget);
       expect(find.byTooltip('Redo'), findsOneWidget);
       expect(find.byTooltip('Save and share'), findsOneWidget);
-      expect(find.byIcon(Icons.ios_share), findsOneWidget);
+      expect(find.byIcon(compact ? Icons.save_outlined : Icons.ios_share),
+          findsOneWidget);
       expect(find.byTooltip('Canvas options'), findsOneWidget);
       expect(find.byTooltip('Object properties'), findsOneWidget);
-      expect(find.byIcon(Icons.display_settings_outlined), findsOneWidget);
+      expect(
+          find.byIcon(
+              compact ? Icons.more_horiz : Icons.display_settings_outlined),
+          findsOneWidget);
       expect(find.byIcon(Icons.edit_note), findsOneWidget);
       await tester.tap(find.byTooltip('Save and share'));
       await tester.pumpAndSettle();
