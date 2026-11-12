@@ -155,6 +155,10 @@ void main() {
       expect(document.annotations.last.point.x, 850);
       await tester.tapAt(screen(const Offset(850, 700)));
       await tester.pumpAndSettle();
+      if (find.text('Choose overlap').evaluate().isEmpty) {
+        await tester.tap(find.byTooltip('Canvas options'));
+        await tester.pumpAndSettle();
+      }
       await tester.tap(find.text('Choose overlap'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ListTile, 'Side Door'));

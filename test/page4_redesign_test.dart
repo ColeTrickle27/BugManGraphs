@@ -39,14 +39,14 @@ void main() {
     final matrix = Matrix4.identity()..translateByDouble(200, -70, 0, 1);
     const anchor = Offset(430, 280);
     final before = MatrixUtils.transformPoint(Matrix4.inverted(matrix), anchor);
-    for (final scale in [.001, .01, .25, 1.0, 4.0, 32.0, 100.0]) {
+    for (final scale in [.0001, .001, .01, .25, 1.0, 4.0, 32.0, 100.0]) {
       final zoomed = EditorViewport.zoomAt(matrix, anchor, scale);
       expect(
           (MatrixUtils.transformPoint(Matrix4.inverted(zoomed), anchor) -
                   before)
               .distance,
           lessThan(1e-8));
-      expect(zoomed.getMaxScaleOnAxis(), scale.clamp(.01, 32));
+      expect(zoomed.getMaxScaleOnAxis(), scale.clamp(.001, 32));
     }
     const bounds = Rect.fromLTRB(-2500, -2000, 4200, 1700);
     const viewport = Rect.fromLTWH(120, 60, 1100, 650);

@@ -19,10 +19,12 @@ class TraceGeometryPainter extends CustomPainter {
     this.labels = const LabelPresentation(),
     this.selectedTraceIndex,
     this.hoveredTraceIndex,
+    this.showDetails = true,
   }) : super(repaint: TraceImageryCache.instance);
 
   final List<TraceGeometry> traces;
   final LabelPresentation labels;
+  final bool showDetails;
   static double displayScaleFor(
       List<TraceGeometry> traces, LabelPresentation labels) {
     final scale = TracePresentation.labelScale(traces);
@@ -124,15 +126,16 @@ class TraceGeometryPainter extends CustomPainter {
           ..layout(maxWidth: 220);
         label.paint(canvas, e.canvasPoints.first.offset);
       }
-      _drawSegmentMeasurements(canvas, trace);
-      if (!labels.bounded ||
-          selected ||
-          hovered ||
-          source.imagery != null ||
-          source.exclusions.isNotEmpty) {
+      if (showDetails) _drawSegmentMeasurements(canvas, trace);
+      if (showDetails &&
+          (!labels.bounded ||
+              selected ||
+              hovered ||
+              source.imagery != null ||
+              source.exclusions.isNotEmpty)) {
         _drawSummary(canvas, trace);
       }
-      _drawScaleBar(canvas, trace);
+      if (showDetails) _drawScaleBar(canvas, trace);
       if (selected) _drawRotationHandle(canvas, trace);
     }
     canvas.restore();
@@ -168,6 +171,7 @@ class TraceGeometryPainter extends CustomPainter {
     canvas.drawImage(
         image, Offset.zero, Paint()..filterQuality = FilterQuality.medium);
     canvas.restore();
+    if (!showDetails) return;
     final bounds = imagery.bounds!;
     final attribution = TextPainter(
         text: TextSpan(
@@ -473,6 +477,7 @@ class TraceGeometryPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant TraceGeometryPainter oldDelegate) =>
+      oldDelegate.showDetails != showDetails ||
       oldDelegate.labels.zoom != labels.zoom ||
       oldDelegate.labels.textScale != labels.textScale ||
       oldDelegate.traces != traces ||

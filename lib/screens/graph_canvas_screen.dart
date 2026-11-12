@@ -190,6 +190,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   final GlobalKey _canvasViewportKey = GlobalKey(debugLabel: 'Graph viewport');
   final TransformationController _transformationController =
       TransformationController();
+  Matrix4? _fittedViewport;
   // Not `late final`: "Save As New" recovery (items 10/11 of the
   // production pass) needs to swap in a fresh GraphDocument (via
   // GraphDocument.withNewIdentity) mid-session without tearing down and
@@ -1731,12 +1732,20 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       if (previous != null && previous != viewportSize) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted || _editorViewportSize != viewportSize) return;
+          final wasFitted = _fittedViewport == _transformationController.value;
+          // Refit only an existing fitted view. User zoom and pan keep their
+          // scale and scene center when a dock or the keyboard changes size.
+          if (_compactEditor && wasFitted) {
+            _fitDrawing();
+            return;
+          }
           final matrix = _transformationController.value.clone();
           matrix.setEntry(0, 3,
               matrix.entry(0, 3) + (viewportSize.width - previous.width) / 2);
           matrix.setEntry(1, 3,
               matrix.entry(1, 3) + (viewportSize.height - previous.height) / 2);
           _transformationController.value = matrix;
+          if (wasFitted) _fittedViewport = matrix.clone();
         });
       }
       return;
@@ -1778,13 +1787,14 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
               math.max(1, usable.width - 48) / math.max(bounds.width, 1),
               math.max(1, usable.height - 48) / math.max(bounds.height, 1),
             )
-            .clamp(0.01, 4.0);
+            .clamp(EditorViewport.minScale, 4.0);
         _transformationController.value = Matrix4.identity()
           ..setEntry(0, 0, scale)
           ..setEntry(1, 1, scale)
           ..setEntry(2, 2, scale)
           ..setEntry(0, 3, usable.center.dx - bounds.center.dx * scale)
           ..setEntry(1, 3, usable.center.dy - bounds.center.dy * scale);
+        _fittedViewport = _transformationController.value.clone();
         return;
       }
       if (_traceLayerVisible && _traces.isNotEmpty) {
@@ -5950,16 +5960,20 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       _drawingScale.toDisplay(canonicalBounds.bottomRight),
     );
     final leftInset =
-        widget.presentationMode || _compactEditor || _mainToolbarCollapsed ? 0.0 : 120.0;
+        widget.presentationMode || _compactEditor || _mainToolbarCollapsed
+            ? 0.0
+            : 120.0;
     final rightInset =
-        widget.presentationMode || _compactEditor || _sidePanelMode == null ? 0.0 : 280.0;
+        widget.presentationMode || _compactEditor || _sidePanelMode == null
+            ? 0.0
+            : 280.0;
     final usable = Rect.fromLTWH(
       leftInset,
       0,
       math.max(1, size.width - leftInset - rightInset),
       size.height,
     );
-    const padding = 96.0;
+    final padding = _compactEditor ? 64.0 : 96.0;
     final scale = math
         .min(
           (usable.width - padding).clamp(1.0, double.infinity) /
@@ -5967,7 +5981,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
           (usable.height - padding).clamp(1.0, double.infinity) /
               math.max(bounds.height, 1),
         )
-        .clamp(0.01, 4.0);
+        .clamp(EditorViewport.minScale, 4.0);
     final viewportCenter = usable.center;
     final next = Matrix4.identity()
       ..setEntry(0, 0, scale)
@@ -5976,6 +5990,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       ..setEntry(0, 3, viewportCenter.dx - (bounds.center.dx * scale))
       ..setEntry(1, 3, viewportCenter.dy - (bounds.center.dy * scale));
     _transformationController.value = next;
+    _fittedViewport = next.clone();
   }
 
   void _toggleLayerVisibility(_GraphLayer layer) {
@@ -6817,28 +6832,6 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     _mainToolbarCollapsed = false;
   });
 
-  Widget _fitEditorPanel(
-    BoxConstraints constraints,
-    Widget child, {
-    required bool compact,
-    bool empty = false,
-  }) {
-    final height = compact
-        ? math.min(
-            constraints.maxHeight,
-            empty ? 128.0 : math.max(104.0, constraints.maxHeight * 0.45),
-          )
-        : constraints.maxHeight;
-    return Align(
-      alignment: Alignment.topLeft,
-      child: SizedBox(
-        width: constraints.maxWidth,
-        height: height,
-        child: child,
-      ),
-    );
-  }
-
   void _togglePropertiesCollapsed() {
     setState(() {
       _setSidePanel(
@@ -7140,12 +7133,18 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   void _fitDrawing() {
-    final bounds = ExportBoundsCalculator.forDocument(_document, padding: 48);
+    final canonicalBounds =
+        ExportBoundsCalculator.forDocument(_document, padding: 48);
+    final bounds = Rect.fromPoints(
+      _drawingScale.toDisplay(canonicalBounds.topLeft),
+      _drawingScale.toDisplay(canonicalBounds.bottomRight),
+    );
     _transformationController.value = EditorViewport.fit(
       bounds,
       _usableViewport,
-      padding: 12,
+      padding: _compactEditor && _traces.isNotEmpty ? 32 : 12,
     );
+    _fittedViewport = _transformationController.value.clone();
     setState(
       () =>
           _canvasStatus = 'Drawing fitted to viewport — calibration unchanged',
@@ -8079,9 +8078,27 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     const sidePanelWidth = 268.0;
     const canvasRightInset = 12.0;
     const canvasLeftInset = 12.0;
-    final canvasBottomInset = _quickToolbarCollapsed
-        ? 64.0
-        : (MediaQuery.sizeOf(context).width < 760 ? 126.0 : 82.0);
+    final keyboardVisible =
+        compactPanels && MediaQuery.viewInsetsOf(context).bottom > 0;
+    final overviewTrace =
+        compactPanels && _traceLayerVisible && _traces.isNotEmpty
+            ? _traces[_selection?.traceIndex ?? _traces.length - 1]
+            : null;
+    final attribution = overviewTrace?.imagery?.attribution;
+    final traceOverviewShown = overviewTrace != null && !keyboardVisible;
+    final chooseOverlapAvailable = _selection != null &&
+        _lastTapSceneOffset != null &&
+        _objectsAt(_lastTapSceneOffset!).length > 1;
+    final changeShapeTypeAvailable =
+        _selection?.shapeIndex != null && _isSelectionEditable(_selection!);
+    final canvasBottomInset = (keyboardVisible
+            ? 12.0
+            : _quickToolbarCollapsed
+                ? 64.0
+                : compactPanels
+                    ? 76.0
+                    : (MediaQuery.sizeOf(context).width < 760 ? 126.0 : 82.0)) +
+        (attribution != null ? 18 : 0);
     final documentTitle = _document.customer.displayName;
     final propertyLineSummary = _latestPropertyLineMeasurementSummary;
     final viewportWidth = MediaQuery.sizeOf(context).width;
@@ -8148,151 +8165,196 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
             children: [
               if (_canvasNotice != null) _buildCanvasNotice(),
               Expanded(
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      left: canvasLeftInset,
-                      top: 54,
-                      right: canvasRightInset,
-                      bottom: canvasBottomInset,
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          _centerCanvasInViewport(constraints.biggest);
-                          return MouseRegion(
-                            cursor: _canvasCursor,
-                            child: Listener(
-                              key: _canvasViewportKey,
-                              behavior: HitTestBehavior.opaque,
-                              onPointerDown: _handlePointerDown,
-                              onPointerMove: _handlePointerMove,
-                              onPointerHover: _handlePointerHover,
-                              onPointerUp: _handlePointerUp,
-                              onPointerCancel: _handlePointerCancel,
-                              onPointerSignal: _handlePointerSignal,
-                              child: InteractiveViewer(
-                                transformationController:
-                                    _transformationController,
-                                panEnabled: _selectedTool == CanvasTool.pan ||
-                                    _spacePanActive,
-                                scaleEnabled: true,
-                                constrained: false,
-                                minScale: EditorViewport.minScale,
-                                maxScale: EditorViewport.maxScale,
-                                // Traces can extend beyond the fixed drawing
-                                // surface. Do not let gesture bounds override
-                                // their fitted scale or prevent panning.
-                                boundaryMargin: const EdgeInsets.all(
-                                  double.infinity,
-                                ),
-                                child: Transform.scale(
-                                  scale: _drawingScale.presentationFactor,
-                                  alignment: Alignment.topLeft,
-                                  child: GraphSceneBoundary(
-                                    key: _canvasBoundaryKey,
-                                    sceneBounds: _sceneBounds,
-                                    child: _CanvasSurface(
-                                      canvasSize: _canvasSize,
-                                      sceneBounds: _sceneBounds,
-                                      wallSegments: _wallSegments,
-                                      annotations: _annotations,
-                                      shapes: _shapes,
-                                      freehandStrokes: _freehandStrokes,
-                                      traces: _traces,
-                                      draftFreehandPoints: _draftFreehandPoints,
-                                      previewShapeSegments:
-                                          _previewShapeSegments,
-                                      previewShape: _previewShape,
-                                      hiddenSegmentIndexes:
-                                          _shapeSegmentIndexSet,
-                                      gridVisible: _gridVisible,
-                                      drawingScale: _drawingScale,
-                                      labels: _labels,
-                                      selectedSegmentIndex:
-                                          _selection?.segmentIndex,
-                                      selectedAnnotationIndex:
-                                          _selection?.annotationIndex,
-                                      selectedShapeIndex:
-                                          _selection?.shapeIndex,
-                                      selectedFreehandIndex:
-                                          _selection?.freehandIndex,
-                                      selectedTraceIndex:
-                                          _selection?.traceIndex,
-                                      hoveredSegmentIndex:
-                                          _hoverSelection?.segmentIndex,
-                                      hoveredAnnotationIndex:
-                                          _hoverSelection?.annotationIndex,
-                                      hoveredShapeIndex:
-                                          _hoverSelection?.shapeIndex,
-                                      hoveredFreehandIndex:
-                                          _hoverSelection?.freehandIndex,
-                                      hoveredTraceIndex:
-                                          _hoverSelection?.traceIndex,
-                                      activeWallStart: _activeWallStart,
-                                      previewSegment: _previewSegment,
-                                      treatmentCalloutTip: _treatmentCalloutTip,
-                                      treatmentCalloutBox: _treatmentCalloutBox,
-                                      activeCalloutKind: _activeCalloutKind,
-                                      structureVisible: _isLayerVisible(
-                                        _GraphLayer.structure,
-                                      ),
-                                      shapesVisible: _isLayerVisible(
+                child: LayoutBuilder(builder: (context, constraints) {
+                  final overviewHeight =
+                      constraints.maxWidth >= 600 ? 24.0 : 40.0;
+                  final canvasTop = compactPanels
+                      ? (overviewTrace != null && !keyboardVisible
+                          ? 72.0 + overviewHeight
+                          : 64.0)
+                      : 54.0;
+                  final panelBottom =
+                      constraints.maxHeight - canvasBottomInset - 8;
+                  final availableHeight =
+                      math.max(1.0, panelBottom - canvasTop);
+                  final dockOnRight =
+                      constraints.maxWidth > constraints.maxHeight;
+                  final emptyProperties =
+                      _sidePanelMode == _SidePanelMode.properties &&
+                          _selection == null;
+                  final dockWidth = dockOnRight
+                      ? math.min(sidePanelWidth, constraints.maxWidth * .42)
+                      : constraints.maxWidth - 24;
+                  final dockHeight = dockOnRight
+                      ? availableHeight
+                      : math.min(emptyProperties ? 112.0 : 180.0,
+                          availableHeight * .36);
+                  final dock = Rect.fromLTWH(
+                    constraints.maxWidth - dockWidth - 12,
+                    panelBottom - dockHeight,
+                    dockWidth,
+                    dockHeight,
+                  );
+                  final dockVisible = compactPanels &&
+                      (!_mainToolbarCollapsed || _sidePanelMode != null);
+                  final canvasRect = Rect.fromLTRB(
+                    canvasLeftInset,
+                    canvasTop,
+                    constraints.maxWidth -
+                        canvasRightInset -
+                        (dockVisible && dockOnRight ? dockWidth + 8 : 0),
+                    constraints.maxHeight -
+                        canvasBottomInset -
+                        (dockVisible && !dockOnRight ? dockHeight + 16 : 0),
+                  );
+                  return Stack(
+                    children: [
+                      Positioned.fromRect(
+                        rect: canvasRect,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            _centerCanvasInViewport(constraints.biggest);
+                            return MouseRegion(
+                              cursor: _canvasCursor,
+                              child: Semantics(
+                                label: 'Drawing canvas',
+                                container: true,
+                                child: Listener(
+                                  key: _canvasViewportKey,
+                                  behavior: HitTestBehavior.opaque,
+                                  onPointerDown: _handlePointerDown,
+                                  onPointerMove: _handlePointerMove,
+                                  onPointerHover: _handlePointerHover,
+                                  onPointerUp: _handlePointerUp,
+                                  onPointerCancel: _handlePointerCancel,
+                                  onPointerSignal: _handlePointerSignal,
+                                  child: InteractiveViewer(
+                                    transformationController:
+                                        _transformationController,
+                                    panEnabled:
+                                        _selectedTool == CanvasTool.pan ||
+                                            _spacePanActive,
+                                    scaleEnabled: true,
+                                    constrained: false,
+                                    minScale: EditorViewport.minScale,
+                                    maxScale: EditorViewport.maxScale,
+                                    // Traces can extend beyond the fixed drawing
+                                    // surface. Do not let gesture bounds override
+                                    // their fitted scale or prevent panning.
+                                    boundaryMargin: const EdgeInsets.all(
+                                      double.infinity,
+                                    ),
+                                    child: Transform.scale(
+                                      scale: _drawingScale.presentationFactor,
+                                      alignment: Alignment.topLeft,
+                                      child: GraphSceneBoundary(
+                                        key: _canvasBoundaryKey,
+                                        sceneBounds: _sceneBounds,
+                                        child: _CanvasSurface(
+                                          canvasSize: _canvasSize,
+                                          sceneBounds: _sceneBounds,
+                                          wallSegments: _wallSegments,
+                                          annotations: _annotations,
+                                          shapes: _shapes,
+                                          freehandStrokes: _freehandStrokes,
+                                          traces: _traces,
+                                          draftFreehandPoints:
+                                              _draftFreehandPoints,
+                                          previewShapeSegments:
+                                              _previewShapeSegments,
+                                          previewShape: _previewShape,
+                                          hiddenSegmentIndexes:
+                                              _shapeSegmentIndexSet,
+                                          gridVisible: _gridVisible,
+                                          drawingScale: _drawingScale,
+                                          labels: _labels,
+                                          selectedSegmentIndex:
+                                              _selection?.segmentIndex,
+                                          selectedAnnotationIndex:
+                                              _selection?.annotationIndex,
+                                          selectedShapeIndex:
+                                              _selection?.shapeIndex,
+                                          selectedFreehandIndex:
+                                              _selection?.freehandIndex,
+                                          selectedTraceIndex:
+                                              _selection?.traceIndex,
+                                          hoveredSegmentIndex:
+                                              _hoverSelection?.segmentIndex,
+                                          hoveredAnnotationIndex:
+                                              _hoverSelection?.annotationIndex,
+                                          hoveredShapeIndex:
+                                              _hoverSelection?.shapeIndex,
+                                          hoveredFreehandIndex:
+                                              _hoverSelection?.freehandIndex,
+                                          hoveredTraceIndex:
+                                              _hoverSelection?.traceIndex,
+                                          activeWallStart: _activeWallStart,
+                                          previewSegment: _previewSegment,
+                                          treatmentCalloutTip:
+                                              _treatmentCalloutTip,
+                                          treatmentCalloutBox:
+                                              _treatmentCalloutBox,
+                                          activeCalloutKind: _activeCalloutKind,
+                                          structureVisible: _isLayerVisible(
                                             _GraphLayer.structure,
-                                          ) &&
-                                          _isLayerVisible(
-                                            _GraphLayer.shapes,
                                           ),
-                                      inspectionsVisible: _isLayerVisible(
-                                        _GraphLayer.inspections,
+                                          shapesVisible: _isLayerVisible(
+                                                _GraphLayer.structure,
+                                              ) &&
+                                              _isLayerVisible(
+                                                _GraphLayer.shapes,
+                                              ),
+                                          inspectionsVisible: _isLayerVisible(
+                                            _GraphLayer.inspections,
+                                          ),
+                                          treatmentVisible: _isLayerVisible(
+                                            _GraphLayer.treatment,
+                                          ),
+                                          photosVisible: _isLayerVisible(
+                                            _GraphLayer.photos,
+                                          ),
+                                          traceLayerVisible: _traceLayerVisible,
+                                        ),
                                       ),
-                                      treatmentVisible: _isLayerVisible(
-                                        _GraphLayer.treatment,
-                                      ),
-                                      photosVisible: _isLayerVisible(
-                                        _GraphLayer.photos,
-                                      ),
-                                      traceLayerVisible: _traceLayerVisible,
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
-                    ),
-                    if (_isInlineTextEditing)
-                      Positioned.fill(
-                        left: canvasLeftInset,
-                        top: 54,
-                        right: canvasRightInset,
-                        bottom: canvasBottomInset,
-                        child: LayoutBuilder(
-                          builder: (context, constraints) => AnimatedBuilder(
-                            animation: _transformationController,
-                            builder: (context, _) => Stack(
-                              children: [
-                                if (_buildInlineTextEditor(constraints.biggest)
-                                    case final editor?)
-                                  editor,
-                              ],
+                      if (_isInlineTextEditing)
+                        Positioned.fromRect(
+                          rect: canvasRect,
+                          child: LayoutBuilder(
+                            builder: (context, constraints) => AnimatedBuilder(
+                              animation: _transformationController,
+                              builder: (context, _) => Stack(
+                                children: [
+                                  if (_buildInlineTextEditor(
+                                          constraints.biggest)
+                                      case final editor?)
+                                    editor,
+                                ],
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    Positioned(
-                      left: 12,
-                      top: 54,
-                      bottom: compactPanels
-                          ? canvasBottomInset + 8
-                          : landscape && !toolbarsFitSideBySide
-                          ? 80
-                          : 12,
-                      right: compactPanels ? 12 : null,
-                      width: compactPanels ? null : _mainToolbarWidth,
-                      child: LayoutBuilder(
-                        builder: (context, constraints) => _fitEditorPanel(
-                          constraints,
-                          Offstage(
+                      Positioned.fromRect(
+                        rect: compactPanels
+                            ? dock
+                            : Rect.fromLTRB(
+                                12,
+                                54,
+                                12 + _mainToolbarWidth,
+                                constraints.maxHeight -
+                                    (landscape && !toolbarsFitSideBySide
+                                        ? 80
+                                        : 12),
+                              ),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) => Offstage(
                             offstage: _mainToolbarCollapsed,
                             child: ExcludeFocus(
                               excluding: _mainToolbarCollapsed,
@@ -8313,317 +8375,347 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                               ),
                             ),
                           ),
-                          compact: compactPanels,
                         ),
                       ),
-                    ),
-                    if (_mainToolbarCollapsed)
-                      Positioned(
-                        left: 12,
-                        top: 54,
-                        child: Material(
-                          elevation: 6,
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                          child: Tooltip(
-                            message: 'Show main toolbar',
-                            child: TextButton.icon(
-                              onPressed: _showMainToolbar,
-                              icon: const Icon(Icons.tune),
-                              label: const Text('Tools'),
+                      if (_mainToolbarCollapsed && !compactPanels)
+                        Positioned(
+                          left: 12,
+                          top: 54,
+                          child: Material(
+                            elevation: 6,
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                            child: Tooltip(
+                              message: 'Show main toolbar',
+                              child: TextButton.icon(
+                                onPressed: _showMainToolbar,
+                                icon: const Icon(Icons.tune),
+                                label: const Text('Tools'),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    Positioned(
-                      left: !compactPanels && !_mainToolbarCollapsed && toolbarsFitSideBySide
-                          ? canvasLeftInset + _mainToolbarWidth + 12
-                          : canvasLeftInset,
-                      right: canvasRightInset,
-                      bottom: 12,
-                      child: Align(
-                        alignment: Alignment.bottomCenter,
-                        child: _quickToolbarCollapsed
-                            ? Material(
-                                elevation: 8,
-                                color: Colors.white,
-                                shape: const CircleBorder(),
-                                child: IconButton(
-                                  key: const ValueKey(
-                                    'show-canvas-quick-toolbar',
-                                  ),
-                                  tooltip: 'Show quick toolbar',
-                                  onPressed: () => setState(
-                                    () => _quickToolbarCollapsed = false,
-                                  ),
-                                  icon: const Icon(Icons.keyboard_arrow_up),
-                                ),
-                              )
-                            : _drawingActive
-                                ? Opacity(
-                                    key: const ValueKey(
-                                      'drawing-essential-controls',
-                                    ),
-                                    opacity: 0.72,
-                                    child: Material(
-                                      color: Colors.white,
-                                      shape: const StadiumBorder(),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            tooltip: 'Undo',
-                                            icon: const Icon(Icons.undo),
-                                            onPressed: _undoLastAction,
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Redo',
-                                            icon: const Icon(Icons.redo),
-                                            onPressed: _redoStack.isEmpty
-                                                ? null
-                                                : _redoLastAction,
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Cancel drawing',
-                                            icon: const Icon(Icons.close),
-                                            onPressed: _cancelActiveDrawing,
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Finish drawing',
-                                            icon: const Icon(Icons.check),
-                                            onPressed: _finishWallPath,
-                                          ),
-                                        ],
+                      Positioned(
+                        left: !compactPanels &&
+                                !_mainToolbarCollapsed &&
+                                toolbarsFitSideBySide
+                            ? canvasLeftInset + _mainToolbarWidth + 12
+                            : canvasLeftInset,
+                        right: canvasRightInset,
+                        bottom: 12,
+                        child: Offstage(
+                          offstage: keyboardVisible,
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: _quickToolbarCollapsed
+                                ? Material(
+                                    elevation: 8,
+                                    color: Colors.white,
+                                    shape: const CircleBorder(),
+                                    child: IconButton(
+                                      key: const ValueKey(
+                                        'show-canvas-quick-toolbar',
                                       ),
+                                      tooltip: 'Show quick toolbar',
+                                      onPressed: () => setState(
+                                        () => _quickToolbarCollapsed = false,
+                                      ),
+                                      icon: const Icon(Icons.keyboard_arrow_up),
                                     ),
                                   )
-                                : CanvasQuickToolbar(
-                                    showHistory: true,
-                                    canUndo: _undoStack.isNotEmpty ||
-                                        _activeWallStart != null,
-                                    canRedo: _redoStack.isNotEmpty,
-                                    actions: _quickToolbarActions,
-                                    selectedTool: _selectedTool,
-                                    selectedMarkerType: _selectedMarkerType,
-                                    selectedDrawingPreset:
-                                        _selectedDrawingPreset,
-                                    onActionSelected: _activateToolbarAction,
-                                    onActionAdded: _addQuickToolbarAction,
-                                    onReset: _resetQuickToolbar,
-                                    propertiesSelected: _sidePanelMode ==
-                                        _SidePanelMode.properties,
-                                    layersSelected:
-                                        _sidePanelMode == _SidePanelMode.layers,
-                                    onToggleProperties:
-                                        _togglePropertiesCollapsed,
-                                    onToggleLayers: _toggleLayersPanel,
-                                    onDeleteSelection: _deleteSelection,
-                                    onUndo: _undoLastAction,
-                                    onRedo: _redoLastAction,
-                                    onCollapse: () => setState(
-                                      () => _quickToolbarCollapsed = true,
-                                    ),
-                                  ),
-                      ),
-                    ),
-                    if (_selection != null &&
-                        _lastTapSceneOffset != null &&
-                        _objectsAt(_lastTapSceneOffset!).length > 1)
-                      Positioned(
-                        right: 12,
-                        top: 62,
-                        child: Material(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          child: TextButton.icon(
-                            icon: const Icon(Icons.layers_outlined),
-                            label: const Text('Choose overlap'),
-                            onPressed: () =>
-                                _chooseOverlappingObjects(_lastTapSceneOffset!),
+                                : _drawingActive
+                                    ? Opacity(
+                                        key: const ValueKey(
+                                          'drawing-essential-controls',
+                                        ),
+                                        opacity: 0.72,
+                                        child: Material(
+                                          color: Colors.white,
+                                          shape: const StadiumBorder(),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              IconButton(
+                                                tooltip: 'Undo',
+                                                icon: const Icon(Icons.undo),
+                                                onPressed: _undoLastAction,
+                                              ),
+                                              IconButton(
+                                                tooltip: 'Redo',
+                                                icon: const Icon(Icons.redo),
+                                                onPressed: _redoStack.isEmpty
+                                                    ? null
+                                                    : _redoLastAction,
+                                              ),
+                                              IconButton(
+                                                tooltip: 'Cancel drawing',
+                                                icon: const Icon(Icons.close),
+                                                onPressed: _cancelActiveDrawing,
+                                              ),
+                                              IconButton(
+                                                tooltip: 'Finish drawing',
+                                                icon: const Icon(Icons.check),
+                                                onPressed: _finishWallPath,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      )
+                                    : CanvasQuickToolbar(
+                                        showHistory: true,
+                                        canUndo: _undoStack.isNotEmpty ||
+                                            _activeWallStart != null,
+                                        canRedo: _redoStack.isNotEmpty,
+                                        actions: _quickToolbarActions,
+                                        selectedTool: _selectedTool,
+                                        selectedMarkerType: _selectedMarkerType,
+                                        selectedDrawingPreset:
+                                            _selectedDrawingPreset,
+                                        onActionSelected:
+                                            _activateToolbarAction,
+                                        onActionAdded: _addQuickToolbarAction,
+                                        onReset: _resetQuickToolbar,
+                                        propertiesSelected: _sidePanelMode ==
+                                            _SidePanelMode.properties,
+                                        layersSelected: _sidePanelMode ==
+                                            _SidePanelMode.layers,
+                                        onToggleProperties:
+                                            _togglePropertiesCollapsed,
+                                        onToggleLayers: _toggleLayersPanel,
+                                        onDeleteSelection: _deleteSelection,
+                                        onUndo: _undoLastAction,
+                                        onRedo: _redoLastAction,
+                                        onCollapse: () => setState(
+                                          () => _quickToolbarCollapsed = true,
+                                        ),
+                                      ),
                           ),
                         ),
                       ),
-                    Positioned(
-                      left: 12,
-                      right: 12,
-                      top: 8,
-                      child: Tooltip(
-                        message: _canvasStatus,
-                        child: ValueListenableBuilder<Matrix4>(
-                          valueListenable: _transformationController,
-                          builder: (context, matrix, child) =>
-                              _TopEditorToolbar(
-                            drawingRatioLabel: _scaleLabel,
-                            onDrawingRatioChanged: _setScaleLabel,
-                            onLabelSmaller: () => setState(
-                              () => _labelTextScale =
-                                  (_labelTextScale - 0.15).clamp(0.7, 1.6),
-                            ),
-                            onLabelLarger: () => setState(
-                              () => _labelTextScale =
-                                  (_labelTextScale + 0.15).clamp(0.7, 1.6),
-                            ),
-                            onFinish: _finishWallPath,
-                            finishLabel: _selectedTool == CanvasTool.wall
-                                ? 'Finish Line'
-                                : 'Close Shape',
-                            onClear: _confirmClearGraph,
-                            onSaveGraphFile: _handleGraphFileSaveTapped,
-                            onEditGraphInformation: _editGraphInformation,
-                            onSavePng: () =>
-                                _openFileHandoff(GraphFileAction.savePng),
-                            onSavePdf: () =>
-                                _openFileHandoff(GraphFileAction.savePdf),
-                            onEmailPdf: () =>
-                                _openFileHandoff(GraphFileAction.emailPdf),
-                            onExportPdf: _exportGraphPdf,
-                            onExportPng: _exportGraphPng,
-                            onSaveAndCreateSalesBrainReport:
-                                _saveAndCreateSalesBrainReport,
-                            onNewWithExistingStructure:
-                                _newGraphWithExistingStructure,
-                            onZoomIn: () => _zoomBy(1.2),
-                            onZoomOut: () => _zoomBy(1 / 1.2),
-                            onResetZoom: _resetZoom,
-                            gridVisible: _gridVisible,
-                            onToggleGrid: _toggleGridVisible,
-                            snapToGrid: _snapToGrid,
-                            onToggleSnapToGrid: _toggleSnapToGrid,
-                            onFitDrawing: _fitDrawing,
-                            scaleLabel: EditorViewport.label(matrix),
-                            onScaleChanged: _setZoomPercent,
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (_selection?.shapeIndex != null &&
-                        _isSelectionEditable(_selection!))
-                      Positioned(
-                        top: 62,
-                        right: 16,
-                        child: ActionChip(
-                          avatar: const Icon(Icons.edit_outlined, size: 18),
-                          label: Text(
-                            'Type: ${_shapes[_selection!.shapeIndex!].preset?.label ?? 'Unclassified'}',
-                          ),
-                          tooltip: 'Change shape type',
-                          onPressed: () => _classifySketch(
-                            _selection!.shapeIndex!,
-                            editing: true,
-                          ),
-                        ),
-                      ),
-                    if (propertyLineSummary != null &&
-                        (_sidePanelMode == null || viewportWidth >= 720))
-                      Positioned(
-                        key: const ValueKey(
-                          'property-line-measurement-summary',
-                        ),
-                        top: 72,
-                        right:
-                            _sidePanelMode == null ? 24 : sidePanelWidth + 24,
-                        child: IgnorePointer(
-                          child: Card(
-                            elevation: 5,
+                      if (chooseOverlapAvailable && !traceOverviewShown)
+                        Positioned(
+                          right: 12,
+                          top: 62,
+                          child: Material(
                             color: Colors.white,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 10,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  const Text(
-                                    'Property Line (acres)',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(propertyLineSummary),
-                                ],
-                              ),
+                            borderRadius: BorderRadius.circular(8),
+                            child: TextButton.icon(
+                              icon: const Icon(Icons.layers_outlined),
+                              label: const Text('Choose overlap'),
+                              onPressed: () => _chooseOverlappingObjects(
+                                  _lastTapSceneOffset!),
                             ),
                           ),
                         ),
-                      ),
-                    if (_sidePanelMode != null)
                       Positioned(
-                        top: compactPanels ? 106 : 54,
-                        left: compactPanels ? 12 : null,
+                        left: 12,
                         right: 12,
-                        bottom: compactPanels ? canvasBottomInset + 8 : 82,
-                        width: compactPanels ? null : sidePanelWidth,
-                        child: LayoutBuilder(
-                          builder: (context, constraints) => _fitEditorPanel(
-                            constraints,
-                            _PropertiesSidebar(
-                              key: const ValueKey('canvas-inspector-panel'),
-                              layersOnly:
-                                  _sidePanelMode == _SidePanelMode.layers,
-                              selection: _selection,
-                              annotations: _annotations,
-                              wallSegments: _wallSegments,
-                              shapes: _shapes,
-                              freehandStrokes: _freehandStrokes,
-                              traces: _traces,
-                              layerSettings: _layerSettings,
-                              traceLayerVisible: _traceLayerVisible,
-                              layersCollapsed: _layersCollapsed,
-                              onCollapsePanel: () =>
-                                  setState(() => _sidePanelMode = null),
-                              onToggleLayersCollapsed: _toggleLayersCollapsed,
-                              onToggleLayerVisibility: _toggleLayerVisibility,
-                              onToggleLayerLock: _toggleLayerLock,
-                              onAnnotationLabelChanged: _updateAnnotationLabel,
-                              onAnnotationMarkerTypeChanged:
-                                  _updateAnnotationMarkerType,
-                              onAnnotationColorChanged: _updateAnnotationColor,
-                              onAnnotationSizeChanged: _updateAnnotationSize,
-                              onAnnotationRotationChanged:
-                                  _updateAnnotationRotation,
-                              onAnnotationNoteChanged: _updateAnnotationNote,
-                              onTextFontSizeChanged: _updateTextFontSize,
-                              onTextBoldChanged: _updateTextBold,
-                              onTextItalicChanged: _updateTextItalic,
-                              onTextColorChanged: _updateTextColor,
-                              onTextBackgroundChanged: _updateTextBackground,
-                              onTextBorderChanged: _updateTextBorder,
-                              onSetMarkerDefault: _setMarkerDefault,
-                              onSetTextDefault: _setTextDefault,
-                              onSegmentColorChanged: _updateSegmentColor,
-                              onSegmentPatternChanged: _updateSegmentPattern,
-                              onSegmentWidthChanged: _updateSegmentWidth,
-                              onSegmentArrowChanged: _updateSegmentArrow,
-                              onSetLineDefault: _setLineDefault,
-                              onFreehandColorChanged: _updateFreehandColor,
-                              onFreehandWidthChanged: _updateFreehandWidth,
-                              onFreehandOpacityChanged: _updateFreehandOpacity,
-                              onSetFreehandDefault: _setFreehandDefault,
-                              onShapeNameChanged: _updateShapeName,
-                              onShapeFillChanged: _updateShapeFill,
-                              onShapeBorderColorChanged:
-                                  _updateShapeBorderColor,
-                              onShapeBorderWidthChanged:
-                                  _updateShapeBorderWidth,
-                              onShapePatternChanged: _updateShapePattern,
-                              onShapeFoundationTypeChanged:
-                                  _updateShapeFoundationType,
-                              onSetShapeDefault: _setShapeDefault,
-                              onTraceLabelChanged: _updateTraceLabel,
-                              onEditTrace: (index) =>
-                                  _openTraceWorkspace(editIndex: index),
+                        top: 8,
+                        child: Tooltip(
+                          message: _canvasStatus,
+                          child: ValueListenableBuilder<Matrix4>(
+                            valueListenable: _transformationController,
+                            builder: (context, matrix, child) =>
+                                _TopEditorToolbar(
+                              onChooseOverlap:
+                                  traceOverviewShown && chooseOverlapAvailable
+                                      ? () => _chooseOverlappingObjects(
+                                          _lastTapSceneOffset!)
+                                      : null,
+                              onChangeShapeType:
+                                  traceOverviewShown && changeShapeTypeAvailable
+                                      ? () => _classifySketch(
+                                          _selection!.shapeIndex!,
+                                          editing: true)
+                                      : null,
+                              onShowTools:
+                                  compactPanels ? _showMainToolbar : null,
+                              toolsVisible: !_mainToolbarCollapsed,
+                              drawingRatioLabel: _scaleLabel,
+                              onDrawingRatioChanged: _setScaleLabel,
+                              onLabelSmaller: () => setState(
+                                () => _labelTextScale =
+                                    (_labelTextScale - 0.15).clamp(0.7, 1.6),
+                              ),
+                              onLabelLarger: () => setState(
+                                () => _labelTextScale =
+                                    (_labelTextScale + 0.15).clamp(0.7, 1.6),
+                              ),
+                              onFinish: _finishWallPath,
+                              finishLabel: _selectedTool == CanvasTool.wall
+                                  ? 'Finish Line'
+                                  : 'Close Shape',
+                              onClear: _confirmClearGraph,
+                              onSaveGraphFile: _handleGraphFileSaveTapped,
+                              onEditGraphInformation: _editGraphInformation,
+                              onSavePng: () =>
+                                  _openFileHandoff(GraphFileAction.savePng),
+                              onSavePdf: () =>
+                                  _openFileHandoff(GraphFileAction.savePdf),
+                              onEmailPdf: () =>
+                                  _openFileHandoff(GraphFileAction.emailPdf),
+                              onExportPdf: _exportGraphPdf,
+                              onExportPng: _exportGraphPng,
+                              onSaveAndCreateSalesBrainReport:
+                                  _saveAndCreateSalesBrainReport,
+                              onNewWithExistingStructure:
+                                  _newGraphWithExistingStructure,
+                              onZoomIn: () => _zoomBy(1.2),
+                              onZoomOut: () => _zoomBy(1 / 1.2),
+                              onResetZoom: _resetZoom,
+                              gridVisible: _gridVisible,
+                              onToggleGrid: _toggleGridVisible,
+                              snapToGrid: _snapToGrid,
+                              onToggleSnapToGrid: _toggleSnapToGrid,
+                              onFitDrawing: _fitDrawing,
+                              scaleLabel: EditorViewport.label(matrix),
+                              onScaleChanged: _setZoomPercent,
                             ),
-                            compact: compactPanels,
-                            empty:
-                                _sidePanelMode == _SidePanelMode.properties &&
-                                _selection == null,
                           ),
                         ),
                       ),
-                  ],
-                ),
+                      if (changeShapeTypeAvailable && !traceOverviewShown)
+                        Positioned(
+                          top: 62,
+                          right: 16,
+                          child: ActionChip(
+                            avatar: const Icon(Icons.edit_outlined, size: 18),
+                            label: Text(
+                              'Type: ${_shapes[_selection!.shapeIndex!].preset?.label ?? 'Unclassified'}',
+                            ),
+                            tooltip: 'Change shape type',
+                            onPressed: () => _classifySketch(
+                              _selection!.shapeIndex!,
+                              editing: true,
+                            ),
+                          ),
+                        ),
+                      if (propertyLineSummary != null &&
+                          !traceOverviewShown &&
+                          (_sidePanelMode == null || viewportWidth >= 720))
+                        Positioned(
+                          key: const ValueKey(
+                            'property-line-measurement-summary',
+                          ),
+                          top: 72,
+                          right:
+                              _sidePanelMode == null ? 24 : sidePanelWidth + 24,
+                          child: IgnorePointer(
+                            child: Card(
+                              elevation: 5,
+                              color: Colors.white,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    const Text(
+                                      'Property Line (acres)',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(propertyLineSummary),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (_sidePanelMode != null)
+                        Positioned.fromRect(
+                          rect: compactPanels
+                              ? dock
+                              : Rect.fromLTRB(
+                                  constraints.maxWidth - sidePanelWidth - 12,
+                                  54,
+                                  constraints.maxWidth - 12,
+                                  constraints.maxHeight - 82,
+                                ),
+                          child: _PropertiesSidebar(
+                            key: const ValueKey('canvas-inspector-panel'),
+                            layersOnly: _sidePanelMode == _SidePanelMode.layers,
+                            selection: _selection,
+                            annotations: _annotations,
+                            wallSegments: _wallSegments,
+                            shapes: _shapes,
+                            freehandStrokes: _freehandStrokes,
+                            traces: _traces,
+                            layerSettings: _layerSettings,
+                            traceLayerVisible: _traceLayerVisible,
+                            layersCollapsed: _layersCollapsed,
+                            onCollapsePanel: () =>
+                                setState(() => _sidePanelMode = null),
+                            onToggleLayersCollapsed: _toggleLayersCollapsed,
+                            onToggleLayerVisibility: _toggleLayerVisibility,
+                            onToggleLayerLock: _toggleLayerLock,
+                            onAnnotationLabelChanged: _updateAnnotationLabel,
+                            onAnnotationMarkerTypeChanged:
+                                _updateAnnotationMarkerType,
+                            onAnnotationColorChanged: _updateAnnotationColor,
+                            onAnnotationSizeChanged: _updateAnnotationSize,
+                            onAnnotationRotationChanged:
+                                _updateAnnotationRotation,
+                            onAnnotationNoteChanged: _updateAnnotationNote,
+                            onTextFontSizeChanged: _updateTextFontSize,
+                            onTextBoldChanged: _updateTextBold,
+                            onTextItalicChanged: _updateTextItalic,
+                            onTextColorChanged: _updateTextColor,
+                            onTextBackgroundChanged: _updateTextBackground,
+                            onTextBorderChanged: _updateTextBorder,
+                            onSetMarkerDefault: _setMarkerDefault,
+                            onSetTextDefault: _setTextDefault,
+                            onSegmentColorChanged: _updateSegmentColor,
+                            onSegmentPatternChanged: _updateSegmentPattern,
+                            onSegmentWidthChanged: _updateSegmentWidth,
+                            onSegmentArrowChanged: _updateSegmentArrow,
+                            onSetLineDefault: _setLineDefault,
+                            onFreehandColorChanged: _updateFreehandColor,
+                            onFreehandWidthChanged: _updateFreehandWidth,
+                            onFreehandOpacityChanged: _updateFreehandOpacity,
+                            onSetFreehandDefault: _setFreehandDefault,
+                            onShapeNameChanged: _updateShapeName,
+                            onShapeFillChanged: _updateShapeFill,
+                            onShapeBorderColorChanged: _updateShapeBorderColor,
+                            onShapeBorderWidthChanged: _updateShapeBorderWidth,
+                            onShapePatternChanged: _updateShapePattern,
+                            onShapeFoundationTypeChanged:
+                                _updateShapeFoundationType,
+                            onSetShapeDefault: _setShapeDefault,
+                            onTraceLabelChanged: _updateTraceLabel,
+                            onEditTrace: (index) =>
+                                _openTraceWorkspace(editIndex: index),
+                          ),
+                        ),
+                      if (overviewTrace != null && !keyboardVisible)
+                        Positioned(
+                          top: 64,
+                          left: 12,
+                          right: 12,
+                          height: overviewHeight,
+                          child: _MobileTraceSummary(trace: overviewTrace),
+                        ),
+                      if (attribution != null)
+                        Positioned(
+                          left: 12,
+                          right: 12,
+                          bottom: canvasBottomInset - 18,
+                          height: 18,
+                          child: Text(
+                            attribution,
+                            key: const ValueKey('canvas-imagery-attribution'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 9, height: 1.2),
+                          ),
+                        ),
+                    ],
+                  );
+                }),
               ),
             ],
           ),
@@ -8795,6 +8887,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
 
 class _TopEditorToolbar extends StatelessWidget {
   const _TopEditorToolbar({
+    this.onChooseOverlap,
+    this.onChangeShapeType,
+    this.onShowTools,
+    this.toolsVisible = false,
     required this.drawingRatioLabel,
     required this.onDrawingRatioChanged,
     required this.onLabelSmaller,
@@ -8823,6 +8919,10 @@ class _TopEditorToolbar extends StatelessWidget {
     required this.onScaleChanged,
   });
 
+  final VoidCallback? onShowTools;
+  final VoidCallback? onChooseOverlap;
+  final VoidCallback? onChangeShapeType;
+  final bool toolsVisible;
   final String drawingRatioLabel;
   final ValueChanged<String> onDrawingRatioChanged;
   final VoidCallback onLabelSmaller;
@@ -8870,9 +8970,30 @@ class _TopEditorToolbar extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Row(
             children: [
+              if (onShowTools != null)
+                IconButton(
+                  tooltip: toolsVisible ? 'Tools shown' : 'Show main toolbar',
+                  onPressed: onShowTools,
+                  color: toolsVisible
+                      ? Theme.of(context).colorScheme.primary
+                      : null,
+                  constraints:
+                      const BoxConstraints.tightFor(width: 48, height: 48),
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.standard,
+                  icon: const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.tune, size: 18),
+                      Text('Tools', style: TextStyle(fontSize: 10)),
+                    ],
+                  ),
+                ),
               PopupMenuButton<_EditorFileAction>(
                 tooltip: 'Save and share',
                 onSelected: (action) => switch (action) {
+                  _EditorFileAction.editGraphInformation =>
+                    onEditGraphInformation(),
                   _EditorFileAction.saveGraphFile => onSaveGraphFile(),
                   _EditorFileAction.exportPdf => onExportPdf(),
                   _EditorFileAction.exportPng => onExportPng(),
@@ -8884,8 +9005,16 @@ class _TopEditorToolbar extends StatelessWidget {
                   _EditorFileAction.newWithExistingStructure =>
                     onNewWithExistingStructure(),
                 },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(
+                itemBuilder: (context) => [
+                  if (onShowTools != null)
+                    const PopupMenuItem(
+                      value: _EditorFileAction.editGraphInformation,
+                      child: ListTile(
+                        leading: Icon(Icons.contact_page_outlined),
+                        title: Text('Edit Graph Information'),
+                      ),
+                    ),
+                  const PopupMenuItem(
                     enabled: false,
                     height: 28,
                     child: Text(
@@ -8897,7 +9026,7 @@ class _TopEditorToolbar extends StatelessWidget {
                       ),
                     ),
                   ),
-                  PopupMenuItem(
+                  const PopupMenuItem(
                     value: _EditorFileAction.saveGraphFile,
                     child: ListTile(
                       leading: Icon(Icons.save_outlined),
@@ -8908,8 +9037,8 @@ class _TopEditorToolbar extends StatelessWidget {
                       ),
                     ),
                   ),
-                  PopupMenuDivider(),
-                  PopupMenuItem(
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(
                     enabled: false,
                     height: 28,
                     child: Text(
@@ -8921,29 +9050,29 @@ class _TopEditorToolbar extends StatelessWidget {
                       ),
                     ),
                   ),
-                  PopupMenuItem(
+                  const PopupMenuItem(
                     value: _EditorFileAction.savePng,
                     child: ListTile(
                       leading: Icon(Icons.image_outlined),
                       title: Text('Save PNG…'),
                     ),
                   ),
-                  PopupMenuItem(
+                  const PopupMenuItem(
                     value: _EditorFileAction.savePdf,
                     child: ListTile(
                       leading: Icon(Icons.picture_as_pdf_outlined),
                       title: Text('Save PDF…'),
                     ),
                   ),
-                  PopupMenuItem(
+                  const PopupMenuItem(
                     value: _EditorFileAction.emailPdf,
                     child: ListTile(
                       leading: Icon(Icons.email_outlined),
                       title: Text('Email PDF…'),
                     ),
                   ),
-                  PopupMenuDivider(),
-                  PopupMenuItem(
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(
                     value: _EditorFileAction.newWithExistingStructure,
                     child: ListTile(
                       leading: Icon(Icons.difference_outlined),
@@ -8967,11 +9096,12 @@ class _TopEditorToolbar extends StatelessWidget {
                         ),
                       ),
               ),
-              _IconOnlyButton(
-                icon: Icons.contact_page_outlined,
-                tooltip: 'Edit Graph Information',
-                onPressed: onEditGraphInformation,
-              ),
+              if (onShowTools == null)
+                _IconOnlyButton(
+                  icon: Icons.contact_page_outlined,
+                  tooltip: 'Edit Graph Information',
+                  onPressed: onEditGraphInformation,
+                ),
               _IconOnlyButton(
                 icon: Icons.remove,
                 tooltip: 'Zoom out',
@@ -9037,6 +9167,10 @@ class _TopEditorToolbar extends StatelessWidget {
                 tooltip: 'Canvas options',
                 onSelected: (action) {
                   switch (action) {
+                    case _EditorOptionAction.chooseOverlap:
+                      onChooseOverlap?.call();
+                    case _EditorOptionAction.changeShapeType:
+                      onChangeShapeType?.call();
                     case _EditorOptionAction.smallerLabels:
                       onLabelSmaller();
                     case _EditorOptionAction.largerLabels:
@@ -9064,6 +9198,14 @@ class _TopEditorToolbar extends StatelessWidget {
                   }
                 },
                 itemBuilder: (context) => [
+                  if (onChooseOverlap != null)
+                    const PopupMenuItem(
+                        value: _EditorOptionAction.chooseOverlap,
+                        child: Text('Choose overlap')),
+                  if (onChangeShapeType != null)
+                    const PopupMenuItem(
+                        value: _EditorOptionAction.changeShapeType,
+                        child: Text('Change shape type')),
                   CheckedPopupMenuItem(
                     value: _EditorOptionAction.grid,
                     checked: gridVisible,
@@ -9193,6 +9335,69 @@ class _ToolbarDivider extends StatelessWidget {
       height: 24,
       margin: const EdgeInsets.symmetric(horizontal: 6),
       color: const Color(0xFFE3E0D8),
+    );
+  }
+}
+
+class _MobileTraceSummary extends StatelessWidget {
+  const _MobileTraceSummary({required this.trace});
+  final TraceGeometry trace;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = MeasurementService.geodesicAreaSquareMeters(trace.geoPoints) /
+        4046.8564224;
+    final excluded =
+        TraceAreaService.excludedSquareMeters(trace) / 4046.8564224;
+    final net = TraceAreaService.netSquareMeters(trace) / 4046.8564224;
+    final wide = MediaQuery.sizeOf(context).width >= 600;
+    return Semantics(
+      label:
+          '${trace.label}. Net yard: ${MeasurementFormat.acres(net)}. Total: ${MeasurementFormat.acres(total)}. Excluded: ${MeasurementFormat.acres(excluded)}.',
+      container: true,
+      child: ExcludeSemantics(
+          child: Material(
+        key: const ValueKey('mobile-trace-summary'),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(children: [
+            Expanded(
+                child: Text(trace.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w600))),
+            const SizedBox(width: 8),
+            if (wide)
+              Text('Net yard: ${MeasurementFormat.acres(net)}',
+                  style: const TextStyle(
+                      fontSize: 14, height: 1.1, fontWeight: FontWeight.w800)),
+            if (wide) const SizedBox(width: 12),
+            Flexible(
+                flex: 2,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (!wide)
+                      Text('Net yard: ${MeasurementFormat.acres(net)}',
+                          maxLines: 1,
+                          style: const TextStyle(
+                              fontSize: 14,
+                              height: 1.1,
+                              fontWeight: FontWeight.w800)),
+                    Text(
+                        'Total: ${MeasurementFormat.acres(total)} · Excluded: ${MeasurementFormat.acres(excluded)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 10, height: 1.1)),
+                  ],
+                )),
+          ]),
+        ),
+      )),
     );
   }
 }
@@ -9447,7 +9652,7 @@ class _PropertiesSidebar extends StatelessWidget {
       );
       final traceLocked = _isLayerLocked(_GraphLayer.trace);
       return _InspectorSection(
-        title: 'Trace Properties',
+        title: MediaQuery.sizeOf(context).shortestSide < 600 ? '' : 'Trace Properties',
         children: [
           TextFormField(
             key: ValueKey('trace-$index'),
@@ -9496,18 +9701,25 @@ class _PropertiesSidebar extends StatelessWidget {
                           ? trace.geoPoints.length
                           : trace.geoPoints.length - 1);
                   edge++)
-                ListTile(
-                  dense: true,
-                  title: Text('Edge ${edge + 1}'),
-                  trailing: Text(
-                    MeasurementFormat.linearFeet(
-                      MeasurementService.geodesicDistanceMeters(
-                            trace.geoPoints[edge],
-                            trace
-                                .geoPoints[(edge + 1) % trace.geoPoints.length],
-                          ) *
-                          3.280839895013123,
-                    ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 4,
+                    alignment: WrapAlignment.spaceBetween,
+                    children: [
+                      Text('Edge ${edge + 1}'),
+                      Text(
+                        MeasurementFormat.linearFeet(
+                          MeasurementService.geodesicDistanceMeters(
+                                trace.geoPoints[edge],
+                                trace.geoPoints[
+                                    (edge + 1) % trace.geoPoints.length],
+                              ) *
+                              3.280839895013123,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
             ],
@@ -10125,13 +10337,14 @@ class _InspectorSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView(
       children: [
-        Text(
-          title,
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 12),
+        if (title.isNotEmpty)
+          Text(
+            title,
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+        if (title.isNotEmpty) const SizedBox(height: 12),
         ...children,
       ],
     );
@@ -10653,6 +10866,7 @@ class _CanvasSurface extends StatelessWidget {
               child: traceLayerVisible
                   ? _TraceLayer(
                       labels: labels,
+                      showDetails: !labels.bounded || MediaQuery.sizeOf(context).shortestSide >= 600,
                       traces: traces,
                       selectedTraceIndex: selectedTraceIndex,
                       hoveredTraceIndex: hoveredTraceIndex,
@@ -10856,12 +11070,14 @@ class _TraceLayer extends StatefulWidget {
   final LabelPresentation labels;
   const _TraceLayer({
     required this.labels,
+    required this.showDetails,
     required this.traces,
     required this.selectedTraceIndex,
     required this.hoveredTraceIndex,
   });
 
   final List<TraceGeometry> traces;
+  final bool showDetails;
   final int? selectedTraceIndex;
   final int? hoveredTraceIndex;
 
@@ -10905,16 +11121,17 @@ class _TraceLayerState extends State<_TraceLayer> {
 
   @override
   Widget build(BuildContext context) => IgnorePointer(
-    child: CustomPaint(
-      size: const Size(double.infinity, double.infinity),
-      painter: TraceGeometryPainter(
-        labels: widget.labels,
-        traces: widget.traces,
-        selectedTraceIndex: widget.selectedTraceIndex,
-        hoveredTraceIndex: widget.hoveredTraceIndex,
-      ),
-    ),
-  );
+        child: CustomPaint(
+          size: const Size(double.infinity, double.infinity),
+          painter: TraceGeometryPainter(
+            labels: widget.labels,
+            showDetails: widget.showDetails,
+            traces: widget.traces,
+            selectedTraceIndex: widget.selectedTraceIndex,
+            hoveredTraceIndex: widget.hoveredTraceIndex,
+          ),
+        ),
+      );
 }
 
 enum _UndoKind {
@@ -11211,6 +11428,7 @@ enum _PhotoSource { files, camera }
 enum _SaveConflictChoice { overwrite, saveAsNew, cancel }
 
 enum _EditorFileAction {
+  editGraphInformation,
   saveGraphFile,
   exportPdf,
   exportPng,
@@ -11222,6 +11440,8 @@ enum _EditorFileAction {
 }
 
 enum _EditorOptionAction {
+  chooseOverlap,
+  changeShapeType,
   scale1,
   scale2,
   scale3,

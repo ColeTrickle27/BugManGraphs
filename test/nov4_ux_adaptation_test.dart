@@ -152,8 +152,8 @@ void main() {
               s.properties.expanded == true),
           true);
       expect(viewer.transformationController!.value, manual);
-      final oldCenter =
-          viewer.transformationController!.toScene(viewport.center);
+      final oldCenter = viewer.transformationController!
+          .toScene(t.getSize(viewerFinder).center(Offset.zero));
       t.view.physicalSize = Size(size.height, size.width);
       await t.pumpAndSettle();
       final resized = t.getSize(viewerFinder);
