@@ -190,6 +190,14 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _editGraph(SavedGraphSummary summary) async {
     final repository = widget.repository;
     if (repository == null || !summary.isPersisted) return;
+    final existing = await repository.loadGraph(summary.id);
+    if (existing?.requiresStationWorkspace == true) {
+      existing!.dispose();
+      if (mounted) await _openGraph(summary);
+      return;
+    }
+    existing?.dispose();
+    if (!mounted) return;
     Job? editedJob;
     editedJob = await Navigator.of(context).push<Job>(
       MaterialPageRoute<Job>(

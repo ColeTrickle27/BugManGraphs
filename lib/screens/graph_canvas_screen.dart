@@ -8032,6 +8032,33 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         ),
       );
     }
+    if (_document.requiresStationWorkspace) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Open station graph in OpsBrain')),
+        body: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(GraphDocument.stationWorkspaceMessage),
+                  const SizedBox(height: 20),
+                  FilledButton.icon(
+                    onPressed: () =>
+                        (widget.onPortalSignIn ?? openPortalSignIn)(
+                            opsBrainHomeUrl(Uri.base)),
+                    icon: const Icon(Icons.open_in_new),
+                    label: const Text('Open OpsBrain'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     if (widget.presentationMode) {
       return _buildPresentationView(context);
     }
