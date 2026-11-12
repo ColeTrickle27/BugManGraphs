@@ -481,6 +481,8 @@ Do not assume a local environment is production-equivalent.
 
 # Required Validation
 
+Use Flutter **3.47.9**, matching both GitHub Actions workflows. Record `flutter --version` with validation evidence; change the SDK deliberately in a separate scoped update. Documentation and agent-rule changes need diff review only. Workflow changes also need structured configuration validation and the affected CI run. Reuse successful checks for the same code and environment rather than repeating them.
+
 For normal feature work, run:
 
 ```bash
@@ -520,6 +522,24 @@ Do not perform a giant manual regression pass for every tiny change unless risk 
 
 ---
 
+# Delivery Ownership
+
+A request to build, fix, connect, automate, or improve a workflow authorizes its normal delivery path: inspect, implement the smallest sound change, verify the affected behavior, inspect the diff, commit intended files, push a dedicated branch, open or update the pull request, and merge/deploy routine changes after relevant checks pass and a practical rollback path is available.
+
+Routine, scoped, reversible changes have Cole's standing authorization through production delivery. Do not request another approval merely because a step creates a preview, merges a PR, deploys production, or changes the revision during that same routine task. Respect review-only requests, explicit task-specific holds, and narrower limits. Direct current user instructions take precedence over conflicting repository or skill guidance.
+
+Require separate approval for major changes: substantial architecture or application-boundary changes; new or materially changed authentication, permissions, public exposure, or data ownership; destructive or difficult-to-reverse production migrations/deletions; significant downtime or broad workflow disruption; and material changes to customer promises, pricing, treatment authority, costs, or compliance. Judge actual impact and reversibility. Sending messages to people still requires explicit authorization. Tool-enforced confirmations and higher-priority safety requirements remain applicable.
+
+When a major change requires approval, first prepare the concrete diff, affected checks, exact revision, impact, and rollback plan. Ask with the clickable `request_user_input_async` pop-up when available, offering "Approve and proceed" and "Hold for review"; otherwise explain the limitation and ask in chat. Wait for an explicit answer. Silence, elapsed time, or a preselected option is not approval. Do not request approval already granted for the same scope.
+
+Reuse passing evidence when the checked code, environment, configuration, and affected files have not changed. Record command/run link, revision, environment, date, result, and remaining gap. Test only an affected delta; avoid repeated full suites, duplicate reviews, and restarting completed audits. A new material configuration or toolchain change requires affected verification.
+
+Before resuming a blocked task, reconcile its original chat, current branch/PR, and deployed state. Keep one owner for each implementation/release. Continue from the first unfinished authorized step instead of acknowledging permission and ending the turn. Preserve explicit holds and successful evidence; do not overwrite another task's work.
+
+If a tool or authenticated session is unavailable, try supported authorized alternatives and complete independent work. Report the exact missing capability, failed action, and minimum recovery step. Distinguish a denial, timeout, missing tool, and uncertain execution outcome. After an actual denial, follow its stated restriction; do not disguise the same action or bypass the policy. Read back an uncertain result before retrying a write.
+
+---
+
 # Deployment
 
 BugMan Graphs currently deploys through GitHub Actions to Cloudflare Pages.
@@ -539,7 +559,7 @@ A push to `main` currently triggers the Cloudflare Pages deployment workflow.
 Therefore:
 
 * do not perform routine development directly on `main`
-* do not merge to `main` without explicit authorization
+* merge routine, scoped, reversible work under Delivery Ownership; obtain separate approval for major changes
 * do not push directly to `main` as a testing method
 * use a dedicated task branch
 * validate before merge
@@ -595,7 +615,7 @@ Any Cloudflare configuration, secrets, or other production requirements.
 
 Important related behavior intentionally left unchanged.
 
-Do not merge without explicit authorization.
+Follow Delivery Ownership for routine releases and major-change approvals; verify the intended revision, affected checks, and rollback path before merging.
 
 ---
 
