@@ -5862,6 +5862,21 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       if (editIndex == -1) editIndex = null;
     }
     final initialTrace = editIndex == null ? null : _traces[editIndex];
+    // A map trace owns its geographic scale. Adopt it as the canvas scale only
+    // for the first trace in an otherwise empty, default-scale document.
+    final initializeCanvasCalibration = editIndex == null &&
+        _traces.isEmpty &&
+        _wallSegments.isEmpty &&
+        _shapes.isEmpty &&
+        _annotations.isEmpty &&
+        _freehandStrokes.isEmpty &&
+        _document.attachments.isEmpty &&
+        _document.measurementCalibration.source ==
+            MeasurementSource.legacyCanvasScale &&
+        _document.measurementCalibration.status ==
+            MeasurementAccuracyStatus.estimated &&
+        _document.measurementCalibration.metersPerCanvasUnit ==
+            MeasurementCalibration.legacy().metersPerCanvasUnit;
     final trace = await Navigator.push<TraceGeometry>(
       context,
       MaterialPageRoute(
@@ -5894,14 +5909,16 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       }
       _document.replaceTraces(nextTraces);
       _setLayerSettings(_GraphLayer.trace, const _LayerSettings(visible: true));
-      _document.setMeasurementCalibration(
-        MeasurementCalibration(
-          source: MeasurementSource.mapGeodesic,
-          status: MeasurementAccuracyStatus.estimated,
-          metersPerCanvasUnit: trace.metersPerCanvasUnit,
-          note: 'Measurements derived from geographic trace points',
-        ),
-      );
+      if (initializeCanvasCalibration) {
+        _document.setMeasurementCalibration(
+          MeasurementCalibration(
+            source: MeasurementSource.mapGeodesic,
+            status: MeasurementAccuracyStatus.estimated,
+            metersPerCanvasUnit: trace.metersPerCanvasUnit,
+            note: 'Measurements derived from geographic trace points',
+          ),
+        );
+      }
       final traceIndex = editIndex ?? nextTraces.length - 1;
       _selection = _Selection.trace(traceIndex);
       _interaction.setSelected(_interactionReference(_selection!));
