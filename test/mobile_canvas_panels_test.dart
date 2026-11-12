@@ -4,8 +4,8 @@ import 'package:bugman_graphs/editor/label_presentation.dart';
 import 'package:bugman_graphs/models/graph_document.dart';
 import 'package:bugman_graphs/models/trace_geometry.dart';
 import 'package:bugman_graphs/screens/graph_canvas_screen.dart';
-import 'package:bugman_graphs/services/export_bounds_calculator.dart';
 import 'package:bugman_graphs/services/trace_projection_service.dart';
+import 'package:bugman_graphs/services/trace_presentation.dart';
 import 'package:bugman_graphs/widgets/canvas_toolbar.dart';
 import 'package:bugman_graphs/widgets/trace_geometry_painter.dart';
 import 'package:flutter/material.dart';
@@ -69,10 +69,10 @@ TransformationController viewportController(WidgetTester tester) => tester
 void expectUnobscuredYard(WidgetTester tester, GraphDocument document,
     {Finder? panel}) {
   final viewport = tester.getRect(find.byType(InteractiveViewer));
-  // These bounds include trace labels, imagery and rotation-handle clearance,
-  // rather than checking only the panel dimensions or geographic vertices.
+  // Check the actual imagery/yard extent. A separate pixel check below covers
+  // the painted home label and selected rotation handle outside that extent.
   final painted = MatrixUtils.transformRect(viewportController(tester).value,
-          ExportBoundsCalculator.forDocument(document, padding: 0))
+          TracePresentation.bounds(document.traces)!)
       .shift(viewport.topLeft);
   expect(viewport.inflate(.1).contains(painted.topLeft), isTrue);
   expect(viewport.inflate(.1).contains(painted.bottomRight), isTrue);

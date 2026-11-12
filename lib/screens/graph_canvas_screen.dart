@@ -5953,7 +5953,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     if (size == null || size.isEmpty) return;
     // Keep the edge footage labels and selected trace rotation handle inside
     // the viewport when a new or existing trace is fitted to the canvas.
-    final canonicalBounds = TracePresentation.paintedBounds(_traces) ??
+    final canonicalBounds = (_compactEditor
+            ? TracePresentation.bounds(_traces)
+            : TracePresentation.paintedBounds(_traces)) ??
         TracePresentation.paintedBounds([trace])!;
     final bounds = Rect.fromPoints(
       _drawingScale.toDisplay(canonicalBounds.topLeft),
@@ -5973,7 +5975,14 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       math.max(1, size.width - leftInset - rightInset),
       size.height,
     );
-    final padding = _compactEditor ? 64.0 : 96.0;
+    if (_compactEditor) {
+      final fitted =
+          EditorViewport.fit(bounds, _compactTraceFitRect(usable), padding: 0);
+      _transformationController.value = fitted;
+      _fittedViewport = fitted.clone();
+      return;
+    }
+    const padding = 96.0;
     final scale = math
         .min(
           (usable.width - padding).clamp(1.0, double.infinity) /
@@ -7132,17 +7141,42 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     setState(() => _canvasStatus = 'Zoom reset to 100%');
   }
 
+  Rect _compactTraceFitRect(Rect viewport) {
+    // Phone acreage/attribution live outside the image. Reserve only the
+    // selected rotation handle and a small border, in screen pixels.
+    final top = math.min(52.0, viewport.height * .4);
+    final bottom = math.min(20.0, viewport.height * .2);
+    final horizontal = math.min(20.0, viewport.width * .1);
+    return Rect.fromLTRB(viewport.left + horizontal, viewport.top + top,
+        viewport.right - horizontal, viewport.bottom - bottom);
+  }
+
   void _fitDrawing() {
-    final canonicalBounds =
+    var canonicalBounds =
         ExportBoundsCalculator.forDocument(_document, padding: 48);
+    if (_compactEditor && _traceLayerVisible && _traces.isNotEmpty) {
+      final traceBounds = TracePresentation.bounds(_traces);
+      if (traceBounds != null) {
+        canonicalBounds = _wallSegments.isEmpty &&
+                _annotations.isEmpty &&
+                _shapes.isEmpty &&
+                _freehandStrokes.isEmpty
+            ? traceBounds
+            : ExportBoundsCalculator.forDocument(_document,
+                    padding: 48, traceVisible: false)
+                .expandToInclude(traceBounds);
+      }
+    }
     final bounds = Rect.fromPoints(
       _drawingScale.toDisplay(canonicalBounds.topLeft),
       _drawingScale.toDisplay(canonicalBounds.bottomRight),
     );
     _transformationController.value = EditorViewport.fit(
       bounds,
-      _usableViewport,
-      padding: _compactEditor && _traces.isNotEmpty ? 32 : 12,
+      _compactEditor && _traces.isNotEmpty
+          ? _compactTraceFitRect(_usableViewport)
+          : _usableViewport,
+      padding: _compactEditor && _traces.isNotEmpty ? 0 : 12,
     );
     _fittedViewport = _transformationController.value.clone();
     setState(
