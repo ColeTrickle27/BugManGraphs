@@ -64,10 +64,24 @@ http://localhost:8787
 
 ## Satellite trace setup
 
-The Trace workspace is limited to North Carolina locations. It uses the U.S.
-Census Geocoding API for address lookup and NC OneMap's latest statewide
-orthoimagery for the aerial tracing surface. No API key, cloud account,
-billing, or build-time secret is required.
+The Trace workspace is limited to North Carolina locations. NC OneMap's latest
+statewide orthoimagery supplies the aerial tracing surface. The web app sends
+authenticated address searches to OpsBrain's
+`/api/bugman-graphs/address-suggestions` endpoint and validates the selected
+address through `/api/bugman-graphs/address-selection`.
+
+OpsBrain calls Google Places API (New) and Address Validation on the server.
+Administrators must configure those APIs in a billed Google Cloud project and
+store `GOOGLE_ADDRESS_API_KEY` as an encrypted OpsBrain secret, restricted to
+those APIs. No provider key belongs in Flutter, browser assets or build-time
+client configuration. See the [OpsBrain address setup](https://github.com/ColeTrickle27/holloman-ops-brain#bugman-graphs-address-suggestions).
+
+Choose a suggestion to use its standardized address. The service reports whether
+the coordinate is property-level or approximate and whether the result needs
+review; it rejects addresses outside North Carolina. These results are tracing
+aids, not verified field measurements. Address search requires an authorized
+OpsBrain session; the standalone host uses `https://ops.holloman-ext.com`, while
+the `/bugman-graphs/` mount uses its current origin.
 
 The imagery is an interactive tracing aid only. Graph exports retain the
 scaled trace geometry and measurements without copying the aerial tiles.
