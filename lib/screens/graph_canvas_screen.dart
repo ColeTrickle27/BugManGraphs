@@ -9239,22 +9239,27 @@ class _CanvasZoomSlider extends StatelessWidget {
                       overlayRadius: 18,
                     ),
                   ),
-                  child: Slider(
-                    key: const ValueKey('canvas-zoom-slider'),
-                    value: value,
-                    // A logarithmic track gives fine control at yard-map zoom
-                    // levels while still reaching the full existing zoom range.
-                    onChanged: (position) =>
-                        controller.value = EditorViewport.zoomAt(
-                          controller.value,
-                          anchor(),
-                          math.exp(minimum + position * range),
-                        ),
-                    semanticFormatterCallback: (position) {
-                      final percent =
-                          math.exp(minimum + position * range) * 100;
-                      return 'Zoom ${percent.toStringAsFixed(1)}%';
-                    },
+                  child: Semantics(
+                    label: 'Zoom',
+                    child: Slider(
+                      key: const ValueKey('canvas-zoom-slider'),
+                      activeColor: Theme.of(context).colorScheme.primary,
+                      inactiveColor: const Color(0xFFD8DDE3),
+                      value: value,
+                      // A logarithmic track gives fine control at yard-map zoom
+                      // levels while still reaching the full existing zoom range.
+                      onChanged: (position) =>
+                          controller.value = EditorViewport.zoomAt(
+                            controller.value,
+                            anchor(),
+                            math.exp(minimum + position * range),
+                          ),
+                      semanticFormatterCallback: (position) {
+                        final percent =
+                            math.exp(minimum + position * range) * 100;
+                        return '${percent.toStringAsFixed(1)}%';
+                      },
+                    ),
                   ),
                 ),
               ),
