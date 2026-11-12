@@ -41,6 +41,8 @@ New Job and Edit Job use the SalesBrain customer-field order. **Existing Custome
 
 ## Local setup
 
+Use Flutter **3.47.9**, the version pinned in both checking and deployment workflows. Confirm it with `flutter --version` before validation. Upgrade the SDK deliberately with affected checks rather than following a floating stable release.
+
 Run the app locally with Flutter:
 
 ```sh
