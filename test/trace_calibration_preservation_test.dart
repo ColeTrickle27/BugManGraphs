@@ -61,6 +61,11 @@ Future<void> returnFromTracer(
     await tester.pumpAndSettle();
   }
   expect(find.byType(TraceWorkspaceScreen), findsOneWidget);
+  expect(
+      tester
+          .widget<TraceWorkspaceScreen>(find.byType(TraceWorkspaceScreen))
+          .metersPerCanvasUnit,
+      document.measurementCalibration.metersPerCanvasUnit);
   Navigator.of(tester.element(find.byType(TraceWorkspaceScreen)))
       .pop<TraceGeometry>(returned);
   await tester.pumpAndSettle();

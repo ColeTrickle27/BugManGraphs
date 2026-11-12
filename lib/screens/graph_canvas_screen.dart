@@ -5888,6 +5888,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
             editingTrace: initialTrace,
           ),
           canvasSize: _canvasSize,
+          metersPerCanvasUnit:
+              _document.measurementCalibration.metersPerCanvasUnit ??
+                  0.3048 / 24,
           traceLabel:
               initialTrace?.label ?? 'Property Trace ${_traces.length + 1}',
           initialTrace: initialTrace,

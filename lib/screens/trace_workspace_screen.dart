@@ -26,6 +26,7 @@ class TraceWorkspaceScreen extends StatefulWidget {
     this.addressService,
     this.initialTrace,
     this.autoSelectJobAddress = true,
+    this.metersPerCanvasUnit = 0.3048 / 24,
     this.onPortalSignIn,
     super.key,
   });
@@ -38,6 +39,9 @@ class TraceWorkspaceScreen extends StatefulWidget {
   final AddressSuggestionService? addressService;
   final TraceGeometry? initialTrace;
   final bool autoSelectJobAddress;
+
+  /// Canvas scale for new or edited geometry; unchanged saved frames are kept.
+  final double metersPerCanvasUnit;
   final ValueChanged<String>? onPortalSignIn;
 
   @override
@@ -271,10 +275,30 @@ class _TraceWorkspaceScreenState extends State<TraceWorkspaceScreen> {
   void _finish() {
     if (widget.account?.active == false) return;
     if (_points.length < 3) return;
-    final projection = TraceProjectionService.projectToCanvas(
-      _points,
-      canvasSize: widget.canvasSize,
-    );
+    final original = widget.initialTrace;
+    final scale = original?.metersPerCanvasUnit;
+    final preserveFrame = original != null &&
+        original.geoPoints.length == _points.length &&
+        original.canvasPoints.length == _points.length &&
+        scale != null &&
+        scale.isFinite &&
+        scale > 0 &&
+        List.generate(
+                _points.length,
+                (i) =>
+                    original.geoPoints[i].latitude == _points[i].latitude &&
+                    original.geoPoints[i].longitude == _points[i].longitude)
+            .every((v) => v);
+    final projection = preserveFrame
+        ? TraceProjectionResult(
+            canvasPoints: List.of(original.canvasPoints),
+            metersPerCanvasUnit: scale,
+          )
+        : TraceProjectionService.projectToCanvas(
+            _points,
+            canvasSize: widget.canvasSize,
+            metersPerCanvasUnit: widget.metersPerCanvasUnit,
+          );
     Navigator.pop(
       context,
       TraceGeometry(
