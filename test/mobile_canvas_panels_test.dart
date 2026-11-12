@@ -2,10 +2,12 @@ import 'dart:ui' as ui;
 
 import 'package:bugman_graphs/editor/label_presentation.dart';
 import 'package:bugman_graphs/models/graph_document.dart';
+import 'package:bugman_graphs/models/graph_annotation.dart';
 import 'package:bugman_graphs/models/trace_geometry.dart';
 import 'package:bugman_graphs/screens/graph_canvas_screen.dart';
 import 'package:bugman_graphs/services/trace_projection_service.dart';
 import 'package:bugman_graphs/services/trace_presentation.dart';
+import 'package:bugman_graphs/theme/app_theme.dart';
 import 'package:bugman_graphs/widgets/canvas_toolbar.dart';
 import 'package:bugman_graphs/widgets/trace_geometry_painter.dart';
 import 'package:flutter/material.dart';
@@ -98,6 +100,14 @@ void expectUnobscuredYard(WidgetTester tester, GraphDocument document,
 }
 
 Future<void> openProperties(WidgetTester tester) async {
+  if (find.byTooltip('Switch editor panel').evaluate().isNotEmpty) {
+    await tester.tap(find.byTooltip('Switch editor panel'));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.widgetWithText(CheckedPopupMenuItem<String>, 'Properties'));
+    await tester.pumpAndSettle();
+    return;
+  }
   if (find.byTooltip('More quick tools').evaluate().isEmpty) {
     await tester.tap(find.byTooltip('Object properties'));
     await tester.pumpAndSettle();
@@ -157,6 +167,140 @@ Future<void> expectPaintedLabelsUnclipped(
 }
 
 void main() {
+  testWidgets('mobile tool menus can pin a reachable quick tool',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final document = yardDocument();
+    final before = document.toJson();
+    await tester
+        .pumpWidget(MaterialApp(home: GraphCanvasScreen(document: document)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Show main toolbar'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('mobile-tool-Features')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Add HVAC to quick tools'));
+    await tester.pumpAndSettle();
+    expect(find.byType(CanvasToolbar), findsNothing);
+    await tester.ensureVisible(find.byTooltip('HVAC'));
+    await tester.tap(find.byTooltip('HVAC'));
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<CanvasQuickToolbar>(find.byType(CanvasQuickToolbar))
+            .selectedMarkerType,
+        GraphMarkerType.hvacUnit);
+    expect(document.toJson(), before);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final (size, scale) in [
+    (const Size(320, 568), 1.0),
+    (const Size(390, 640), 1.4),
+  ]) {
+    testWidgets('mobile tools remain complete at $size with text scale $scale',
+        (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      tester.view.padding = const FakeViewPadding(bottom: 34);
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        theme: buildBugManTheme(),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(scale)),
+          child: child!,
+        ),
+        home: GraphCanvasScreen(document: yardDocument()),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Show main toolbar'));
+      await tester.pumpAndSettle();
+      final grid =
+          tester.getRect(find.byKey(const ValueKey('mobile-tool-grid')));
+      for (final label in [
+        'Draw',
+        'Sketch',
+        'Structures',
+        'Features',
+        'Property',
+        'Findings',
+        'Treatment',
+        'Satellite'
+      ]) {
+        final tile = tester.getRect(find.byKey(ValueKey('mobile-tool-$label')));
+        expect(grid.inflate(.1).contains(tile.bottomRight), isTrue,
+            reason: label);
+      }
+      await tester.tap(find.byTooltip('Hide main toolbar'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CanvasQuickToolbar), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final size in [const Size(390, 640), const Size(390, 540)]) {
+    testWidgets(
+        'mobile palette shows every tool without a second toolbar at $size',
+        (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      tester.view.padding = const FakeViewPadding(bottom: 34);
+      addTearDown(tester.view.reset);
+      final document = yardDocument();
+      final before = document.toJson();
+      await tester.pumpWidget(MaterialApp(
+          theme: buildBugManTheme(),
+          home: GraphCanvasScreen(document: document)));
+      await tester.pumpAndSettle();
+      final closedCanvas = tester.getRect(find.byType(InteractiveViewer));
+      await tester.tap(find.byTooltip('Show main toolbar'));
+      await tester.pumpAndSettle();
+
+      final panel = tester.getRect(find.byType(CanvasToolbar));
+      final grid =
+          tester.getRect(find.byKey(const ValueKey('mobile-tool-grid')));
+      final tiles = <Rect>[];
+      for (final label in [
+        'Draw',
+        'Sketch',
+        'Structures',
+        'Features',
+        'Property',
+        'Findings',
+        'Treatment',
+        'Satellite'
+      ]) {
+        final tile = tester.getRect(find.byKey(ValueKey('mobile-tool-$label')));
+        expect(grid.contains(tile.topLeft), isTrue, reason: label);
+        expect(grid.inflate(.1).contains(tile.bottomRight), isTrue,
+            reason: label);
+        expect(tile.height, greaterThanOrEqualTo(44));
+        tiles.add(tile);
+      }
+      expect(tiles.take(4).map((r) => r.top).toSet().length, 1);
+      expect(tiles[4].top, greaterThan(tiles[0].bottom));
+      expect(tiles[3].right - tiles[0].left, greaterThan(panel.width * .9));
+      expect(find.byType(CanvasQuickToolbar), findsNothing);
+      final openedCanvas = tester.getRect(find.byType(InteractiveViewer));
+      expect(openedCanvas.height, greaterThanOrEqualTo(120));
+      expect(closedCanvas.height - openedCanvas.height, lessThan(160));
+      expectUnobscuredYard(tester, document, panel: find.byType(CanvasToolbar));
+
+      await tester.tap(find.byKey(const ValueKey('mobile-tool-Features')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('HVAC'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CanvasToolbar), findsNothing);
+      expect(find.byType(CanvasQuickToolbar), findsOneWidget);
+      expect(tester.getRect(find.byType(InteractiveViewer)), closedCanvas);
+      expect(document.toJson(), before);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final size in [
     const Size(390, 640),
     const Size(390, 540),
@@ -188,10 +332,7 @@ void main() {
       final hideRect = tester.getRect(hide);
       expect(hideRect.height, greaterThanOrEqualTo(44));
       await tester.drag(
-          find
-              .descendant(
-                  of: tools, matching: find.byType(SingleChildScrollView))
-              .first,
+          find.descendant(of: tools, matching: find.byType(GridView)).first,
           const Offset(0, -1000));
       await tester.pumpAndSettle();
       expect(tester.getRect(hide), hideRect);
@@ -223,12 +364,25 @@ void main() {
       await tester.pumpAndSettle();
       await openProperties(tester);
       final label = find.byKey(const ValueKey('trace-0'));
+      final inspectorRect = tester.getRect(inspector);
+      expect(inspectorRect.contains(tester.getRect(label).topLeft), isTrue);
+      expect(inspectorRect.contains(tester.getRect(label).bottomRight), isTrue);
+      expect(
+          inspectorRect.contains(
+              tester.getRect(find.byTooltip('Edit Map Points')).bottomRight),
+          isTrue);
       await tester.ensureVisible(label);
       await tester.enterText(label, 'Front yard');
       if (size.width < size.height) {
         tester.view.viewInsets = const FakeViewPadding(bottom: 260);
         await tester.pumpAndSettle();
         expectUnobscuredYard(tester, document, panel: inspector);
+        expect(tester.getRect(inspector).width, greaterThan(size.width * .8));
+        expect(
+            tester
+                .getRect(inspector)
+                .contains(tester.getRect(label).bottomRight),
+            isTrue);
         tester.view.viewInsets = const FakeViewPadding();
       }
       await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -238,6 +392,15 @@ void main() {
       expectUnobscuredYard(tester, document, panel: inspector);
       final propertiesHide =
           tester.getRect(find.byTooltip('Collapse properties'));
+      final measurements = find.byKey(const ValueKey('trace-measurements'));
+      expect(
+          tester
+              .getRect(inspector)
+              .contains(tester.getRect(find.text('Measurements')).bottomRight),
+          isTrue);
+      await tester.tap(find.text('Measurements'));
+      await tester.pumpAndSettle();
+      expect(measurements, findsOneWidget);
       await tester.scrollUntilVisible(find.text('Edge measurements'), 80,
           scrollable: find
               .descendant(of: inspector, matching: find.byType(Scrollable))
@@ -286,9 +449,48 @@ void main() {
     await tester.pumpAndSettle();
     expect(document.wallSegments, isNotEmpty);
     expect(inspector, findsOneWidget);
+    expect(find.byTooltip('Cancel drawing'), findsOneWidget);
+    expect(find.byTooltip('Finish drawing'), findsOneWidget);
+    expect(find.byType(CanvasQuickToolbar), findsNothing);
     await tester.tap(find.byTooltip('Undo'));
     await tester.pumpAndSettle();
     expect(document.wallSegments, isEmpty);
+    expect(document.traces.single.toJson(), trace);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('finish and cancel remain usable in the shared inspector header',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final document = yardDocument();
+    final trace = document.traces.single.toJson();
+    await tester
+        .pumpWidget(MaterialApp(home: GraphCanvasScreen(document: document)));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyL);
+    await tester.pumpAndSettle();
+    await openProperties(tester);
+    final viewport = tester.getRect(find.byType(InteractiveViewer));
+    await tester.tapAt(viewport.center - const Offset(40, 20));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tapAt(viewport.center + const Offset(40, 20));
+    await tester.pumpAndSettle();
+    final count = document.wallSegments.length;
+    expect(count, greaterThan(0));
+    await tester.tap(find.byTooltip('Finish drawing'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Finish drawing'), findsNothing);
+    expect(document.wallSegments.length, count);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyL);
+    await tester.pumpAndSettle();
+    await tester.tapAt(viewport.center);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Cancel drawing'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Finish drawing'), findsNothing);
+    expect(document.wallSegments.length, count);
     expect(document.traces.single.toJson(), trace);
     expect(tester.takeException(), isNull);
   });

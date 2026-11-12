@@ -157,6 +157,9 @@ List<GraphMarkerType> get utilityToolbarMarkers =>
 class CanvasToolbar extends StatefulWidget {
   const CanvasToolbar({
     this.width = 112,
+    this.compact = false,
+    this.panelHeader,
+    this.onActionAdded,
     required this.selectedTool,
     required this.selectedMarkerType,
     required this.selectedDrawingPreset,
@@ -171,6 +174,9 @@ class CanvasToolbar extends StatefulWidget {
   });
 
   final double width;
+  final bool compact;
+  final Widget? panelHeader;
+  final ValueChanged<CanvasToolbarAction>? onActionAdded;
   final CanvasTool selectedTool;
   final GraphMarkerType selectedMarkerType;
   final GraphDrawingPreset? selectedDrawingPreset;
@@ -182,12 +188,29 @@ class CanvasToolbar extends StatefulWidget {
   final VoidCallback onCollapse;
   final ValueChanged<CanvasToolbarAction> onActionDoubleTapped;
 
+  static int compactColumns(double width, TextScaler scaler) =>
+      ((width - 10) / (76 * scaler.scale(12) / 12)).floor().clamp(2, 4);
+
+  static double compactTileHeight(TextScaler scaler) =>
+      60 + (scaler.scale(12) - 12).clamp(0, double.infinity) * 2;
+
+  static double compactHeight(double width, TextScaler scaler) {
+    final rows = (8 / compactColumns(width, scaler)).ceil();
+    return 68 + rows * compactTileHeight(scaler) + (rows - 1) * 6;
+  }
   @override
   State<CanvasToolbar> createState() => _CanvasToolbarState();
 }
 
 class _CanvasToolbarState extends State<CanvasToolbar> {
   String? _expandedSection = 'Sketch Structure';
+  final _compactScrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _compactScrollController.dispose();
+    super.dispose();
+  }
 
   void _activate(CanvasToolbarAction action) {
     switch (action.kind) {
@@ -198,8 +221,146 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
       case CanvasToolbarActionKind.marker:
         widget.onMarkerSelected(action.marker!);
     }
+    if (widget.compact) widget.onCollapse();
   }
 
+  Widget _compactTools(BuildContext context) {
+    Widget menu(
+      String label,
+      IconData icon,
+      List<CanvasToolbarAction> actions,
+    ) => PopupMenuButton<CanvasToolbarAction>(
+      key: ValueKey('mobile-tool-$label'),
+      tooltip: '$label tools',
+      onSelected: _activate,
+      itemBuilder: (context) => [
+        for (final action in actions)
+          PopupMenuItem(
+            value: action,
+            child: Row(
+              children: [
+                Icon(action.icon, color: action.color, size: 22),
+                const SizedBox(width: 12),
+                Expanded(child: Text(action.label)),
+                if (action.isSelected(
+                  selectedTool: widget.selectedTool,
+                  selectedPreset: widget.selectedDrawingPreset,
+                  selectedMarker: widget.selectedMarkerType,
+                ))
+                  const Icon(Icons.check, size: 20),
+                if (widget.onActionAdded != null)
+                  IconButton(
+                    tooltip: 'Add ${action.label} to quick tools',
+                    constraints: const BoxConstraints.tightFor(
+                      width: 44,
+                      height: 44,
+                    ),
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      widget.onActionAdded!(action);
+                      widget.onCollapse();
+                    },
+                    icon: const Icon(Icons.push_pin_outlined, size: 20),
+                  ),
+              ],
+            ),
+          ),
+      ],
+      child: _CompactToolFace(
+        label: label,
+        icon: icon,
+        hasMenu: true,
+        selected: actions.any(
+          (action) => action.isSelected(
+            selectedTool: widget.selectedTool,
+            selectedPreset: widget.selectedDrawingPreset,
+            selectedMarker: widget.selectedMarkerType,
+          ),
+        ),
+      ),
+    );
+
+    return Scrollbar(
+      controller: _compactScrollController,
+      thumbVisibility: true,
+      child: GridView.count(
+        key: const ValueKey('mobile-tool-grid'),
+        controller: _compactScrollController,
+        padding: EdgeInsets.zero,
+        crossAxisCount: CanvasToolbar.compactColumns(
+          widget.width,
+          MediaQuery.textScalerOf(context),
+        ),
+        mainAxisSpacing: 6,
+        crossAxisSpacing: 6,
+        mainAxisExtent: CanvasToolbar.compactTileHeight(
+          MediaQuery.textScalerOf(context),
+        ),
+        children: [
+          menu('Draw', Icons.edit_outlined, [
+            ...basicLineToolbarActions,
+            ...basicShapeToolbarActions,
+          ]),
+          InkWell(
+            key: const ValueKey('mobile-tool-Sketch'),
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => _activate(
+              const CanvasToolbarAction.preset(
+                GraphDrawingPreset.mainStructure,
+              ),
+            ),
+            onLongPress: widget.onActionAdded == null
+                ? null
+                : () {
+                    widget.onActionAdded!(
+                      const CanvasToolbarAction.preset(
+                        GraphDrawingPreset.mainStructure,
+                      ),
+                    );
+                    widget.onCollapse();
+                  },
+            child: _CompactToolFace(
+              label: 'Sketch',
+              icon: Icons.home_work_outlined,
+              selected:
+                  widget.selectedTool == CanvasTool.structure &&
+                  widget.selectedDrawingPreset ==
+                      GraphDrawingPreset.mainStructure,
+            ),
+          ),
+          menu(
+            'Structures',
+            Icons.other_houses_outlined,
+            buildingFeatureToolbarActions,
+          ),
+          menu('Features', Icons.hvac, utilityToolbarActions),
+          menu('Property', Icons.border_style, propertyToolbarActions),
+          menu('Findings', Icons.search_outlined, [
+            for (final marker in inspectionMarkerTypes)
+              CanvasToolbarAction.marker(marker),
+            const CanvasToolbarAction.tool(CanvasTool.photo),
+          ]),
+          menu('Treatment', Icons.medical_services_outlined, [
+            for (final marker in treatmentMarkerTypes)
+              CanvasToolbarAction.marker(marker),
+          ]),
+          InkWell(
+            key: const ValueKey('mobile-tool-Satellite'),
+            borderRadius: BorderRadius.circular(8),
+            onTap: () {
+              widget.onCollapse();
+              widget.onToggleTraceLayer();
+            },
+            child: const _CompactToolFace(
+              label: 'Satellite',
+              icon: Icons.satellite_alt_outlined,
+              selected: false,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
   CanvasToolbarAction _displayedAction(List<CanvasToolbarAction> actions) {
     for (final action in actions) {
       if (action.isSelected(
@@ -242,10 +403,12 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
           padding: const EdgeInsets.all(8),
           child: Column(
             children: [
-              _ToolbarHeader(onCollapse: widget.onCollapse),
+              widget.panelHeader ?? _ToolbarHeader(onCollapse: widget.onCollapse),
               const SizedBox(height: 4),
               Expanded(
-                  child: SingleChildScrollView(
+                  child: widget.compact
+                      ? _compactTools(context)
+                      : SingleChildScrollView(
                       child: Column(children: [
                 _section(
                   label: 'Annotate',
@@ -1093,6 +1256,75 @@ class _PlainToolButton extends StatelessWidget {
       );
 }
 
+class _CompactToolFace extends StatelessWidget {
+  const _CompactToolFace({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    this.hasMenu = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final bool hasMenu;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    selected: selected,
+    child: Ink(
+      decoration: BoxDecoration(
+        color: selected ? const Color(0xFFFFEEEE) : Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: selected ? AppColors.red : const Color(0xFFE6E1E4),
+        ),
+      ),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 4),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    icon,
+                    size: 20,
+                    color: selected ? AppColors.red : const Color(0xFF353036),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    label,
+                    maxLines: 2,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.1,
+                      fontWeight: FontWeight.w600,
+                      color: selected ? AppColors.red : const Color(0xFF353036),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (hasMenu)
+            const Positioned(
+              top: 2,
+              right: 2,
+              child: Icon(
+                Icons.arrow_drop_down,
+                size: 16,
+                color: Color(0xFF687078),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
 class _ToolbarHeader extends StatelessWidget {
   const _ToolbarHeader({required this.onCollapse});
 
