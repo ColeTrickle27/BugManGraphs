@@ -107,14 +107,20 @@ void main() {
       final expandedBounds = MatrixUtils.transformRect(
           viewer.transformationController!.value,
           ExportBoundsCalculator.forDocument(doc, padding: 0));
-      expect(expandedBounds.left, greaterThanOrEqualTo(208));
+      expect(expandedBounds.left,
+          greaterThanOrEqualTo(size.shortestSide < 600 ? 0 : 208));
       await t.tap(find.byTooltip('Pan (H)'));
       await t.pumpAndSettle();
       if (find.byTooltip('Show main toolbar').evaluate().isNotEmpty) {
         await t.tap(find.byTooltip('Show main toolbar'));
         await t.pumpAndSettle();
       }
-      await t.tapAt(t.getTopRight(viewerFinder) + const Offset(-24, 60));
+      final viewerRect = t.getRect(viewerFinder);
+      final toolsRect = t.getRect(find.byType(CanvasToolbar));
+      await t.tapAt(Offset(
+          viewerRect.right - 24,
+          (toolsRect.bottom + 8)
+              .clamp(viewerRect.top + 8, viewerRect.bottom - 8)));
       await t.pump();
       expect(find.byType(MaterialBanner), findsOneWidget);
       final noticeRect = t.getRect(find.byType(MaterialBanner));

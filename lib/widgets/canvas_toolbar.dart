@@ -240,11 +240,13 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
         width: widget.width,
         child: Padding(
           padding: const EdgeInsets.all(8),
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                _ToolbarHeader(onCollapse: widget.onCollapse),
-                const SizedBox(height: 4),
+          child: Column(
+            children: [
+              _ToolbarHeader(onCollapse: widget.onCollapse),
+              const SizedBox(height: 4),
+              Expanded(
+                  child: SingleChildScrollView(
+                      child: Column(children: [
                 _section(
                   label: 'Annotate',
                   icon: Icons.edit_note_outlined,
@@ -408,8 +410,8 @@ class _CanvasToolbarState extends State<CanvasToolbar> {
                   selected: widget.traceLayerVisible,
                   onPressed: widget.onToggleTraceLayer,
                 ),
-              ],
-            ),
+              ]))),
+            ],
           ),
         ),
       ),
@@ -1112,13 +1114,20 @@ class _ToolbarHeader extends StatelessWidget {
               ),
             ),
           ),
-          IconButton(
-            tooltip: 'Hide main toolbar',
-            constraints: const BoxConstraints.tightFor(width: 44, height: 44),
-            padding: EdgeInsets.zero,
-            visualDensity: VisualDensity.compact,
-            onPressed: onCollapse,
-            icon: const Icon(Icons.chevron_left, size: 20),
+          Tooltip(
+            message: 'Hide main toolbar',
+            child: TextButton.icon(
+              onPressed: onCollapse,
+              style: TextButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: AppColors.red,
+                minimumSize: const Size(80, 44),
+                visualDensity: VisualDensity.standard,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+              icon: const Icon(Icons.close, size: 20),
+              label: const Text('Hide'),
+            ),
           ),
         ],
       );
