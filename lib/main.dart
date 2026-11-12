@@ -79,7 +79,7 @@ class _BugManGraphsAppState extends State<BugManGraphsApp> {
 
   Future<PortalGraphPackage?> _loadPortalGraph(String key) async {
     final package = await _portalService.loadGraph(key);
-    if (!package.isFinalized) {
+    if (!package.isFinalized && !package.document.requiresStationWorkspace) {
       await _repository.saveGraph(package.document, blobs: package.blobs);
     }
     package.document.markClean();

@@ -1,12 +1,15 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:bugman_graphs/main.dart';
 import 'package:bugman_graphs/models/graph_document.dart';
 import 'package:bugman_graphs/screens/graph_canvas_screen.dart';
 import 'package:bugman_graphs/screens/home_screen.dart';
 import 'package:bugman_graphs/screens/new_job_screen.dart';
 import 'package:bugman_graphs/services/graph_repository.dart';
 import 'package:bugman_graphs/services/graph_repository_stub.dart';
+import 'package:bugman_graphs/services/bugman_portal_service.dart';
+import 'package:bugman_graphs/services/bugman_portal_service_stub.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -71,7 +74,39 @@ class StoredStationRepository extends MemoryGraphRepository {
   }
 }
 
+class StationPortal extends UnavailableBugManPortalService {
+  @override
+  bool get isAvailable => true;
+
+  @override
+  Future<PortalGraphPackage> loadGraph(String key) async =>
+      PortalGraphPackage.fromResponse({
+        'graph': {
+          'type': 'bugman-graph',
+          'version': 1,
+          'document': stationGraph('installedSoilStation'),
+          'blobs': <String, String>{},
+        },
+      });
+}
+
 void main() {
+  testWidgets('direct saved link defers stations before caching a changed copy',
+      (tester) async {
+    final repository = StoredStationRepository();
+    await tester.pumpWidget(BugManGraphsApp(
+      initialUri: Uri.parse('https://graphs.holloman-ext.com/?graph=synthetic'),
+      repository: repository,
+      portalService: StationPortal(),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text(GraphDocument.stationWorkspaceMessage), findsOneWidget);
+    expect(find.byKey(const ValueKey('graph-canvas-paint')), findsNothing);
+    expect(repository.writes, 0);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets(
       'gallery job-information editing defers station files without writes',
       (tester) async {

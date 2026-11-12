@@ -484,7 +484,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   void _scheduleCloudCapture() {
     if (_document.requiresStationWorkspace ||
         _cloudSession == null ||
-        _cloudCaptureScheduled) return;
+        _cloudCaptureScheduled) {
+      return;
+    }
     _cloudCaptureScheduled = true;
     Future<void>.microtask(() async {
       _cloudCaptureScheduled = false;
