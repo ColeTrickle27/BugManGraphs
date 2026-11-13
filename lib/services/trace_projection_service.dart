@@ -21,6 +21,7 @@ class TraceProjectionService {
   static TraceProjectionResult projectToCanvas(
     List<GeoPoint> points, {
     required Size canvasSize,
+    List<GeoPoint>? referencePoints,
     double metersPerCanvasUnit = 0.3048 / 24,
   }) {
     if (points.isEmpty) {
@@ -29,9 +30,10 @@ class TraceProjectionService {
         metersPerCanvasUnit: 1,
       );
     }
+    final reference = referencePoints ?? points;
     final latitudeOrigin =
-        points.fold<double>(0, (sum, point) => sum + point.latitude) /
-            points.length;
+        reference.fold<double>(0, (sum, point) => sum + point.latitude) /
+            reference.length;
     final latitudeRadians = latitudeOrigin * math.pi / 180;
     final projected = <Offset>[
       for (final point in points)
@@ -47,10 +49,24 @@ class TraceProjectionService {
               180,
         ),
     ];
-    final left = projected.map((point) => point.dx).reduce(math.min);
-    final right = projected.map((point) => point.dx).reduce(math.max);
-    final top = projected.map((point) => point.dy).reduce(math.min);
-    final bottom = projected.map((point) => point.dy).reduce(math.max);
+    final referenceProjection = [
+      for (final point in reference)
+        Offset(
+            MeasurementService.earthRadiusMeters *
+                point.longitude *
+                math.pi /
+                180 *
+                math.cos(latitudeRadians),
+            -MeasurementService.earthRadiusMeters *
+                point.latitude *
+                math.pi /
+                180)
+    ];
+    final left = referenceProjection.map((point) => point.dx).reduce(math.min);
+    final right = referenceProjection.map((point) => point.dx).reduce(math.max);
+    final top = referenceProjection.map((point) => point.dy).reduce(math.min);
+    final bottom =
+        referenceProjection.map((point) => point.dy).reduce(math.max);
     final widthMeters = math.max(right - left, 0.01);
     final heightMeters = math.max(bottom - top, 0.01);
     if (!metersPerCanvasUnit.isFinite || metersPerCanvasUnit <= 0) {

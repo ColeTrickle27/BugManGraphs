@@ -3,7 +3,8 @@ import 'package:flutter/widgets.dart';
 
 /// Screen magnification only; never changes saved coordinates or calibration.
 abstract final class EditorViewport {
-  static const minScale = 0.01;
+  // A full property must still fit a short phone viewport beside an inspector.
+  static const minScale = 0.001;
   static const maxScale = 32.0;
   static const percentages = <double>[
     1,

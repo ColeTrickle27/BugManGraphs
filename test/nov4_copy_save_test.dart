@@ -63,6 +63,7 @@ class _Portal extends UnavailableBugManPortalService {
 Future<void> action(WidgetTester t, String label) async {
   await t.tap(find.byTooltip('Save and share'));
   await t.pumpAndSettle();
+  await t.ensureVisible(find.text(label));
   await t.tap(find.text(label));
   await t.pumpAndSettle();
 }

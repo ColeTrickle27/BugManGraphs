@@ -18,6 +18,7 @@ class UnsupportedTraceMapProvider implements TraceMapProvider {
     required GeoPoint center,
     required GeoPoint selectedAddress,
     required List<GeoPoint> points,
+    List<List<GeoPoint>> referencePolygons = const [],
     required ValueChanged<GeoPoint> onMapTap,
     required void Function(int index, GeoPoint point) onVertexMoved,
   }) =>

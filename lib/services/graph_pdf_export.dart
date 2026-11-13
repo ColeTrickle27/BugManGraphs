@@ -19,6 +19,7 @@ import 'graph_pdf_diagram.dart';
 import 'measurement_service.dart';
 import 'measurement_format.dart';
 import '../models/trace_geometry.dart';
+import 'trace_area_service.dart';
 
 class GraphPdfPhoto {
   const GraphPdfPhoto({
@@ -98,6 +99,11 @@ class GraphPdfExport {
               if (trace.closed) ...[
                 MeasurementFormat.squareFeet(m.squareFeet),
                 MeasurementFormat.acres(m.acres),
+                if (trace.exclusions.isNotEmpty) ...[
+                  'Total: ${MeasurementFormat.acres(m.acres)}',
+                  'Excluded: ${MeasurementFormat.acres(TraceAreaService.excludedSquareMeters(trace) / 4046.8564224)}',
+                  'Net yard: ${MeasurementFormat.acres(TraceAreaService.netSquareMeters(trace) / 4046.8564224)} (${MeasurementFormat.squareFeet(TraceAreaService.netSquareMeters(trace) * 10.763910416709722)})',
+                ],
               ],
             ],
           ),
@@ -342,7 +348,16 @@ class GraphPdfExport {
                       ? 0.0
                       : math.max(24.0, totals.length * 12.0 + 8);
                   final graphHeight = constraints.maxHeight - summaryHeight;
-                  final diagram = graph == null
+                  // Preserve the exact raster/geometry alignment for satellite plans
+                  // and exclusion holes. Other graphs keep vector diagrams.
+                  final diagram =
+                      graph == null ||
+                          (graph.layer('trace').visible &&
+                              graph.traces.any(
+                                (trace) =>
+                                    trace.imagery != null ||
+                                    trace.exclusions.isNotEmpty,
+                              ))
                       ? pw.Center(
                           child: pw.Image(
                             pw.MemoryImage(graphPng),

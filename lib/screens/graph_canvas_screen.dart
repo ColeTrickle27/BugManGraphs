@@ -64,7 +64,10 @@ import '../services/marker_defaults_store_factory.dart';
 import '../services/sales_brain_bridge.dart';
 import '../services/sales_brain_navigation.dart';
 import '../services/trace_projection_service.dart';
+import '../services/trace_imagery_service.dart';
+import '../services/trace_area_service.dart';
 import '../services/trace_workspace_defaults.dart';
+import '../services/address_suggestion_service.dart';
 import '../widgets/canvas_toolbar.dart';
 import '../widgets/graph_title.dart';
 import '../widgets/freehand_strokes_painter.dart';
@@ -94,6 +97,8 @@ class GraphCanvasScreen extends StatefulWidget {
     this.completePackagePreview = false,
     this.presentationFitToContent = false,
     this.fitToContentOnOpen = false,
+    this.traceAddressService,
+    this.traceAddressAttribution,
     this.presentationMarkerIds = const <String>{},
     super.key,
   }) : assert(job != null || document != null);
@@ -119,6 +124,8 @@ class GraphCanvasScreen extends StatefulWidget {
 
   /// Transient screen framing for explicitly opened local graphs and copies.
   final bool fitToContentOnOpen;
+  final AddressSuggestionService? traceAddressService;
+  final Widget? traceAddressAttribution;
   final Set<String> presentationMarkerIds;
 
   @override
@@ -189,6 +196,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   final GlobalKey _canvasViewportKey = GlobalKey(debugLabel: 'Graph viewport');
   final TransformationController _transformationController =
       TransformationController();
+  Matrix4? _fittedViewport;
   // Not `late final`: "Save As New" recovery (items 10/11 of the
   // production pass) needs to swap in a fresh GraphDocument (via
   // GraphDocument.withNewIdentity) mid-session without tearing down and
@@ -238,6 +246,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       _mainToolbarCollapsed = _compactEditor;
       _toolsLayoutInitialized = true;
     }
+    if (_compactEditor && _sidePanelMode != null) _mainToolbarCollapsed = true;
   }
 
   bool _quickToolbarCollapsed = false;
@@ -604,7 +613,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       _lastTapTime = null;
       _lastTapSceneOffset = null;
       _interaction.selectTool(tool);
-      if (MediaQuery.sizeOf(context).width < 700) _mainToolbarCollapsed = true;
+      if (_compactEditor) _mainToolbarCollapsed = true;
       _canvasStatus = _toolStatus(tool);
       _previewSegment = null;
     });
@@ -623,7 +632,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       _lastTapTime = null;
       _lastTapSceneOffset = null;
       _interaction.selectMarker(markerType);
-      if (MediaQuery.sizeOf(context).width < 700) _mainToolbarCollapsed = true;
+      if (_compactEditor) _mainToolbarCollapsed = true;
       _selectedMarkerColor = markerDefault.color;
       _selectedMarkerSize = markerDefault.size;
       _canvasStatus = '${markerType.label}: tap to place';
@@ -732,7 +741,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       _lastTapTime = null;
       _lastTapSceneOffset = null;
       _interaction.selectStructure(preset);
-      if (MediaQuery.sizeOf(context).width < 700) _mainToolbarCollapsed = true;
+      if (_compactEditor) _mainToolbarCollapsed = true;
       _activeWallStart = null;
       _activePathStartPoint = null;
       _activePathStartSegmentIndex = null;
@@ -1356,7 +1365,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         }
         if (_selectionOpensPropertiesOnDoubleClick(hitSelection)) {
           setState(() {
-            _sidePanelMode = _SidePanelMode.properties;
+            _setSidePanel(_SidePanelMode.properties);
             _canvasStatus =
                 '${_selectionStatus(hitSelection)} • Properties shown';
           });
@@ -1736,12 +1745,20 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       if (previous != null && previous != viewportSize) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted || _editorViewportSize != viewportSize) return;
+          final wasFitted = _fittedViewport == _transformationController.value;
+          // Refit only an existing fitted view. User zoom and pan keep their
+          // scale and scene center when a dock or the keyboard changes size.
+          if (_compactEditor && wasFitted) {
+            _fitDrawing();
+            return;
+          }
           final matrix = _transformationController.value.clone();
           matrix.setEntry(0, 3,
               matrix.entry(0, 3) + (viewportSize.width - previous.width) / 2);
           matrix.setEntry(1, 3,
               matrix.entry(1, 3) + (viewportSize.height - previous.height) / 2);
           _transformationController.value = matrix;
+          if (wasFitted) _fittedViewport = matrix.clone();
         });
       }
       return;
@@ -1783,13 +1800,14 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
               math.max(1, usable.width - 48) / math.max(bounds.width, 1),
               math.max(1, usable.height - 48) / math.max(bounds.height, 1),
             )
-            .clamp(0.01, 4.0);
+            .clamp(EditorViewport.minScale, 4.0);
         _transformationController.value = Matrix4.identity()
           ..setEntry(0, 0, scale)
           ..setEntry(1, 1, scale)
           ..setEntry(2, 2, scale)
           ..setEntry(0, 3, usable.center.dx - bounds.center.dx * scale)
           ..setEntry(1, 3, usable.center.dy - bounds.center.dy * scale);
+        _fittedViewport = _transformationController.value.clone();
         return;
       }
       if (_traceLayerVisible && _traces.isNotEmpty) {
@@ -2201,7 +2219,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         return;
       case _ContextAction.properties:
         setState(() {
-          _sidePanelMode = _SidePanelMode.properties;
+          _setSidePanel(_SidePanelMode.properties);
           _canvasStatus = 'Properties shown';
         });
         return;
@@ -3861,15 +3879,20 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     nextCanvasPoints[vertexIndex] = point;
     nextGeoPoints[vertexIndex] =
         TraceProjectionService.moveGeoPointByCanvasDelta(
-      point: sourceTrace.geoPoints[vertexIndex],
-      canvasDelta: canvasDelta,
-      metersPerCanvasUnit: metersPerCanvasUnit,
-    );
+          point: sourceTrace.geoPoints[vertexIndex],
+          canvasDelta: canvasDelta,
+          metersPerCanvasUnit: metersPerCanvasUnit,
+        );
     final nextTraces = <TraceGeometry>[..._traces];
-    nextTraces[traceIndex] = sourceTrace.copyWith(
+    final changedTrace = sourceTrace.copyWith(
       canvasPoints: nextCanvasPoints,
       geoPoints: nextGeoPoints,
     );
+    if (sourceTrace.exclusions.isNotEmpty &&
+        TraceAreaService.validate(changedTrace) != null) {
+      return;
+    }
+    nextTraces[traceIndex] = changedTrace;
     setState(() {
       _document.replaceTraces(nextTraces);
       _dragMoved = true;
@@ -3891,23 +3914,40 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     final metersPerCanvasUnit = sourceTrace.metersPerCanvasUnit;
     final nextGeoPoints =
         metersPerCanvasUnit == null || metersPerCanvasUnit <= 0
-            ? sourceTrace.geoPoints
-            : [
-                for (final geoPoint in sourceTrace.geoPoints)
-                  TraceProjectionService.moveGeoPointByCanvasDelta(
-                    point: geoPoint,
-                    canvasDelta: delta,
-                    metersPerCanvasUnit: metersPerCanvasUnit,
-                  ),
-              ];
+        ? sourceTrace.geoPoints
+        : [
+            for (final geoPoint in sourceTrace.geoPoints)
+              TraceProjectionService.moveGeoPointByCanvasDelta(
+                point: geoPoint,
+                canvasDelta: delta,
+                metersPerCanvasUnit: metersPerCanvasUnit,
+              ),
+          ];
     final nextTraces = <TraceGeometry>[..._traces];
-    nextTraces[traceIndex] = sourceTrace.copyWith(
-      canvasPoints: [
-        for (final canvasPoint in sourceTrace.canvasPoints)
-          GraphPoint.fromOffset(canvasPoint.offset + delta),
-      ],
-      geoPoints: nextGeoPoints,
-    );
+    nextTraces[traceIndex] = sourceTrace
+        .transformCanvas((p) => GraphPoint.fromOffset(p.offset + delta))
+        .copyWith(
+          geoPoints: nextGeoPoints,
+          exclusions: [
+            for (final e in sourceTrace.exclusions)
+              e
+                  .transformCanvas(
+                    (p) => GraphPoint.fromOffset(p.offset + delta),
+                  )
+                  .copyWith(
+                    geoPoints: metersPerCanvasUnit == null
+                        ? e.geoPoints
+                        : [
+                            for (final p in e.geoPoints)
+                              TraceProjectionService.moveGeoPointByCanvasDelta(
+                                point: p,
+                                canvasDelta: delta,
+                                metersPerCanvasUnit: metersPerCanvasUnit,
+                              ),
+                          ],
+                  ),
+          ],
+        );
     setState(() {
       _document.replaceTraces(nextTraces);
       _dragMoved = true;
@@ -3933,14 +3973,12 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     final nextTraces = <TraceGeometry>[..._traces];
     // Rotation is a canvas presentation edit. Geographic vertices remain the
     // source of truth for the property's map-derived measurements.
-    nextTraces[traceIndex] = sourceTrace.copyWith(
-      canvasPoints: [
-        for (final canvasPoint in sourceTrace.canvasPoints)
-          GraphPoint.fromOffset(
-            _rotateOffset(canvasPoint.offset, traceCenter.offset, deltaRadians),
-          ),
-      ],
+    nextTraces[traceIndex] = sourceTrace.transformCanvas(
+      (p) => GraphPoint.fromOffset(
+        _rotateOffset(p.offset, traceCenter.offset, deltaRadians),
+      ),
     );
+
     setState(() {
       _document.replaceTraces(nextTraces);
       _dragMoved = true;
@@ -5888,6 +5926,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       MaterialPageRoute(
         builder: (context) => TraceWorkspaceScreen(
           account: _cloudSession?.workspace.account,
+          addressService: widget.traceAddressService,
+          addressAttribution: widget.traceAddressAttribution,
           address: traceWorkspaceAddress(
             _traces,
             _document.customer.serviceAddress,
@@ -5932,7 +5972,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       _selection = _Selection.trace(traceIndex);
       _interaction.setSelected(_interactionReference(_selection!));
       _interaction.selectTool(CanvasTool.select);
-      _sidePanelMode = _SidePanelMode.properties;
+      _setSidePanel(_SidePanelMode.properties);
       _canvasStatus = 'Satellite trace added at real-world scale';
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -5948,22 +5988,35 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     if (size == null || size.isEmpty) return;
     // Keep the edge footage labels and selected trace rotation handle inside
     // the viewport when a new or existing trace is fitted to the canvas.
-    final canonicalBounds = TracePresentation.paintedBounds(_traces) ??
+    final canonicalBounds = (_compactEditor
+            ? TracePresentation.bounds(_traces)
+            : TracePresentation.paintedBounds(_traces)) ??
         TracePresentation.paintedBounds([trace])!;
     final bounds = Rect.fromPoints(
       _drawingScale.toDisplay(canonicalBounds.topLeft),
       _drawingScale.toDisplay(canonicalBounds.bottomRight),
     );
     final leftInset =
-        widget.presentationMode || _mainToolbarCollapsed ? 0.0 : 120.0;
+        widget.presentationMode || _compactEditor || _mainToolbarCollapsed
+            ? 0.0
+            : 120.0;
     final rightInset =
-        widget.presentationMode || _sidePanelMode == null ? 0.0 : 280.0;
+        widget.presentationMode || _compactEditor || _sidePanelMode == null
+            ? 0.0
+            : 280.0;
     final usable = Rect.fromLTWH(
       leftInset,
       0,
       math.max(1, size.width - leftInset - rightInset),
       size.height,
     );
+    if (_compactEditor) {
+      final fitted =
+          EditorViewport.fit(bounds, _compactTraceFitRect(usable), padding: 0);
+      _transformationController.value = fitted;
+      _fittedViewport = fitted.clone();
+      return;
+    }
     const padding = 96.0;
     final scale = math
         .min(
@@ -5972,7 +6025,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
           (usable.height - padding).clamp(1.0, double.infinity) /
               math.max(bounds.height, 1),
         )
-        .clamp(0.01, 4.0);
+        .clamp(EditorViewport.minScale, 4.0);
     final viewportCenter = usable.center;
     final next = Matrix4.identity()
       ..setEntry(0, 0, scale)
@@ -5981,6 +6034,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       ..setEntry(0, 3, viewportCenter.dx - (bounds.center.dx * scale))
       ..setEntry(1, 3, viewportCenter.dy - (bounds.center.dy * scale));
     _transformationController.value = next;
+    _fittedViewport = next.clone();
   }
 
   void _toggleLayerVisibility(_GraphLayer layer) {
@@ -6816,23 +6870,199 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     return String.fromCharCodes(letters.reversed);
   }
 
+  void _setSidePanel(_SidePanelMode? mode) {
+    _sidePanelMode = mode;
+    if (_compactEditor && mode != null) _mainToolbarCollapsed = true;
+  }
+
+  void _showMainToolbar() => setState(() {
+    if (_compactEditor) _setSidePanel(null);
+    _mainToolbarCollapsed = false;
+  });
+
+  Widget _compactPanelHeader(
+    String title, {
+    required VoidCallback onHide,
+    required String hideTooltip,
+    bool dark = false,
+  }) {
+    final foreground = dark ? Colors.white : const Color(0xFF353036);
+    final narrow = MediaQuery.orientationOf(context) == Orientation.landscape;
+    return SizedBox(
+      height: 48,
+      child: Row(
+        children: [
+          Expanded(
+            child: PopupMenuButton<String>(
+              tooltip: 'Switch editor panel',
+              onSelected: (value) {
+                if (value == 'fit') {
+                  _fitDrawing();
+                  return;
+                }
+                if (value == 'undo') {
+                  _undoLastAction();
+                  return;
+                }
+                if (value == 'redo') {
+                  _redoLastAction();
+                  return;
+                }
+                if (value == 'cancel') {
+                  _cancelActiveDrawing();
+                  return;
+                }
+                if (value != 'Properties') {
+                  FocusManager.instance.primaryFocus?.unfocus();
+                }
+                if (value == 'Tools') {
+                  _showMainToolbar();
+                } else {
+                  setState(
+                    () => _setSidePanel(
+                      value == 'Properties'
+                          ? _SidePanelMode.properties
+                          : _SidePanelMode.layers,
+                    ),
+                  );
+                }
+              },
+              itemBuilder: (context) => [
+                for (final panel in ['Tools', 'Properties', 'Layers'])
+                  CheckedPopupMenuItem(
+                    value: panel,
+                    checked: title == panel,
+                    child: Text(panel),
+                  ),
+                const PopupMenuDivider(),
+                const PopupMenuItem(value: 'fit', child: Text('Fit drawing')),
+                PopupMenuItem(
+                  value: 'undo',
+                  enabled: _undoStack.isNotEmpty || _activeWallStart != null,
+                  child: const Text('Undo'),
+                ),
+                PopupMenuItem(
+                  value: 'redo',
+                  enabled: _redoStack.isNotEmpty,
+                  child: const Text('Redo'),
+                ),
+                if (_drawingActive)
+                  const PopupMenuItem(
+                    value: 'cancel',
+                    child: Text('Cancel drawing'),
+                  ),
+              ],
+              child: SizedBox(
+                height: 44,
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: foreground,
+                        ),
+                      ),
+                    ),
+                    Icon(Icons.arrow_drop_down, color: foreground, size: 20),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (_drawingActive) ...[
+            if (!narrow)
+              IconButton(
+                tooltip: 'Cancel drawing',
+                constraints: const BoxConstraints.tightFor(
+                  width: 44,
+                  height: 44,
+                ),
+                padding: EdgeInsets.zero,
+                color: foreground,
+                onPressed: _cancelActiveDrawing,
+                icon: const Icon(Icons.close, size: 22),
+              ),
+            IconButton(
+              tooltip: 'Finish drawing',
+              constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+              padding: EdgeInsets.zero,
+              color: foreground,
+              onPressed: _finishWallPath,
+              icon: const Icon(Icons.check, size: 22),
+            ),
+          ] else
+            IconButton(
+              tooltip: _selectedTool == CanvasTool.pan
+                  ? 'Select (V)'
+                  : 'Pan (H)',
+              constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+              padding: EdgeInsets.zero,
+              onPressed: () {
+                _selectTool(
+                  _selectedTool == CanvasTool.pan
+                      ? CanvasTool.select
+                      : CanvasTool.pan,
+                );
+                if (!_mainToolbarCollapsed) {
+                  setState(() => _mainToolbarCollapsed = true);
+                }
+              },
+              color: foreground,
+              icon: Icon(
+                _selectedTool == CanvasTool.pan
+                    ? Icons.near_me_outlined
+                    : Icons.pan_tool_outlined,
+                size: 22,
+              ),
+            ),
+          Tooltip(
+            message: hideTooltip,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                FocusManager.instance.primaryFocus?.unfocus();
+                onHide();
+              },
+              style: OutlinedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Theme.of(context).colorScheme.primary,
+                minimumSize: const Size(80, 44),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                visualDensity: VisualDensity.standard,
+              ),
+              icon: const Icon(Icons.close, size: 20),
+              label: const Text('Hide'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
   void _togglePropertiesCollapsed() {
     setState(() {
-      _sidePanelMode = _sidePanelMode == _SidePanelMode.properties
-          ? null
-          : _SidePanelMode.properties;
-      _canvasStatus =
-          _sidePanelMode == null ? 'Properties collapsed' : 'Properties shown';
+      _setSidePanel(
+        _sidePanelMode == _SidePanelMode.properties
+            ? null
+            : _SidePanelMode.properties,
+      );
+      _canvasStatus = _sidePanelMode == null
+          ? 'Properties collapsed'
+          : 'Properties shown';
     });
   }
 
   void _toggleLayersPanel() {
     setState(() {
-      _sidePanelMode = _sidePanelMode == _SidePanelMode.layers
-          ? null
-          : _SidePanelMode.layers;
-      _canvasStatus =
-          _sidePanelMode == null ? 'Layers collapsed' : 'Layers shown';
+      _setSidePanel(
+        _sidePanelMode == _SidePanelMode.layers ? null : _SidePanelMode.layers,
+      );
+      _canvasStatus = _sidePanelMode == null
+          ? 'Layers collapsed'
+          : 'Layers shown';
     });
   }
 
@@ -6996,8 +7226,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   Future<Uint8List?> _renderExportBytes(GraphFileKind kind) async {
     final exportDocument = GraphDocument.fromJson(_document.toJson());
     final isPng = kind == GraphFileKind.pngExport;
-    final boundary = _canvasBoundaryKey.currentContext?.findRenderObject()
-        as GraphSceneRenderBoundary?;
+    final boundary =
+        _canvasBoundaryKey.currentContext?.findRenderObject()
+            as GraphSceneRenderBoundary?;
     if (isPng && boundary == null) {
       _showCanvasMessage(
         'Graph export is not ready yet',
@@ -7012,7 +7243,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       labels: _labels,
       sceneBounds: _sceneBounds,
       structureVisible: _isLayerVisible(_GraphLayer.structure),
-      shapesVisible: _isLayerVisible(_GraphLayer.structure) &&
+      shapesVisible:
+          _isLayerVisible(_GraphLayer.structure) &&
           _isLayerVisible(_GraphLayer.shapes),
       inspectionsVisible: _isLayerVisible(_GraphLayer.inspections),
       treatmentVisible: _isLayerVisible(_GraphLayer.treatment),
@@ -7027,9 +7259,14 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     );
     final brandingLogo = (await rootBundle.load(
       'assets/branding/holloman_exterminators.png',
-    ))
-        .buffer
-        .asUint8List();
+    )).buffer.asUint8List();
+    if (_traceLayerVisible) {
+      await Future.wait([
+        for (final trace in _traces)
+          if (trace.imagery != null)
+            TraceImageryCache.instance.load(trace.imagery!),
+      ]);
+    }
     final pngBytes = await GraphImageExport.capturePng(
       boundary!,
       bounds,
@@ -7090,7 +7327,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         _canvasViewportKey.currentContext?.findRenderObject() as RenderBox?;
     final size = box?.size ?? const Size(800, 600);
     if (widget.presentationMode) return Offset.zero & size;
-    final left = _mainToolbarCollapsed ? 0.0 : _mainToolbarWidth + 8;
+    final left = _compactEditor || _mainToolbarCollapsed ? 0.0 : _mainToolbarWidth + 8;
     return Rect.fromLTRB(left.clamp(0.0, math.max(0.0, size.width - 1)), 0,
         size.width, size.height);
   }
@@ -7105,13 +7342,44 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     setState(() => _canvasStatus = 'Zoom reset to 100%');
   }
 
+  Rect _compactTraceFitRect(Rect viewport) {
+    // Phone acreage/attribution live outside the image. Reserve only the
+    // on-canvas controls and selected rotation handle, in screen pixels.
+    final top = math.min(96.0, viewport.height * .4);
+    final bottom = math.min(68.0, viewport.height * .25);
+    final horizontal = math.min(20.0, viewport.width * .1);
+    return Rect.fromLTRB(viewport.left + horizontal, viewport.top + top,
+        viewport.right - horizontal, viewport.bottom - bottom);
+  }
+
   void _fitDrawing() {
-    final bounds = ExportBoundsCalculator.forDocument(_document, padding: 48);
+    var canonicalBounds =
+        ExportBoundsCalculator.forDocument(_document, padding: 48);
+    if (_compactEditor && _traceLayerVisible && _traces.isNotEmpty) {
+      final traceBounds = TracePresentation.bounds(_traces);
+      if (traceBounds != null) {
+        canonicalBounds = _wallSegments.isEmpty &&
+                _annotations.isEmpty &&
+                _shapes.isEmpty &&
+                _freehandStrokes.isEmpty
+            ? traceBounds
+            : ExportBoundsCalculator.forDocument(_document,
+                    padding: 48, traceVisible: false)
+                .expandToInclude(traceBounds);
+      }
+    }
+    final bounds = Rect.fromPoints(
+      _drawingScale.toDisplay(canonicalBounds.topLeft),
+      _drawingScale.toDisplay(canonicalBounds.bottomRight),
+    );
     _transformationController.value = EditorViewport.fit(
       bounds,
-      _usableViewport,
-      padding: 12,
+      _compactEditor && _traces.isNotEmpty
+          ? _compactTraceFitRect(_usableViewport)
+          : _usableViewport,
+      padding: _compactEditor && _traces.isNotEmpty ? 0 : 12,
     );
+    _fittedViewport = _transformationController.value.clone();
     setState(
       () =>
           _canvasStatus = 'Drawing fitted to viewport — calibration unchanged',
@@ -8067,12 +8335,33 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     if (widget.presentationMode) {
       return _buildPresentationView(context);
     }
+    final compactPanels = _compactEditor;
     const sidePanelWidth = 268.0;
     const canvasRightInset = 12.0;
     const canvasLeftInset = 12.0;
-    final canvasBottomInset = _quickToolbarCollapsed
-        ? 64.0
-        : (MediaQuery.sizeOf(context).width < 760 ? 126.0 : 82.0);
+    final keyboardVisible =
+        compactPanels && MediaQuery.viewInsetsOf(context).bottom > 0;
+    final compactPanelOpen = compactPanels &&
+        (!_mainToolbarCollapsed || _sidePanelMode != null);
+    final overviewTrace =
+        compactPanels && _traceLayerVisible && _traces.isNotEmpty
+            ? _traces[_selection?.traceIndex ?? _traces.length - 1]
+            : null;
+    final attribution = overviewTrace?.imagery?.attribution;
+    final traceOverviewShown = overviewTrace != null && !keyboardVisible;
+    final chooseOverlapAvailable = _selection != null &&
+        _lastTapSceneOffset != null &&
+        _objectsAt(_lastTapSceneOffset!).length > 1;
+    final changeShapeTypeAvailable =
+        _selection?.shapeIndex != null && _isSelectionEditable(_selection!);
+    final canvasBottomInset = (keyboardVisible || compactPanelOpen
+            ? 12.0
+            : _quickToolbarCollapsed
+                ? 64.0
+                : compactPanels
+                    ? 84.0
+                    : (MediaQuery.sizeOf(context).width < 760 ? 126.0 : 82.0)) +
+        (attribution != null ? 18 : 0);
     final documentTitle = _document.customer.displayName;
     final propertyLineSummary = _latestPropertyLineMeasurementSummary;
     final viewportWidth = MediaQuery.sizeOf(context).width;
@@ -8087,6 +8376,57 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                 12 -
                 canvasRightInset >=
             200;
+
+    Widget editorToolbar(_EditorToolbarPart part) =>
+        ValueListenableBuilder<Matrix4>(
+          valueListenable: _transformationController,
+          builder: (context, matrix, child) => _TopEditorToolbar(
+            part: part,
+            onToggleLayers: _toggleLayersPanel,
+            onDeleteSelection: _deleteSelection,
+            quickActions: _quickToolbarActions,
+            onQuickAction: _activateToolbarAction,
+            onResetQuickTools: _resetQuickToolbar,
+            onChooseOverlap: traceOverviewShown && chooseOverlapAvailable
+                ? () => _chooseOverlappingObjects(_lastTapSceneOffset!)
+                : null,
+            onChangeShapeType: traceOverviewShown && changeShapeTypeAvailable
+                ? () => _classifySketch(_selection!.shapeIndex!, editing: true)
+                : null,
+            drawingRatioLabel: _scaleLabel,
+            onDrawingRatioChanged: _setScaleLabel,
+            onLabelSmaller: () => setState(
+              () => _labelTextScale = (_labelTextScale - 0.15).clamp(0.7, 1.6),
+            ),
+            onLabelLarger: () => setState(
+              () => _labelTextScale = (_labelTextScale + 0.15).clamp(0.7, 1.6),
+            ),
+            onFinish: _finishWallPath,
+            finishLabel: _selectedTool == CanvasTool.wall
+                ? 'Finish Line'
+                : 'Close Shape',
+            onClear: _confirmClearGraph,
+            onSaveGraphFile: _handleGraphFileSaveTapped,
+            onEditGraphInformation: _editGraphInformation,
+            onSavePng: () => _openFileHandoff(GraphFileAction.savePng),
+            onSavePdf: () => _openFileHandoff(GraphFileAction.savePdf),
+            onEmailPdf: () => _openFileHandoff(GraphFileAction.emailPdf),
+            onExportPdf: _exportGraphPdf,
+            onExportPng: _exportGraphPng,
+            onSaveAndCreateSalesBrainReport: _saveAndCreateSalesBrainReport,
+            onNewWithExistingStructure: _newGraphWithExistingStructure,
+            onZoomIn: () => _zoomBy(1.2),
+            onZoomOut: () => _zoomBy(1 / 1.2),
+            onResetZoom: _resetZoom,
+            gridVisible: _gridVisible,
+            onToggleGrid: _toggleGridVisible,
+            snapToGrid: _snapToGrid,
+            onToggleSnapToGrid: _toggleSnapToGrid,
+            onFitDrawing: _fitDrawing,
+            scaleLabel: EditorViewport.label(matrix),
+            onScaleChanged: _setZoomPercent,
+          ),
+        );
 
     final scaffold = Scaffold(
       appBar: AppBar(
@@ -8139,460 +8479,585 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
             children: [
               if (_canvasNotice != null) _buildCanvasNotice(),
               Expanded(
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      left: canvasLeftInset,
-                      top: 54,
-                      right: canvasRightInset,
-                      bottom: canvasBottomInset,
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          _centerCanvasInViewport(constraints.biggest);
-                          return MouseRegion(
-                            cursor: _canvasCursor,
-                            child: Listener(
-                              key: _canvasViewportKey,
-                              behavior: HitTestBehavior.opaque,
-                              onPointerDown: _handlePointerDown,
-                              onPointerMove: _handlePointerMove,
-                              onPointerHover: _handlePointerHover,
-                              onPointerUp: _handlePointerUp,
-                              onPointerCancel: _handlePointerCancel,
-                              onPointerSignal: _handlePointerSignal,
-                              child: InteractiveViewer(
-                                transformationController:
-                                    _transformationController,
-                                panEnabled: _selectedTool == CanvasTool.pan ||
-                                    _spacePanActive,
-                                scaleEnabled: true,
-                                constrained: false,
-                                minScale: EditorViewport.minScale,
-                                maxScale: EditorViewport.maxScale,
-                                // Traces can extend beyond the fixed drawing
-                                // surface. Do not let gesture bounds override
-                                // their fitted scale or prevent panning.
-                                boundaryMargin: const EdgeInsets.all(
-                                  double.infinity,
-                                ),
-                                child: Transform.scale(
-                                  scale: _drawingScale.presentationFactor,
-                                  alignment: Alignment.topLeft,
-                                  child: GraphSceneBoundary(
-                                    key: _canvasBoundaryKey,
-                                    sceneBounds: _sceneBounds,
-                                    child: _CanvasSurface(
-                                      canvasSize: _canvasSize,
-                                      sceneBounds: _sceneBounds,
-                                      wallSegments: _wallSegments,
-                                      annotations: _annotations,
-                                      shapes: _shapes,
-                                      freehandStrokes: _freehandStrokes,
-                                      traces: _traces,
-                                      draftFreehandPoints: _draftFreehandPoints,
-                                      previewShapeSegments:
-                                          _previewShapeSegments,
-                                      previewShape: _previewShape,
-                                      hiddenSegmentIndexes:
-                                          _shapeSegmentIndexSet,
-                                      gridVisible: _gridVisible,
-                                      drawingScale: _drawingScale,
-                                      labels: _labels,
-                                      selectedSegmentIndex:
-                                          _selection?.segmentIndex,
-                                      selectedAnnotationIndex:
-                                          _selection?.annotationIndex,
-                                      selectedShapeIndex:
-                                          _selection?.shapeIndex,
-                                      selectedFreehandIndex:
-                                          _selection?.freehandIndex,
-                                      selectedTraceIndex:
-                                          _selection?.traceIndex,
-                                      hoveredSegmentIndex:
-                                          _hoverSelection?.segmentIndex,
-                                      hoveredAnnotationIndex:
-                                          _hoverSelection?.annotationIndex,
-                                      hoveredShapeIndex:
-                                          _hoverSelection?.shapeIndex,
-                                      hoveredFreehandIndex:
-                                          _hoverSelection?.freehandIndex,
-                                      hoveredTraceIndex:
-                                          _hoverSelection?.traceIndex,
-                                      activeWallStart: _activeWallStart,
-                                      previewSegment: _previewSegment,
-                                      treatmentCalloutTip: _treatmentCalloutTip,
-                                      treatmentCalloutBox: _treatmentCalloutBox,
-                                      activeCalloutKind: _activeCalloutKind,
-                                      structureVisible: _isLayerVisible(
-                                        _GraphLayer.structure,
-                                      ),
-                                      shapesVisible: _isLayerVisible(
+                child: LayoutBuilder(builder: (context, constraints) {
+                  final overviewHeight =
+                      constraints.maxWidth >= 600 ? 24.0 : 40.0;
+                  final canvasTop = compactPanels
+                      ? (keyboardVisible
+                          ? 8.0
+                          : overviewTrace != null
+                          ? 16.0 + overviewHeight
+                          : 8.0)
+                      : 54.0;
+                  final panelBottom =
+                      constraints.maxHeight - canvasBottomInset - 8;
+                  final availableHeight =
+                      math.max(1.0, panelBottom - canvasTop);
+                  // A portrait keyboard reduces body height, not orientation.
+                  final dockOnRight = landscape;
+                  final emptyProperties =
+                      _sidePanelMode == _SidePanelMode.properties &&
+                          _selection == null;
+                  final dockWidth = dockOnRight
+                      ? math.min(sidePanelWidth,
+                          math.max(244.0, constraints.maxWidth * .42))
+                      : constraints.maxWidth - 24;
+                  final requestedPanelHeight = !_mainToolbarCollapsed
+                      ? CanvasToolbar.compactHeight(
+                          dockWidth, MediaQuery.textScalerOf(context))
+                      : emptyProperties ? 112.0
+                      : _sidePanelMode == _SidePanelMode.properties ? 176.0 : 224.0;
+                  final dockHeight = math.min(requestedPanelHeight,
+                      dockOnRight ? availableHeight :
+                          math.max(68.0,
+                              availableHeight - (keyboardVisible ? 32 : 96)));
+                  final dock = Rect.fromLTWH(
+                    constraints.maxWidth - dockWidth - 12,
+                    dockOnRight ? canvasTop : panelBottom - dockHeight,
+                    dockWidth,
+                    dockHeight,
+                  );
+                  final dockVisible = compactPanels &&
+                      (!_mainToolbarCollapsed || _sidePanelMode != null);
+                  final canvasRect = Rect.fromLTRB(
+                    canvasLeftInset,
+                    canvasTop,
+                    constraints.maxWidth -
+                        canvasRightInset -
+                        (dockVisible && dockOnRight ? dockWidth + 8 : 0),
+                    constraints.maxHeight -
+                        canvasBottomInset -
+                        (dockVisible && !dockOnRight ? dockHeight + 16 : 0),
+                  );
+                  return Stack(
+                    children: [
+                      Positioned.fromRect(
+                        rect: canvasRect,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            _centerCanvasInViewport(constraints.biggest);
+                            return MouseRegion(
+                              cursor: _canvasCursor,
+                              child: Semantics(
+                                label: 'Drawing canvas',
+                                container: true,
+                                child: Listener(
+                                  key: _canvasViewportKey,
+                                  behavior: HitTestBehavior.opaque,
+                                  onPointerDown: _handlePointerDown,
+                                  onPointerMove: _handlePointerMove,
+                                  onPointerHover: _handlePointerHover,
+                                  onPointerUp: _handlePointerUp,
+                                  onPointerCancel: _handlePointerCancel,
+                                  onPointerSignal: _handlePointerSignal,
+                                  child: InteractiveViewer(
+                                    transformationController:
+                                        _transformationController,
+                                    panEnabled:
+                                        _selectedTool == CanvasTool.pan ||
+                                            _spacePanActive,
+                                    scaleEnabled: true,
+                                    constrained: false,
+                                    minScale: EditorViewport.minScale,
+                                    maxScale: EditorViewport.maxScale,
+                                    // Traces can extend beyond the fixed drawing
+                                    // surface. Do not let gesture bounds override
+                                    // their fitted scale or prevent panning.
+                                    boundaryMargin: const EdgeInsets.all(
+                                      double.infinity,
+                                    ),
+                                    child: Transform.scale(
+                                      scale: _drawingScale.presentationFactor,
+                                      alignment: Alignment.topLeft,
+                                      child: GraphSceneBoundary(
+                                        key: _canvasBoundaryKey,
+                                        sceneBounds: _sceneBounds,
+                                        child: _CanvasSurface(
+                                          canvasSize: _canvasSize,
+                                          sceneBounds: _sceneBounds,
+                                          wallSegments: _wallSegments,
+                                          annotations: _annotations,
+                                          shapes: _shapes,
+                                          freehandStrokes: _freehandStrokes,
+                                          traces: _traces,
+                                          draftFreehandPoints:
+                                              _draftFreehandPoints,
+                                          previewShapeSegments:
+                                              _previewShapeSegments,
+                                          previewShape: _previewShape,
+                                          hiddenSegmentIndexes:
+                                              _shapeSegmentIndexSet,
+                                          gridVisible: _gridVisible,
+                                          drawingScale: _drawingScale,
+                                          labels: _labels,
+                                          selectedSegmentIndex:
+                                              _selection?.segmentIndex,
+                                          selectedAnnotationIndex:
+                                              _selection?.annotationIndex,
+                                          selectedShapeIndex:
+                                              _selection?.shapeIndex,
+                                          selectedFreehandIndex:
+                                              _selection?.freehandIndex,
+                                          selectedTraceIndex:
+                                              _selection?.traceIndex,
+                                          hoveredSegmentIndex:
+                                              _hoverSelection?.segmentIndex,
+                                          hoveredAnnotationIndex:
+                                              _hoverSelection?.annotationIndex,
+                                          hoveredShapeIndex:
+                                              _hoverSelection?.shapeIndex,
+                                          hoveredFreehandIndex:
+                                              _hoverSelection?.freehandIndex,
+                                          hoveredTraceIndex:
+                                              _hoverSelection?.traceIndex,
+                                          activeWallStart: _activeWallStart,
+                                          previewSegment: _previewSegment,
+                                          treatmentCalloutTip:
+                                              _treatmentCalloutTip,
+                                          treatmentCalloutBox:
+                                              _treatmentCalloutBox,
+                                          activeCalloutKind: _activeCalloutKind,
+                                          structureVisible: _isLayerVisible(
                                             _GraphLayer.structure,
-                                          ) &&
-                                          _isLayerVisible(
-                                            _GraphLayer.shapes,
                                           ),
-                                      inspectionsVisible: _isLayerVisible(
-                                        _GraphLayer.inspections,
+                                          shapesVisible: _isLayerVisible(
+                                                _GraphLayer.structure,
+                                              ) &&
+                                              _isLayerVisible(
+                                                _GraphLayer.shapes,
+                                              ),
+                                          inspectionsVisible: _isLayerVisible(
+                                            _GraphLayer.inspections,
+                                          ),
+                                          treatmentVisible: _isLayerVisible(
+                                            _GraphLayer.treatment,
+                                          ),
+                                          photosVisible: _isLayerVisible(
+                                            _GraphLayer.photos,
+                                          ),
+                                          traceLayerVisible: _traceLayerVisible,
+                                        ),
                                       ),
-                                      treatmentVisible: _isLayerVisible(
-                                        _GraphLayer.treatment,
-                                      ),
-                                      photosVisible: _isLayerVisible(
-                                        _GraphLayer.photos,
-                                      ),
-                                      traceLayerVisible: _traceLayerVisible,
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
-                    ),
-                    if (_isInlineTextEditing)
-                      Positioned.fill(
-                        left: canvasLeftInset,
-                        top: 54,
-                        right: canvasRightInset,
-                        bottom: canvasBottomInset,
-                        child: LayoutBuilder(
-                          builder: (context, constraints) => AnimatedBuilder(
-                            animation: _transformationController,
-                            builder: (context, _) => Stack(
+                      if (compactPanels && !keyboardVisible) ...[
+                        Positioned(
+                          top: canvasRect.top + 4,
+                          right: constraints.maxWidth - canvasRect.right + 4,
+                          child: Material(
+                            key: const ValueKey('canvas-history-controls'),
+                            elevation: 2,
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                if (_buildInlineTextEditor(constraints.biggest)
-                                    case final editor?)
-                                  editor,
+                                IconButton(
+                                  tooltip: 'Undo',
+                                  constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+                                  padding: EdgeInsets.zero,
+                                  onPressed: _undoStack.isNotEmpty || _activeWallStart != null
+                                      ? _undoLastAction
+                                      : null,
+                                  icon: const Icon(Icons.undo),
+                                ),
+                                IconButton(
+                                  tooltip: 'Redo',
+                                  constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+                                  padding: EdgeInsets.zero,
+                                  onPressed: _redoStack.isNotEmpty ? _redoLastAction : null,
+                                  icon: const Icon(Icons.redo),
+                                ),
                               ],
                             ),
                           ),
                         ),
-                      ),
-                    Positioned(
-                      left: 12,
-                      top: 54,
-                      bottom: landscape && !toolbarsFitSideBySide ? 80 : 12,
-                      width: _mainToolbarWidth,
-                      child: Offstage(
-                        offstage: _mainToolbarCollapsed,
-                        child: ExcludeFocus(
-                          excluding: _mainToolbarCollapsed,
-                          child: CanvasToolbar(
-                            width: _mainToolbarWidth,
-                            selectedTool: _selectedTool,
-                            selectedMarkerType: _selectedMarkerType,
-                            selectedDrawingPreset: _selectedDrawingPreset,
-                            onToolSelected: _selectTool,
-                            onMarkerSelected: _selectMarker,
-                            onDrawingPresetSelected: _selectDrawingPreset,
-                            traceLayerVisible: _traceLayerVisible,
-                            onToggleTraceLayer: () => _openTraceWorkspace(),
-                            onCollapse: () =>
-                                setState(() => _mainToolbarCollapsed = true),
-                            onActionDoubleTapped: _inspectToolbarAction,
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (_mainToolbarCollapsed)
-                      Positioned(
-                        left: 12,
-                        top: 54,
-                        child: Material(
-                          elevation: 6,
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                          child: Tooltip(
-                            message: 'Show main toolbar',
-                            child: TextButton.icon(
-                              onPressed: () =>
-                                  setState(() => _mainToolbarCollapsed = false),
-                              icon: const Icon(Icons.tune),
-                              label: const Text('Tools'),
+                        if (canvasRect.height >= 180 && canvasRect.width >= 260)
+                          Positioned(
+                            left: canvasRect.left + 4,
+                            top: canvasRect.top + 4,
+                            width: math.min(260.0, canvasRect.width - 104),
+                            child: _CanvasZoomSlider(
+                              controller: _transformationController,
+                              anchor: () => _usableViewport.center,
                             ),
                           ),
-                        ),
-                      ),
-                    Positioned(
-                      left: !_mainToolbarCollapsed && toolbarsFitSideBySide
-                          ? canvasLeftInset + _mainToolbarWidth + 12
-                          : canvasLeftInset,
-                      right: canvasRightInset,
-                      bottom: 12,
-                      child: Align(
-                        alignment: Alignment.bottomCenter,
-                        child: _quickToolbarCollapsed
-                            ? Material(
-                                elevation: 8,
-                                color: Colors.white,
-                                shape: const CircleBorder(),
-                                child: IconButton(
-                                  key: const ValueKey(
-                                    'show-canvas-quick-toolbar',
-                                  ),
-                                  tooltip: 'Show quick toolbar',
-                                  onPressed: () => setState(
-                                    () => _quickToolbarCollapsed = false,
-                                  ),
-                                  icon: const Icon(Icons.keyboard_arrow_up),
-                                ),
-                              )
-                            : _drawingActive
-                                ? Opacity(
-                                    key: const ValueKey(
-                                      'drawing-essential-controls',
-                                    ),
-                                    opacity: 0.72,
-                                    child: Material(
-                                      color: Colors.white,
-                                      shape: const StadiumBorder(),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            tooltip: 'Undo',
-                                            icon: const Icon(Icons.undo),
-                                            onPressed: _undoLastAction,
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Redo',
-                                            icon: const Icon(Icons.redo),
-                                            onPressed: _redoStack.isEmpty
-                                                ? null
-                                                : _redoLastAction,
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Cancel drawing',
-                                            icon: const Icon(Icons.close),
-                                            onPressed: _cancelActiveDrawing,
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Finish drawing',
-                                            icon: const Icon(Icons.check),
-                                            onPressed: _finishWallPath,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  )
-                                : CanvasQuickToolbar(
-                                    showHistory: true,
-                                    canUndo: _undoStack.isNotEmpty ||
-                                        _activeWallStart != null,
-                                    canRedo: _redoStack.isNotEmpty,
-                                    actions: _quickToolbarActions,
-                                    selectedTool: _selectedTool,
-                                    selectedMarkerType: _selectedMarkerType,
-                                    selectedDrawingPreset:
-                                        _selectedDrawingPreset,
-                                    onActionSelected: _activateToolbarAction,
-                                    onActionAdded: _addQuickToolbarAction,
-                                    onReset: _resetQuickToolbar,
-                                    propertiesSelected: _sidePanelMode ==
-                                        _SidePanelMode.properties,
-                                    layersSelected:
-                                        _sidePanelMode == _SidePanelMode.layers,
-                                    onToggleProperties:
-                                        _togglePropertiesCollapsed,
-                                    onToggleLayers: _toggleLayersPanel,
-                                    onDeleteSelection: _deleteSelection,
-                                    onUndo: _undoLastAction,
-                                    onRedo: _redoLastAction,
-                                    onCollapse: () => setState(
-                                      () => _quickToolbarCollapsed = true,
-                                    ),
-                                  ),
-                      ),
-                    ),
-                    if (_selection != null &&
-                        _lastTapSceneOffset != null &&
-                        _objectsAt(_lastTapSceneOffset!).length > 1)
-                      Positioned(
-                        right: 12,
-                        top: 62,
-                        child: Material(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          child: TextButton.icon(
-                            icon: const Icon(Icons.layers_outlined),
-                            label: const Text('Choose overlap'),
-                            onPressed: () =>
-                                _chooseOverlappingObjects(_lastTapSceneOffset!),
+                        Positioned(
+                          right: constraints.maxWidth - canvasRect.right + 8,
+                          bottom: constraints.maxHeight - canvasRect.bottom + 8,
+                          child: FloatingActionButton(
+                            key: const ValueKey('canvas-tools-button'),
+                            tooltip: 'Show main toolbar',
+                            backgroundColor: const Color(0xFFB90916),
+                            foregroundColor: Colors.white,
+                            shape: const CircleBorder(),
+                            onPressed: _showMainToolbar,
+                            child: const Icon(Icons.handyman_outlined, size: 25),
                           ),
                         ),
-                      ),
-                    Positioned(
-                      left: 12,
-                      right: 12,
-                      top: 8,
-                      child: Tooltip(
-                        message: _canvasStatus,
-                        child: ValueListenableBuilder<Matrix4>(
-                          valueListenable: _transformationController,
-                          builder: (context, matrix, child) =>
-                              _TopEditorToolbar(
-                            drawingRatioLabel: _scaleLabel,
-                            onDrawingRatioChanged: _setScaleLabel,
-                            onLabelSmaller: () => setState(
-                              () => _labelTextScale =
-                                  (_labelTextScale - 0.15).clamp(0.7, 1.6),
-                            ),
-                            onLabelLarger: () => setState(
-                              () => _labelTextScale =
-                                  (_labelTextScale + 0.15).clamp(0.7, 1.6),
-                            ),
-                            onFinish: _finishWallPath,
-                            finishLabel: _selectedTool == CanvasTool.wall
-                                ? 'Finish Line'
-                                : 'Close Shape',
-                            onClear: _confirmClearGraph,
-                            onSaveGraphFile: _handleGraphFileSaveTapped,
-                            onEditGraphInformation: _editGraphInformation,
-                            onSavePng: () =>
-                                _openFileHandoff(GraphFileAction.savePng),
-                            onSavePdf: () =>
-                                _openFileHandoff(GraphFileAction.savePdf),
-                            onEmailPdf: () =>
-                                _openFileHandoff(GraphFileAction.emailPdf),
-                            onExportPdf: _exportGraphPdf,
-                            onExportPng: _exportGraphPng,
-                            onSaveAndCreateSalesBrainReport:
-                                _saveAndCreateSalesBrainReport,
-                            onNewWithExistingStructure:
-                                _newGraphWithExistingStructure,
-                            onZoomIn: () => _zoomBy(1.2),
-                            onZoomOut: () => _zoomBy(1 / 1.2),
-                            onResetZoom: _resetZoom,
-                            gridVisible: _gridVisible,
-                            onToggleGrid: _toggleGridVisible,
-                            snapToGrid: _snapToGrid,
-                            onToggleSnapToGrid: _toggleSnapToGrid,
-                            onFitDrawing: _fitDrawing,
-                            scaleLabel: EditorViewport.label(matrix),
-                            onScaleChanged: _setZoomPercent,
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (_selection?.shapeIndex != null &&
-                        _isSelectionEditable(_selection!))
-                      Positioned(
-                        top: 62,
-                        right: 16,
-                        child: ActionChip(
-                          avatar: const Icon(Icons.edit_outlined, size: 18),
-                          label: Text(
-                            'Type: ${_shapes[_selection!.shapeIndex!].preset?.label ?? 'Unclassified'}',
-                          ),
-                          tooltip: 'Change shape type',
-                          onPressed: () => _classifySketch(
-                            _selection!.shapeIndex!,
-                            editing: true,
-                          ),
-                        ),
-                      ),
-                    if (propertyLineSummary != null &&
-                        (_sidePanelMode == null || viewportWidth >= 720))
-                      Positioned(
-                        key: const ValueKey(
-                          'property-line-measurement-summary',
-                        ),
-                        top: 72,
-                        right:
-                            _sidePanelMode == null ? 24 : sidePanelWidth + 24,
-                        child: IgnorePointer(
-                          child: Card(
-                            elevation: 5,
-                            color: Colors.white,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 10,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
+                      ],
+                      if (_isInlineTextEditing)
+                        Positioned.fromRect(
+                          rect: canvasRect,
+                          child: LayoutBuilder(
+                            builder: (context, constraints) => AnimatedBuilder(
+                              animation: _transformationController,
+                              builder: (context, _) => Stack(
                                 children: [
-                                  const Text(
-                                    'Property Line (acres)',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(propertyLineSummary),
+                                  if (_buildInlineTextEditor(
+                                          constraints.biggest)
+                                      case final editor?)
+                                    editor,
                                 ],
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    if (_sidePanelMode != null)
-                      Positioned(
-                        top: 54,
-                        right: 12,
-                        bottom:
-                            MediaQuery.sizeOf(context).width < 700 ? null : 82,
-                        height:
-                            MediaQuery.sizeOf(context).width < 700 ? 320 : null,
-                        width: sidePanelWidth,
-                        child: _PropertiesSidebar(
-                          layersOnly: _sidePanelMode == _SidePanelMode.layers,
-                          selection: _selection,
-                          annotations: _annotations,
-                          wallSegments: _wallSegments,
-                          shapes: _shapes,
-                          freehandStrokes: _freehandStrokes,
-                          traces: _traces,
-                          layerSettings: _layerSettings,
-                          traceLayerVisible: _traceLayerVisible,
-                          layersCollapsed: _layersCollapsed,
-                          onCollapsePanel: () =>
-                              setState(() => _sidePanelMode = null),
-                          onToggleLayersCollapsed: _toggleLayersCollapsed,
-                          onToggleLayerVisibility: _toggleLayerVisibility,
-                          onToggleLayerLock: _toggleLayerLock,
-                          onAnnotationLabelChanged: _updateAnnotationLabel,
-                          onAnnotationMarkerTypeChanged:
-                              _updateAnnotationMarkerType,
-                          onAnnotationColorChanged: _updateAnnotationColor,
-                          onAnnotationSizeChanged: _updateAnnotationSize,
-                          onAnnotationRotationChanged:
-                              _updateAnnotationRotation,
-                          onAnnotationNoteChanged: _updateAnnotationNote,
-                          onTextFontSizeChanged: _updateTextFontSize,
-                          onTextBoldChanged: _updateTextBold,
-                          onTextItalicChanged: _updateTextItalic,
-                          onTextColorChanged: _updateTextColor,
-                          onTextBackgroundChanged: _updateTextBackground,
-                          onTextBorderChanged: _updateTextBorder,
-                          onSetMarkerDefault: _setMarkerDefault,
-                          onSetTextDefault: _setTextDefault,
-                          onSegmentColorChanged: _updateSegmentColor,
-                          onSegmentPatternChanged: _updateSegmentPattern,
-                          onSegmentWidthChanged: _updateSegmentWidth,
-                          onSegmentArrowChanged: _updateSegmentArrow,
-                          onSetLineDefault: _setLineDefault,
-                          onFreehandColorChanged: _updateFreehandColor,
-                          onFreehandWidthChanged: _updateFreehandWidth,
-                          onFreehandOpacityChanged: _updateFreehandOpacity,
-                          onSetFreehandDefault: _setFreehandDefault,
-                          onShapeNameChanged: _updateShapeName,
-                          onShapeFillChanged: _updateShapeFill,
-                          onShapeBorderColorChanged: _updateShapeBorderColor,
-                          onShapeBorderWidthChanged: _updateShapeBorderWidth,
-                          onShapePatternChanged: _updateShapePattern,
-                          onShapeFoundationTypeChanged:
-                              _updateShapeFoundationType,
-                          onSetShapeDefault: _setShapeDefault,
-                          onTraceLabelChanged: _updateTraceLabel,
-                          onEditTrace: (index) =>
-                              _openTraceWorkspace(editIndex: index),
+                      Positioned.fromRect(
+                        rect: compactPanels
+                            ? dock
+                            : Rect.fromLTRB(
+                                12,
+                                54,
+                                12 + _mainToolbarWidth,
+                                constraints.maxHeight -
+                                    (landscape && !toolbarsFitSideBySide
+                                        ? 80
+                                        : 12),
+                              ),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) => Offstage(
+                            offstage: _mainToolbarCollapsed,
+                            child: ExcludeFocus(
+                              excluding: _mainToolbarCollapsed,
+                              child: CanvasToolbar(
+                                width: constraints.maxWidth,
+                                compact: compactPanels,
+                                onActionAdded: _addQuickToolbarAction,
+                                panelHeader: compactPanels
+                                    ? _compactPanelHeader('Tools', dark: true,
+                                        hideTooltip: 'Hide main toolbar',
+                                        onHide: () => setState(
+                                            () => _mainToolbarCollapsed = true))
+                                    : null,
+                                selectedTool: _selectedTool,
+                                selectedMarkerType: _selectedMarkerType,
+                                selectedDrawingPreset: _selectedDrawingPreset,
+                                onToolSelected: _selectTool,
+                                onMarkerSelected: _selectMarker,
+                                onDrawingPresetSelected: _selectDrawingPreset,
+                                traceLayerVisible: _traceLayerVisible,
+                                onToggleTraceLayer: () => _openTraceWorkspace(),
+                                onCollapse: () => setState(
+                                  () => _mainToolbarCollapsed = true,
+                                ),
+                                onActionDoubleTapped: _inspectToolbarAction,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                  ],
-                ),
+                      if (_mainToolbarCollapsed && !compactPanels)
+                        Positioned(
+                          left: 12,
+                          top: 54,
+                          child: Material(
+                            elevation: 6,
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                            child: Tooltip(
+                              message: 'Show main toolbar',
+                              child: TextButton.icon(
+                                onPressed: _showMainToolbar,
+                                icon: const Icon(Icons.tune),
+                                label: const Text('Tools'),
+                              ),
+                            ),
+                          ),
+                        ),
+                      Positioned(
+                        left: !compactPanels &&
+                                !_mainToolbarCollapsed &&
+                                toolbarsFitSideBySide
+                            ? canvasLeftInset + _mainToolbarWidth + 12
+                            : canvasLeftInset,
+                        right: canvasRightInset,
+                        bottom: 12,
+                        child: Offstage(
+                          offstage: keyboardVisible || compactPanelOpen,
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: _quickToolbarCollapsed
+                                ? Material(
+                                    elevation: 8,
+                                    color: Colors.white,
+                                    shape: const CircleBorder(),
+                                    child: IconButton(
+                                      key: const ValueKey(
+                                        'show-canvas-quick-toolbar',
+                                      ),
+                                      tooltip: 'Show quick toolbar',
+                                      onPressed: () => setState(
+                                        () => _quickToolbarCollapsed = false,
+                                      ),
+                                      icon: const Icon(Icons.keyboard_arrow_up),
+                                    ),
+                                  )
+                                : _drawingActive
+                                    ? Opacity(
+                                        key: const ValueKey(
+                                          'drawing-essential-controls',
+                                        ),
+                                        opacity: 0.72,
+                                        child: Material(
+                                          color: Colors.white,
+                                          shape: const StadiumBorder(),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              if (!compactPanels) IconButton(
+                                                tooltip: 'Undo',
+                                                icon: const Icon(Icons.undo),
+                                                onPressed: _undoLastAction,
+                                              ),
+                                              if (!compactPanels) IconButton(
+                                                tooltip: 'Redo',
+                                                icon: const Icon(Icons.redo),
+                                                onPressed: _redoStack.isEmpty
+                                                    ? null
+                                                    : _redoLastAction,
+                                              ),
+                                              if (compactPanels) editorToolbar(_EditorToolbarPart.save),
+                                              IconButton(
+                                                tooltip: 'Cancel drawing',
+                                                icon: const Icon(Icons.close),
+                                                onPressed: _cancelActiveDrawing,
+                                              ),
+                                              IconButton(
+                                                tooltip: 'Finish drawing',
+                                                icon: const Icon(Icons.check),
+                                                onPressed: _finishWallPath,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      )
+                                    : CanvasQuickToolbar(
+                                        showHistory: !compactPanels,
+                                        primarySaveMenu: compactPanels
+                                            ? editorToolbar(_EditorToolbarPart.save) : null,
+                                        primaryMoreMenu: compactPanels
+                                            ? editorToolbar(_EditorToolbarPart.options) : null,
+                                        canUndo: _undoStack.isNotEmpty ||
+                                            _activeWallStart != null,
+                                        canRedo: _redoStack.isNotEmpty,
+                                        actions: _quickToolbarActions,
+                                        selectedTool: _selectedTool,
+                                        selectedMarkerType: _selectedMarkerType,
+                                        selectedDrawingPreset:
+                                            _selectedDrawingPreset,
+                                        onActionSelected:
+                                            _activateToolbarAction,
+                                        onActionAdded: _addQuickToolbarAction,
+                                        onReset: _resetQuickToolbar,
+                                        propertiesSelected: _sidePanelMode ==
+                                            _SidePanelMode.properties,
+                                        layersSelected: _sidePanelMode ==
+                                            _SidePanelMode.layers,
+                                        onToggleProperties:
+                                            _togglePropertiesCollapsed,
+                                        onToggleLayers: _toggleLayersPanel,
+                                        onDeleteSelection: _deleteSelection,
+                                        onUndo: _undoLastAction,
+                                        onRedo: _redoLastAction,
+                                        onCollapse: () => setState(
+                                          () => _quickToolbarCollapsed = true,
+                                        ),
+                                      ),
+                          ),
+                        ),
+                      ),
+                      if (chooseOverlapAvailable && !traceOverviewShown)
+                        Positioned(
+                          right: 12,
+                          top: 62,
+                          child: Material(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            child: TextButton.icon(
+                              icon: const Icon(Icons.layers_outlined),
+                              label: const Text('Choose overlap'),
+                              onPressed: () => _chooseOverlappingObjects(
+                                  _lastTapSceneOffset!),
+                            ),
+                          ),
+                        ),
+                      if (!compactPanels && !keyboardVisible) Positioned(
+                        left: 12,
+                        right: 12,
+                        top: 8,
+                        child: Tooltip(
+                          message: _canvasStatus,
+                          child: editorToolbar(_EditorToolbarPart.full),
+                        ),
+                      ),
+                      if (changeShapeTypeAvailable && !traceOverviewShown)
+                        Positioned(
+                          top: 62,
+                          right: 16,
+                          child: ActionChip(
+                            avatar: const Icon(Icons.edit_outlined, size: 18),
+                            label: Text(
+                              'Type: ${_shapes[_selection!.shapeIndex!].preset?.label ?? 'Unclassified'}',
+                            ),
+                            tooltip: 'Change shape type',
+                            onPressed: () => _classifySketch(
+                              _selection!.shapeIndex!,
+                              editing: true,
+                            ),
+                          ),
+                        ),
+                      if (propertyLineSummary != null &&
+                          !traceOverviewShown &&
+                          (_sidePanelMode == null || viewportWidth >= 720))
+                        Positioned(
+                          key: const ValueKey(
+                            'property-line-measurement-summary',
+                          ),
+                          top: 72,
+                          right:
+                              _sidePanelMode == null ? 24 : sidePanelWidth + 24,
+                          child: IgnorePointer(
+                            child: Card(
+                              elevation: 5,
+                              color: Colors.white,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    const Text(
+                                      'Property Line (acres)',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(propertyLineSummary),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (_sidePanelMode != null)
+                        Positioned.fromRect(
+                          rect: compactPanels
+                              ? dock
+                              : Rect.fromLTRB(
+                                  constraints.maxWidth - sidePanelWidth - 12,
+                                  54,
+                                  constraints.maxWidth - 12,
+                                  constraints.maxHeight - 82,
+                                ),
+                          child: _PropertiesSidebar(
+                            key: const ValueKey('canvas-inspector-panel'),
+                            keyboardVisible: keyboardVisible,
+                            panelHeader: compactPanels
+                                ? _compactPanelHeader(
+                                    _sidePanelMode == _SidePanelMode.layers
+                                        ? 'Layers' : 'Properties',
+                                    hideTooltip: _sidePanelMode == _SidePanelMode.layers
+                                        ? 'Collapse layers' : 'Collapse properties',
+                                    onHide: () => setState(() => _sidePanelMode = null))
+                                : null,
+                            layersOnly: _sidePanelMode == _SidePanelMode.layers,
+                            selection: _selection,
+                            annotations: _annotations,
+                            wallSegments: _wallSegments,
+                            shapes: _shapes,
+                            freehandStrokes: _freehandStrokes,
+                            traces: _traces,
+                            layerSettings: _layerSettings,
+                            traceLayerVisible: _traceLayerVisible,
+                            layersCollapsed: _layersCollapsed,
+                            onCollapsePanel: () =>
+                                setState(() => _sidePanelMode = null),
+                            onToggleLayersCollapsed: _toggleLayersCollapsed,
+                            onToggleLayerVisibility: _toggleLayerVisibility,
+                            onToggleLayerLock: _toggleLayerLock,
+                            onAnnotationLabelChanged: _updateAnnotationLabel,
+                            onAnnotationMarkerTypeChanged:
+                                _updateAnnotationMarkerType,
+                            onAnnotationColorChanged: _updateAnnotationColor,
+                            onAnnotationSizeChanged: _updateAnnotationSize,
+                            onAnnotationRotationChanged:
+                                _updateAnnotationRotation,
+                            onAnnotationNoteChanged: _updateAnnotationNote,
+                            onTextFontSizeChanged: _updateTextFontSize,
+                            onTextBoldChanged: _updateTextBold,
+                            onTextItalicChanged: _updateTextItalic,
+                            onTextColorChanged: _updateTextColor,
+                            onTextBackgroundChanged: _updateTextBackground,
+                            onTextBorderChanged: _updateTextBorder,
+                            onSetMarkerDefault: _setMarkerDefault,
+                            onSetTextDefault: _setTextDefault,
+                            onSegmentColorChanged: _updateSegmentColor,
+                            onSegmentPatternChanged: _updateSegmentPattern,
+                            onSegmentWidthChanged: _updateSegmentWidth,
+                            onSegmentArrowChanged: _updateSegmentArrow,
+                            onSetLineDefault: _setLineDefault,
+                            onFreehandColorChanged: _updateFreehandColor,
+                            onFreehandWidthChanged: _updateFreehandWidth,
+                            onFreehandOpacityChanged: _updateFreehandOpacity,
+                            onSetFreehandDefault: _setFreehandDefault,
+                            onShapeNameChanged: _updateShapeName,
+                            onShapeFillChanged: _updateShapeFill,
+                            onShapeBorderColorChanged: _updateShapeBorderColor,
+                            onShapeBorderWidthChanged: _updateShapeBorderWidth,
+                            onShapePatternChanged: _updateShapePattern,
+                            onShapeFoundationTypeChanged:
+                                _updateShapeFoundationType,
+                            onSetShapeDefault: _setShapeDefault,
+                            onTraceLabelChanged: _updateTraceLabel,
+                            onEditTrace: (index) =>
+                                _openTraceWorkspace(editIndex: index),
+                          ),
+                        ),
+                      if (overviewTrace != null && !keyboardVisible)
+                        Positioned(
+                          top: 8,
+                          left: 12,
+                          right: 12,
+                          height: overviewHeight,
+                          child: _MobileTraceSummary(trace: overviewTrace),
+                        ),
+                      if (attribution != null)
+                        Positioned(
+                          left: 12,
+                          right: 12,
+                          bottom: canvasBottomInset - 18,
+                          height: 18,
+                          child: Text(
+                            attribution,
+                            key: const ValueKey('canvas-imagery-attribution'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 9, height: 1.2),
+                          ),
+                        ),
+                    ],
+                  );
+                }),
               ),
             ],
           ),
@@ -8630,8 +9095,15 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     await _lockedLogoReady;
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted || !widget.presentationMode) throw StateError('Unavailable');
-    final boundary = _presentationBoundaryKey.currentContext?.findRenderObject()
-        as GraphSceneRenderBoundary?;
+    await Future.wait([
+      for (final trace in _traces)
+        if (trace.imagery != null)
+          TraceImageryCache.instance.load(trace.imagery!),
+    ]);
+    await WidgetsBinding.instance.endOfFrame;
+    final boundary =
+        _presentationBoundaryKey.currentContext?.findRenderObject()
+            as GraphSceneRenderBoundary?;
     if (boundary == null) throw StateError('Not ready');
     // A separate filtered document keeps internal markup out of crop bounds too.
     final presentation = _presentationDocument();
@@ -8766,8 +9238,95 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 }
 
+/// Continuous magnification, separate from the drawing's calibrated scale.
+class _CanvasZoomSlider extends StatelessWidget {
+  const _CanvasZoomSlider({required this.controller, required this.anchor});
+
+  final TransformationController controller;
+  final Offset Function() anchor;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<Matrix4>(
+    valueListenable: controller,
+    builder: (context, matrix, _) {
+      final minimum = math.log(EditorViewport.minScale);
+      final range = math.log(EditorViewport.maxScale) - minimum;
+      final value = ((math.log(matrix.getMaxScaleOnAxis()) - minimum) / range)
+          .clamp(0.0, 1.0);
+      return Material(
+        elevation: 2,
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        child: SizedBox(
+          height: 44,
+          child: Row(
+            children: [
+              Expanded(
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 3,
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 7,
+                    ),
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 18,
+                    ),
+                  ),
+                  child: Semantics(
+                    label: 'Zoom',
+                    child: Slider(
+                      key: const ValueKey('canvas-zoom-slider'),
+                      activeColor: Theme.of(context).colorScheme.primary,
+                      inactiveColor: const Color(0xFFD8DDE3),
+                      value: value,
+                      // A logarithmic track gives fine control at yard-map zoom
+                      // levels while still reaching the full existing zoom range.
+                      onChanged: (position) =>
+                          controller.value = EditorViewport.zoomAt(
+                            controller.value,
+                            anchor(),
+                            math.exp(minimum + position * range),
+                          ),
+                      semanticFormatterCallback: (position) {
+                        final percent =
+                            math.exp(minimum + position * range) * 100;
+                        return '${percent.toStringAsFixed(1)}%';
+                      },
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 44,
+                child: Text(
+                  EditorViewport.label(matrix),
+                  key: const ValueKey('viewport-zoom-label'),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+enum _EditorToolbarPart { full, save, options }
+
 class _TopEditorToolbar extends StatelessWidget {
   const _TopEditorToolbar({
+    this.part = _EditorToolbarPart.full,
+    this.onToggleLayers,
+    this.onDeleteSelection,
+    this.quickActions = const [],
+    this.onQuickAction,
+    this.onResetQuickTools,
+    this.onChooseOverlap,
+    this.onChangeShapeType,
     required this.drawingRatioLabel,
     required this.onDrawingRatioChanged,
     required this.onLabelSmaller,
@@ -8796,6 +9355,14 @@ class _TopEditorToolbar extends StatelessWidget {
     required this.onScaleChanged,
   });
 
+  final _EditorToolbarPart part;
+  final VoidCallback? onToggleLayers;
+  final VoidCallback? onDeleteSelection;
+  final List<CanvasToolbarAction> quickActions;
+  final ValueChanged<CanvasToolbarAction>? onQuickAction;
+  final VoidCallback? onResetQuickTools;
+  final VoidCallback? onChooseOverlap;
+  final VoidCallback? onChangeShapeType;
   final String drawingRatioLabel;
   final ValueChanged<String> onDrawingRatioChanged;
   final VoidCallback onLabelSmaller;
@@ -8828,6 +9395,291 @@ class _TopEditorToolbar extends StatelessWidget {
     // The fully labelled desktop toolbar exceeds common tablet and compact
     // laptop widths. The icon treatment also fits phones without scrolling.
     final mobile = MediaQuery.sizeOf(context).width < 1120;
+    final fileMenu = PopupMenuButton<_EditorFileAction>(
+      tooltip: 'Save and share',
+      onSelected: (action) => switch (action) {
+        _EditorFileAction.editGraphInformation => onEditGraphInformation(),
+        _EditorFileAction.saveGraphFile => onSaveGraphFile(),
+        _EditorFileAction.exportPdf => onExportPdf(),
+        _EditorFileAction.exportPng => onExportPng(),
+        _EditorFileAction.savePng => onSavePng(),
+        _EditorFileAction.savePdf => onSavePdf(),
+        _EditorFileAction.emailPdf => onEmailPdf(),
+        _EditorFileAction.saveAndCreateSalesBrainReport =>
+          onSaveAndCreateSalesBrainReport(),
+        _EditorFileAction.newWithExistingStructure =>
+          onNewWithExistingStructure(),
+      },
+      itemBuilder: (context) => [
+        if (part == _EditorToolbarPart.save)
+          const PopupMenuItem(
+            value: _EditorFileAction.editGraphInformation,
+            child: ListTile(
+              leading: Icon(Icons.contact_page_outlined),
+              title: Text('Edit Graph Information'),
+            ),
+          ),
+        const PopupMenuItem(
+          enabled: false,
+          height: 28,
+          child: Text(
+            'SAVE TO OPS BRAIN',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: Colors.black54,
+            ),
+          ),
+        ),
+        const PopupMenuItem(
+          value: _EditorFileAction.saveGraphFile,
+          child: ListTile(
+            leading: Icon(Icons.save_outlined),
+            title: Text(
+              'Save Graph to BugMan Graphs',
+              maxLines: 2,
+              softWrap: true,
+            ),
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          enabled: false,
+          height: 28,
+          child: Text(
+            'EXPORT FILE',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: Colors.black54,
+            ),
+          ),
+        ),
+        const PopupMenuItem(
+          value: _EditorFileAction.savePng,
+          child: ListTile(
+            leading: Icon(Icons.image_outlined),
+            title: Text('Save PNG…'),
+          ),
+        ),
+        const PopupMenuItem(
+          value: _EditorFileAction.savePdf,
+          child: ListTile(
+            leading: Icon(Icons.picture_as_pdf_outlined),
+            title: Text('Save PDF…'),
+          ),
+        ),
+        const PopupMenuItem(
+          value: _EditorFileAction.emailPdf,
+          child: ListTile(
+            leading: Icon(Icons.email_outlined),
+            title: Text('Email PDF…'),
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: _EditorFileAction.newWithExistingStructure,
+          child: ListTile(
+            leading: Icon(Icons.difference_outlined),
+            title: Text('Copy Structure to New Graph'),
+          ),
+        ),
+      ],
+      child: mobile
+          ? SizedBox(
+              width: 48,
+              height: 56,
+              child: part == _EditorToolbarPart.save
+                  ? const Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.save_outlined,
+                          size: 23,
+                          applyTextScaling: false,
+                        ),
+                        Text(
+                          'Save',
+                          style: TextStyle(
+                            fontFamily: 'Bitter',
+                            fontSize: 10,
+                            height: 1.1,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    )
+                  : const Icon(Icons.ios_share),
+            )
+          : const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.ios_share, size: 18),
+                  Icon(Icons.arrow_drop_down),
+                ],
+              ),
+            ),
+    );
+    final optionsMenu = PopupMenuButton<Object>(
+      tooltip: 'Canvas options',
+      onSelected: (action) {
+        if (action is CanvasToolbarAction) {
+          onQuickAction?.call(action);
+          return;
+        }
+        switch (action as _EditorOptionAction) {
+          case _EditorOptionAction.resetQuickTools:
+            onResetQuickTools?.call();
+          case _EditorOptionAction.layers:
+            onToggleLayers?.call();
+          case _EditorOptionAction.deleteSelection:
+            onDeleteSelection?.call();
+          case _EditorOptionAction.chooseOverlap:
+            onChooseOverlap?.call();
+          case _EditorOptionAction.changeShapeType:
+            onChangeShapeType?.call();
+          case _EditorOptionAction.smallerLabels:
+            onLabelSmaller();
+          case _EditorOptionAction.largerLabels:
+            onLabelLarger();
+          case _EditorOptionAction.clearGraph:
+            onClear();
+          case _EditorOptionAction.resetZoom:
+            onResetZoom();
+          case _EditorOptionAction.fitDrawing:
+            onFitDrawing();
+          case _EditorOptionAction.scale1:
+            onDrawingRatioChanged('1:1');
+          case _EditorOptionAction.scale2:
+            onDrawingRatioChanged('2:1');
+          case _EditorOptionAction.scale3:
+            onDrawingRatioChanged('3:1');
+          case _EditorOptionAction.scale4:
+            onDrawingRatioChanged('4:1');
+          case _EditorOptionAction.scale10:
+            onDrawingRatioChanged('10:1');
+          case _EditorOptionAction.grid:
+            onToggleGrid();
+          case _EditorOptionAction.snapGrid:
+            onToggleSnapToGrid();
+        }
+      },
+      itemBuilder: (context) => [
+        if (part == _EditorToolbarPart.options) ...[
+          const PopupMenuItem(
+            value: _EditorOptionAction.layers,
+            child: ListTile(
+              leading: Icon(Icons.layers_outlined),
+              title: Text('Layers'),
+            ),
+          ),
+          const PopupMenuItem(
+            value: _EditorOptionAction.deleteSelection,
+            child: ListTile(
+              leading: Icon(Icons.delete_outline),
+              title: Text('Delete selection'),
+            ),
+          ),
+          for (final action in quickActions)
+            if (action.tool != CanvasTool.select &&
+                action.tool != CanvasTool.pan)
+              PopupMenuItem<Object>(
+                value: action,
+                child: ListTile(
+                  leading: Icon(action.icon),
+                  title: Text(action.label),
+                ),
+              ),
+          if (quickActions.length > 2)
+            const PopupMenuItem(
+              value: _EditorOptionAction.resetQuickTools,
+              child: Text('Reset quick toolbar'),
+            ),
+          const PopupMenuDivider(),
+        ],
+        if (onChooseOverlap != null)
+          const PopupMenuItem(
+            value: _EditorOptionAction.chooseOverlap,
+            child: Text('Choose overlap'),
+          ),
+        if (onChangeShapeType != null)
+          const PopupMenuItem(
+            value: _EditorOptionAction.changeShapeType,
+            child: Text('Change shape type'),
+          ),
+        CheckedPopupMenuItem(
+          value: _EditorOptionAction.grid,
+          checked: gridVisible,
+          child: const Text('Grid'),
+        ),
+        CheckedPopupMenuItem(
+          value: _EditorOptionAction.snapGrid,
+          checked: snapToGrid,
+          child: const Text('Snap to grid'),
+        ),
+        const PopupMenuItem(
+          value: _EditorOptionAction.clearGraph,
+          child: Text('Clear Graph'),
+        ),
+        const PopupMenuItem(
+          value: _EditorOptionAction.resetZoom,
+          child: Text('Reset zoom to 100%'),
+        ),
+        const PopupMenuItem(
+          value: _EditorOptionAction.fitDrawing,
+          child: Text('Fit drawing'),
+        ),
+        const PopupMenuItem(
+          value: _EditorOptionAction.smallerLabels,
+          child: Text('Smaller labels'),
+        ),
+        const PopupMenuItem(
+          value: _EditorOptionAction.largerLabels,
+          child: Text('Larger labels'),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          enabled: false,
+          child: Text('Drawing ratio — feet per grid square'),
+        ),
+        for (final entry in const {
+          _EditorOptionAction.scale1: '1:1',
+          _EditorOptionAction.scale2: '2:1',
+          _EditorOptionAction.scale3: '3:1',
+          _EditorOptionAction.scale4: '4:1',
+          _EditorOptionAction.scale10: '10:1',
+        }.entries)
+          CheckedPopupMenuItem(
+            value: entry.key,
+            checked: drawingRatioLabel == entry.value,
+            child: Text(entry.value),
+          ),
+      ],
+      child: mobile
+          ? SizedBox(
+              width: 48,
+              height: 48,
+              child: Icon(
+                part == _EditorToolbarPart.options
+                    ? Icons.more_horiz
+                    : Icons.display_settings_outlined,
+              ),
+            )
+          : const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.display_settings_outlined, size: 18),
+                  SizedBox(width: 5),
+                  Text('Options'),
+                  Icon(Icons.arrow_drop_down),
+                ],
+              ),
+            ),
+    );
+    if (part == _EditorToolbarPart.save) return fileMenu;
+    if (part == _EditorToolbarPart.options) return optionsMenu;
     return Material(
       elevation: 2,
       shadowColor: Colors.black.withValues(alpha: .12),
@@ -8843,108 +9695,12 @@ class _TopEditorToolbar extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Row(
             children: [
-              PopupMenuButton<_EditorFileAction>(
-                tooltip: 'Save and share',
-                onSelected: (action) => switch (action) {
-                  _EditorFileAction.saveGraphFile => onSaveGraphFile(),
-                  _EditorFileAction.exportPdf => onExportPdf(),
-                  _EditorFileAction.exportPng => onExportPng(),
-                  _EditorFileAction.savePng => onSavePng(),
-                  _EditorFileAction.savePdf => onSavePdf(),
-                  _EditorFileAction.emailPdf => onEmailPdf(),
-                  _EditorFileAction.saveAndCreateSalesBrainReport =>
-                    onSaveAndCreateSalesBrainReport(),
-                  _EditorFileAction.newWithExistingStructure =>
-                    onNewWithExistingStructure(),
-                },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(
-                    enabled: false,
-                    height: 28,
-                    child: Text(
-                      'SAVE TO OPS BRAIN',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black54,
-                      ),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: _EditorFileAction.saveGraphFile,
-                    child: ListTile(
-                      leading: Icon(Icons.save_outlined),
-                      title: Text(
-                        'Save Graph to BugMan Graphs',
-                        maxLines: 2,
-                        softWrap: true,
-                      ),
-                    ),
-                  ),
-                  PopupMenuDivider(),
-                  PopupMenuItem(
-                    enabled: false,
-                    height: 28,
-                    child: Text(
-                      'EXPORT FILE',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black54,
-                      ),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: _EditorFileAction.savePng,
-                    child: ListTile(
-                      leading: Icon(Icons.image_outlined),
-                      title: Text('Save PNG…'),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: _EditorFileAction.savePdf,
-                    child: ListTile(
-                      leading: Icon(Icons.picture_as_pdf_outlined),
-                      title: Text('Save PDF…'),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: _EditorFileAction.emailPdf,
-                    child: ListTile(
-                      leading: Icon(Icons.email_outlined),
-                      title: Text('Email PDF…'),
-                    ),
-                  ),
-                  PopupMenuDivider(),
-                  PopupMenuItem(
-                    value: _EditorFileAction.newWithExistingStructure,
-                    child: ListTile(
-                      leading: Icon(Icons.difference_outlined),
-                      title: Text('Copy Structure to New Graph'),
-                    ),
-                  ),
-                ],
-                child: mobile
-                    ? const SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: Icon(Icons.ios_share),
-                      )
-                    : const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4),
-                        child: Row(
-                          children: [
-                            Icon(Icons.ios_share, size: 18),
-                            Icon(Icons.arrow_drop_down),
-                          ],
-                        ),
-                      ),
-              ),
+              fileMenu,
               _IconOnlyButton(
-                icon: Icons.contact_page_outlined,
-                tooltip: 'Edit Graph Information',
-                onPressed: onEditGraphInformation,
-              ),
+                  icon: Icons.contact_page_outlined,
+                  tooltip: 'Edit Graph Information',
+                  onPressed: onEditGraphInformation,
+                ),
               _IconOnlyButton(
                 icon: Icons.remove,
                 tooltip: 'Zoom out',
@@ -9006,95 +9762,7 @@ class _TopEditorToolbar extends StatelessWidget {
                   onPressed: onClear,
                 ),
               if (!mobile) const _ToolbarDivider(),
-              PopupMenuButton<_EditorOptionAction>(
-                tooltip: 'Canvas options',
-                onSelected: (action) {
-                  switch (action) {
-                    case _EditorOptionAction.smallerLabels:
-                      onLabelSmaller();
-                    case _EditorOptionAction.largerLabels:
-                      onLabelLarger();
-                    case _EditorOptionAction.clearGraph:
-                      onClear();
-                    case _EditorOptionAction.resetZoom:
-                      onResetZoom();
-                    case _EditorOptionAction.fitDrawing:
-                      onFitDrawing();
-                    case _EditorOptionAction.scale1:
-                      onDrawingRatioChanged('1:1');
-                    case _EditorOptionAction.scale2:
-                      onDrawingRatioChanged('2:1');
-                    case _EditorOptionAction.scale3:
-                      onDrawingRatioChanged('3:1');
-                    case _EditorOptionAction.scale4:
-                      onDrawingRatioChanged('4:1');
-                    case _EditorOptionAction.scale10:
-                      onDrawingRatioChanged('10:1');
-                    case _EditorOptionAction.grid:
-                      onToggleGrid();
-                    case _EditorOptionAction.snapGrid:
-                      onToggleSnapToGrid();
-                  }
-                },
-                itemBuilder: (context) => [
-                  CheckedPopupMenuItem(
-                    value: _EditorOptionAction.grid,
-                    checked: gridVisible,
-                    child: const Text('Grid'),
-                  ),
-                  CheckedPopupMenuItem(
-                    value: _EditorOptionAction.snapGrid,
-                    checked: snapToGrid,
-                    child: const Text('Snap to grid'),
-                  ),
-                  const PopupMenuItem(
-                      value: _EditorOptionAction.clearGraph,
-                      child: Text('Clear Graph')),
-                  const PopupMenuItem(
-                      value: _EditorOptionAction.resetZoom,
-                      child: Text('Reset zoom to 100%')),
-                  const PopupMenuItem(
-                      value: _EditorOptionAction.fitDrawing,
-                      child: Text('Fit drawing')),
-                  const PopupMenuItem(
-                      value: _EditorOptionAction.smallerLabels,
-                      child: Text('Smaller labels')),
-                  const PopupMenuItem(
-                      value: _EditorOptionAction.largerLabels,
-                      child: Text('Larger labels')),
-                  const PopupMenuDivider(),
-                  const PopupMenuItem(
-                      enabled: false,
-                      child: Text('Drawing ratio — feet per grid square')),
-                  for (final entry in const {
-                    _EditorOptionAction.scale1: '1:1',
-                    _EditorOptionAction.scale2: '2:1',
-                    _EditorOptionAction.scale3: '3:1',
-                    _EditorOptionAction.scale4: '4:1',
-                    _EditorOptionAction.scale10: '10:1'
-                  }.entries)
-                    CheckedPopupMenuItem(
-                        value: entry.key,
-                        checked: drawingRatioLabel == entry.value,
-                        child: Text(entry.value)),
-                ],
-                child: mobile
-                    ? const SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: Icon(Icons.display_settings_outlined))
-                    : const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4),
-                        child: Row(
-                          children: [
-                            Icon(Icons.display_settings_outlined, size: 18),
-                            SizedBox(width: 5),
-                            Text('Options'),
-                            Icon(Icons.arrow_drop_down),
-                          ],
-                        ),
-                      ),
-              ),
+              optionsMenu,
             ],
           ),
         ),
@@ -9170,8 +9838,74 @@ class _ToolbarDivider extends StatelessWidget {
   }
 }
 
+class _MobileTraceSummary extends StatelessWidget {
+  const _MobileTraceSummary({required this.trace});
+  final TraceGeometry trace;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = MeasurementService.geodesicAreaSquareMeters(trace.geoPoints) /
+        4046.8564224;
+    final excluded =
+        TraceAreaService.excludedSquareMeters(trace) / 4046.8564224;
+    final net = TraceAreaService.netSquareMeters(trace) / 4046.8564224;
+    final wide = MediaQuery.sizeOf(context).width >= 600;
+    return Semantics(
+      label:
+          '${trace.label}. Net yard: ${MeasurementFormat.acres(net)}. Total: ${MeasurementFormat.acres(total)}. Excluded: ${MeasurementFormat.acres(excluded)}.',
+      container: true,
+      child: ExcludeSemantics(
+          child: Material(
+        key: const ValueKey('mobile-trace-summary'),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(children: [
+            Expanded(
+                child: Text(trace.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w600))),
+            const SizedBox(width: 8),
+            if (wide)
+              Text('Net yard: ${MeasurementFormat.acres(net)}',
+                  style: const TextStyle(
+                      fontSize: 14, height: 1.1, fontWeight: FontWeight.w800)),
+            if (wide) const SizedBox(width: 12),
+            Flexible(
+                flex: 2,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (!wide)
+                      Text('Net yard: ${MeasurementFormat.acres(net)}',
+                          maxLines: 1,
+                          style: const TextStyle(
+                              fontSize: 14,
+                              height: 1.1,
+                              fontWeight: FontWeight.w800)),
+                    Text(
+                        'Total: ${MeasurementFormat.acres(total)} · Excluded: ${MeasurementFormat.acres(excluded)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 10, height: 1.1)),
+                  ],
+                )),
+          ]),
+        ),
+      )),
+    );
+  }
+}
+
 class _PropertiesSidebar extends StatelessWidget {
   const _PropertiesSidebar({
+    super.key,
+    this.panelHeader,
+    this.keyboardVisible = false,
     required this.layersOnly,
     required this.selection,
     required this.annotations,
@@ -9221,6 +9955,8 @@ class _PropertiesSidebar extends StatelessWidget {
   });
 
   final bool layersOnly;
+  final Widget? panelHeader;
+  final bool keyboardVisible;
   final _Selection? selection;
   final List<GraphAnnotation> annotations;
   final List<WallSegment> wallSegments;
@@ -9279,24 +10015,21 @@ class _PropertiesSidebar extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         color: Colors.white,
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: EdgeInsets.all(panelHeader == null ? 12 : 8),
           child: Column(
             children: [
-              Row(
+              panelHeader ?? Row(
                 children: [
-                  Text(
-                    'Layers',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
+                  Expanded(
+                    child: Text(
+                      'Layers',
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
                   ),
-                  const Spacer(),
-                  IconButton(
-                    tooltip: 'Collapse layers',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: onCollapsePanel,
-                    icon: const Icon(Icons.chevron_right),
-                  ),
+                  _hidePanelButton('Collapse layers'),
                 ],
               ),
               Expanded(
@@ -9355,24 +10088,21 @@ class _PropertiesSidebar extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       color: Colors.white,
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(panelHeader == null ? 12 : 8),
         child: Column(
           children: [
-            Row(
+            panelHeader ?? Row(
               children: [
-                Text(
-                  'Properties',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                Expanded(
+                  child: Text(
+                    'Properties',
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                  ),
                 ),
-                const Spacer(),
-                IconButton(
-                  tooltip: 'Collapse properties',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: onCollapsePanel,
-                  icon: const Icon(Icons.chevron_right),
-                ),
+                _hidePanelButton('Collapse properties'),
               ],
             ),
             const SizedBox(height: 4),
@@ -9383,10 +10113,26 @@ class _PropertiesSidebar extends StatelessWidget {
     );
   }
 
+  Widget _hidePanelButton(String tooltip) => Tooltip(
+    message: tooltip,
+    child: OutlinedButton.icon(
+      onPressed: onCollapsePanel,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(80, 44),
+        visualDensity: VisualDensity.standard,
+      ),
+      icon: const Icon(Icons.close, size: 20),
+      label: const Text('Hide'),
+    ),
+  );
+
   Widget _buildContent(BuildContext context) {
     final currentSelection = selection;
 
     if (currentSelection == null) {
+      if (MediaQuery.sizeOf(context).shortestSide < 600) {
+        return ListView(children: const [Text('Select an object to edit its properties.')]);
+      }
       return _InspectorSection(
         title: 'Properties',
         children: [
@@ -9408,78 +10154,154 @@ class _PropertiesSidebar extends StatelessWidget {
         status: MeasurementAccuracyStatus.estimated,
       );
       final traceLocked = _isLayerLocked(_GraphLayer.trace);
-      return _InspectorSection(
-        title: 'Trace Properties',
-        children: [
-          TextFormField(
-            key: ValueKey('trace-$index'),
-            initialValue: trace.label,
-            decoration: const InputDecoration(labelText: 'Label'),
-            enabled: !traceLocked,
-            onChanged: traceLocked
-                ? null
-                : (value) => onTraceLabelChanged(index, value),
+      final compact = MediaQuery.sizeOf(context).shortestSide < 600;
+      final editMapButton = Tooltip(
+        message: 'Edit Map Points',
+        child: FilledButton.icon(
+          onPressed: traceLocked ? null : () => onEditTrace(index),
+          style: compact
+              ? FilledButton.styleFrom(
+                  minimumSize: const Size(0, 48),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                )
+              : null,
+          icon: const Icon(Icons.edit_location_alt_outlined),
+          label: Text(
+            compact ? 'Edit map' : 'Edit Map Points',
+            style: compact
+                ? const TextStyle(fontFamily: 'Bitter', fontSize: 12)
+                : null,
           ),
-          const SizedBox(height: 10),
-          _InspectorValue(
-            label: 'Corners',
-            value: trace.canvasPoints.length.toString(),
+        ),
+      );
+      final labelField = TextFormField(
+        key: ValueKey('trace-$index'),
+        initialValue: trace.label,
+        decoration: InputDecoration(
+          labelText: 'Label',
+          isDense: compact,
+          contentPadding: compact
+              ? const EdgeInsets.symmetric(horizontal: 12, vertical: 10)
+              : null,
+        ),
+        textInputAction: TextInputAction.done,
+        onFieldSubmitted: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+        enabled: !traceLocked,
+        onChanged: traceLocked
+            ? null
+            : (value) => onTraceLabelChanged(index, value),
+      );
+      final measurements = <Widget>[
+        _InspectorValue(
+          label: 'Corners',
+          value: trace.canvasPoints.length.toString(),
+        ),
+        const SizedBox(height: 8),
+        _InspectorValue(
+          label: 'Perimeter',
+          value: MeasurementFormat.linearFeet(measurement.linearFeet),
+        ),
+        const SizedBox(height: 8),
+        _InspectorValue(
+          label: 'Total area',
+          value:
+              '${MeasurementFormat.acres(measurement.acres)} (${MeasurementFormat.squareFeet(measurement.squareFeet)})',
+        ),
+        _InspectorValue(
+          label: 'Excluded area',
+          value: MeasurementFormat.acres(
+            TraceAreaService.excludedSquareMeters(trace) / 4046.8564224,
           ),
-          const SizedBox(height: 8),
-          _InspectorValue(
-            label: 'Perimeter',
-            value: MeasurementFormat.linearFeet(measurement.linearFeet),
-          ),
-          const SizedBox(height: 8),
-          _InspectorValue(
-            label: 'Area',
-            value: MeasurementFormat.squareFeet(measurement.squareFeet),
-          ),
-          ExpandableActionCard(
-            title: 'Edge measurements',
-            subtitle: 'Every edge, including hidden short labels',
-            icon: Icons.straighten,
-            children: [
-              for (var edge = 0;
-                  edge <
-                      (trace.closed
-                          ? trace.geoPoints.length
-                          : trace.geoPoints.length - 1);
-                  edge++)
-                ListTile(
-                  dense: true,
-                  title: Text('Edge ${edge + 1}'),
-                  trailing: Text(
-                    MeasurementFormat.linearFeet(
-                      MeasurementService.geodesicDistanceMeters(
-                            trace.geoPoints[edge],
-                            trace
-                                .geoPoints[(edge + 1) % trace.geoPoints.length],
-                          ) *
-                          3.280839895013123,
+        ),
+        _InspectorValue(
+          label: 'Net yard area',
+          value:
+              '${MeasurementFormat.acres(TraceAreaService.netSquareMeters(trace) / 4046.8564224)} (${MeasurementFormat.squareFeet(TraceAreaService.netSquareMeters(trace) * 10.763910416709722)})',
+        ),
+        ExpandableActionCard(
+          title: 'Edge measurements',
+          subtitle: 'Every edge, including hidden short labels',
+          icon: Icons.straighten,
+          children: [
+            for (
+              var edge = 0;
+              edge <
+                  (trace.closed
+                      ? trace.geoPoints.length
+                      : trace.geoPoints.length - 1);
+              edge++
+            )
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
+                  alignment: WrapAlignment.spaceBetween,
+                  children: [
+                    Text('Edge ${edge + 1}'),
+                    Text(
+                      MeasurementFormat.linearFeet(
+                        MeasurementService.geodesicDistanceMeters(
+                              trace.geoPoints[edge],
+                              trace.geoPoints[(edge + 1) %
+                                  trace.geoPoints.length],
+                            ) *
+                            3.280839895013123,
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: traceLocked ? null : () => onEditTrace(index),
-            icon: const Icon(Icons.edit_location_alt_outlined),
-            label: const Text('Edit Map Points'),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            traceLocked
-                ? 'Unlock the Trace layer to edit this outline.'
-                : 'Drag the blue corner handles on the canvas, or edit the '
+              ),
+          ],
+        ),
+        if (!compact) ...[const SizedBox(height: 12), editMapButton],
+        const SizedBox(height: 8),
+        Text(
+          traceLocked
+              ? 'Unlock the Trace layer to edit this outline.'
+              : 'Drag the blue corner handles on the canvas, or edit the '
                     'original points on the map.',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ];
+      return _InspectorSection(
+        title: compact ? '' : 'Trace Properties',
+        children: [
+          if (compact)
+            Row(
+              children: [
+                Expanded(child: labelField),
+                const SizedBox(width: 8),
+                editMapButton,
+              ],
+            )
+          else
+            labelField,
+          const SizedBox(height: 10),
+          if (compact)
+            Offstage(
+              offstage: keyboardVisible,
+              child: ExpansionTile(
+                key: const ValueKey('trace-measurements'),
+                maintainState: true,
+                minTileHeight: 44,
+                dense: true,
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: const EdgeInsets.only(right: 4, bottom: 4),
+                title: Text(
+                  'Measurements',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                children: measurements,
+              ),
+            )
+          else
+            ...measurements,
         ],
       );
     }
-
     if (currentSelection.annotationIndex case final index?
         when index < annotations.length) {
       final annotation = annotations[index];
@@ -10065,29 +10887,50 @@ class _PropertiesSidebar extends StatelessWidget {
   }
 }
 
-class _InspectorSection extends StatelessWidget {
+class _InspectorSection extends StatefulWidget {
   const _InspectorSection({required this.title, required this.children});
 
   final String title;
   final List<Widget> children;
 
   @override
+  State<_InspectorSection> createState() => _InspectorSectionState();
+}
+
+class _InspectorSectionState extends State<_InspectorSection> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return ListView(
-      children: [
-        Text(
-          title,
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 12),
-        ...children,
-      ],
+    final showTitle =
+        widget.title.isNotEmpty &&
+        MediaQuery.sizeOf(context).shortestSide >= 600;
+    return Scrollbar(
+      controller: _scrollController,
+      thumbVisibility: MediaQuery.sizeOf(context).shortestSide < 600,
+      child: ListView(
+        controller: _scrollController,
+        children: [
+          if (showTitle)
+            Text(
+              widget.title,
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            ),
+          if (showTitle) const SizedBox(height: 12),
+          ...widget.children,
+        ],
+      ),
     );
   }
 }
-
 class _InspectorValue extends StatelessWidget {
   const _InspectorValue({required this.label, required this.value});
 
@@ -10096,15 +10939,18 @@ class _InspectorValue extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final valueStyle = MediaQuery.sizeOf(context).shortestSide < 600
+        ? Theme.of(context).textTheme.bodySmall
+        : Theme.of(context).textTheme.labelLarge;
     return Row(
       children: [
         Expanded(
           child: Text(
             label,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: const Color(0xFF666B62),
-                  fontWeight: FontWeight.w700,
-                ),
+            style: valueStyle?.copyWith(
+              color: const Color(0xFF666B62),
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
         const SizedBox(width: 8),
@@ -10114,16 +10960,13 @@ class _InspectorValue extends StatelessWidget {
             textAlign: TextAlign.end,
             overflow: TextOverflow.ellipsis,
             maxLines: 2,
-            style: Theme.of(
-              context,
-            ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
+            style: valueStyle?.copyWith(fontWeight: FontWeight.w800),
           ),
         ),
       ],
     );
   }
 }
-
 class _ColorChoiceLabel extends StatelessWidget {
   const _ColorChoiceLabel({required this.label, required this.color});
 
@@ -10603,6 +11446,7 @@ class _CanvasSurface extends StatelessWidget {
               child: traceLayerVisible
                   ? _TraceLayer(
                       labels: labels,
+                      showDetails: !labels.bounded || MediaQuery.sizeOf(context).shortestSide >= 600,
                       traces: traces,
                       selectedTraceIndex: selectedTraceIndex,
                       hoveredTraceIndex: hoveredTraceIndex,
@@ -10805,33 +11649,72 @@ class _GraphOverlayPainter extends CustomPainter {
   }
 }
 
-class _TraceLayer extends StatelessWidget {
+class _TraceLayer extends StatefulWidget {
   final LabelPresentation labels;
   const _TraceLayer({
     required this.labels,
+    required this.showDetails,
     required this.traces,
     required this.selectedTraceIndex,
     required this.hoveredTraceIndex,
   });
 
   final List<TraceGeometry> traces;
+  final bool showDetails;
   final int? selectedTraceIndex;
   final int? hoveredTraceIndex;
 
   @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: CustomPaint(
-        size: const Size(double.infinity, double.infinity),
-        painter: TraceGeometryPainter(
-          labels: labels,
-          traces: traces,
-          selectedTraceIndex: selectedTraceIndex,
-          hoveredTraceIndex: hoveredTraceIndex,
-        ),
-      ),
-    );
+  State<_TraceLayer> createState() => _TraceLayerState();
+}
+
+class _TraceLayerState extends State<_TraceLayer> {
+  @override
+  void initState() {
+    super.initState();
+    _load();
   }
+
+  @override
+  void didUpdateWidget(covariant _TraceLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _load();
+  }
+
+  void _load() {
+    TraceImageryCache.instance.retain(this, widget.traces);
+    for (final trace in widget.traces) {
+      if (trace.imagery != null) {
+        unawaited(
+          TraceImageryCache.instance.load(trace.imagery!).catchError((
+            Object error,
+          ) {
+            debugPrint('Trace imagery decode failed: $error');
+          }),
+        );
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    TraceImageryCache.instance.release(this);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+        child: CustomPaint(
+          size: const Size(double.infinity, double.infinity),
+          painter: TraceGeometryPainter(
+            labels: widget.labels,
+            showDetails: widget.showDetails,
+            traces: widget.traces,
+            selectedTraceIndex: widget.selectedTraceIndex,
+            hoveredTraceIndex: widget.hoveredTraceIndex,
+          ),
+        ),
+      );
 }
 
 enum _UndoKind {
@@ -11128,6 +12011,7 @@ enum _PhotoSource { files, camera }
 enum _SaveConflictChoice { overwrite, saveAsNew, cancel }
 
 enum _EditorFileAction {
+  editGraphInformation,
   saveGraphFile,
   exportPdf,
   exportPng,
@@ -11139,6 +12023,11 @@ enum _EditorFileAction {
 }
 
 enum _EditorOptionAction {
+  resetQuickTools,
+  layers,
+  deleteSelection,
+  chooseOverlap,
+  changeShapeType,
   scale1,
   scale2,
   scale3,

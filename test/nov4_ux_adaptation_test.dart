@@ -14,7 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   for (final size in [const Size(350, 300), const Size(414, 300)]) {
     testWidgets(
-        'narrow landscape toolbars remain separate without overflow $size',
+        'narrow landscape uses one tool panel without covering the canvas $size',
         (t) async {
       t.view.devicePixelRatio = 1;
       t.view.physicalSize = size;
@@ -34,8 +34,10 @@ void main() {
       expect(
           t
               .getRect(find.byType(CanvasToolbar))
-              .overlaps(t.getRect(find.byType(CanvasQuickToolbar))),
+              .overlaps(t.getRect(find.byType(InteractiveViewer))),
           isFalse);
+      expect(find.byType(CanvasQuickToolbar), findsNothing);
+      expect(find.byTooltip('Hide main toolbar'), findsOneWidget);
       expect(t.takeException(), isNull);
     });
   }
@@ -80,24 +82,37 @@ void main() {
         await t.tap(find.byTooltip('Show main toolbar'));
         await t.pumpAndSettle();
       }
-      for (final label in [
-        'Annotate',
-        'Sketch Structure',
-        'Inspection Findings',
-        'Treatment Details'
-      ]) {
+      final compact = size.shortestSide < 600;
+      for (final label in compact
+          ? [
+              'Draw',
+              'Sketch',
+              'Structures',
+              'Features',
+              'Property',
+              'Findings',
+              'Treatment',
+              'Satellite'
+            ]
+          : [
+              'Annotate',
+              'Sketch Structure',
+              'Inspection Findings',
+              'Treatment Details'
+            ]) {
         final text = t.renderObject<RenderParagraph>(find.text(label));
         expect(text.didExceedMaxLines, isFalse, reason: label);
       }
       if (size.width > size.height) {
         expect(
-            t
-                .getRect(find.byType(CanvasToolbar))
-                .overlaps(t.getRect(find.byType(CanvasQuickToolbar))),
+            t.getRect(find.byType(CanvasToolbar)).overlaps(t.getRect(
+                find.byType(compact ? InteractiveViewer : CanvasQuickToolbar))),
             isFalse);
+        if (compact) expect(find.byType(CanvasQuickToolbar), findsNothing);
       }
       if (find.byTooltip('Fit drawing').evaluate().isEmpty) {
-        await t.tap(find.byTooltip('Canvas options'));
+        await t.tap(
+            find.byTooltip(compact ? 'Switch editor panel' : 'Canvas options'));
         await t.pumpAndSettle();
         await t.tap(find.text('Fit drawing'));
       } else {
@@ -107,24 +122,40 @@ void main() {
       final expandedBounds = MatrixUtils.transformRect(
           viewer.transformationController!.value,
           ExportBoundsCalculator.forDocument(doc, padding: 0));
-      expect(expandedBounds.left, greaterThanOrEqualTo(208));
+      expect(expandedBounds.left,
+          greaterThanOrEqualTo(size.shortestSide < 600 ? 0 : 208));
       await t.tap(find.byTooltip('Pan (H)'));
       await t.pumpAndSettle();
       if (find.byTooltip('Show main toolbar').evaluate().isNotEmpty) {
         await t.tap(find.byTooltip('Show main toolbar'));
         await t.pumpAndSettle();
       }
-      await t.tapAt(t.getTopRight(viewerFinder) + const Offset(-24, 60));
+      final viewerRect = t.getRect(viewerFinder);
+      final toolsRect = t.getRect(find.byType(CanvasToolbar));
+      await t.tapAt(compact
+          ? viewerRect.center
+          : Offset(
+              viewerRect.right - 24,
+              (toolsRect.bottom + 8)
+                  .clamp(viewerRect.top + 8, viewerRect.bottom - 8)));
       await t.pump();
       expect(find.byType(MaterialBanner), findsOneWidget);
       final noticeRect = t.getRect(find.byType(MaterialBanner));
       expect(
           noticeRect.overlaps(t.getRect(find.byType(CanvasToolbar))), isFalse);
-      expect(noticeRect.overlaps(t.getRect(find.byType(CanvasQuickToolbar))),
-          isFalse);
+      if (find.byType(CanvasQuickToolbar).evaluate().isNotEmpty) {
+        expect(noticeRect.overlaps(t.getRect(find.byType(CanvasQuickToolbar))),
+            isFalse);
+      }
       await t.tap(find.text('Dismiss'));
       await t.pumpAndSettle();
-      await t.tap(find.text('Annotate'));
+      if (compact) {
+        await t.tap(find.byKey(const ValueKey('mobile-tool-Draw')));
+        await t.pumpAndSettle();
+        await t.tapAt(t.getCenter(viewerFinder));
+      } else {
+        await t.tap(find.text('Annotate'));
+      }
       await t.pumpAndSettle();
       final toolbarState = t.state(find.byType(CanvasToolbar));
       final manual = Matrix4.identity()
@@ -138,16 +169,21 @@ void main() {
       await t.tap(find.byTooltip('Show main toolbar'));
       await t.pumpAndSettle();
       expect(t.state(find.byType(CanvasToolbar)), same(toolbarState));
-      final sections = t.widgetList<Semantics>(find.descendant(
-          of: find.byType(CanvasToolbar), matching: find.byType(Semantics)));
-      expect(
-          sections.any((s) =>
-              s.properties.label == 'Annotate tools' &&
-              s.properties.expanded == true),
-          true);
+      if (compact) {
+        expect(find.byKey(const ValueKey('mobile-tool-grid')), findsOneWidget);
+        expect(find.byType(CanvasQuickToolbar), findsNothing);
+      } else {
+        final sections = t.widgetList<Semantics>(find.descendant(
+            of: find.byType(CanvasToolbar), matching: find.byType(Semantics)));
+        expect(
+            sections.any((s) =>
+                s.properties.label == 'Annotate tools' &&
+                s.properties.expanded == true),
+            true);
+      }
       expect(viewer.transformationController!.value, manual);
-      final oldCenter =
-          viewer.transformationController!.toScene(viewport.center);
+      final oldCenter = viewer.transformationController!
+          .toScene(t.getSize(viewerFinder).center(Offset.zero));
       t.view.physicalSize = Size(size.height, size.width);
       await t.pumpAndSettle();
       final resized = t.getSize(viewerFinder);

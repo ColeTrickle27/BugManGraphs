@@ -419,8 +419,6 @@ void main() {
     await _pumpEditor(tester);
     for (final tooltip in [
       'Undo',
-      'Zoom out',
-      'Zoom in',
       'Canvas options',
       'Save and share'
     ]) {
@@ -429,6 +427,7 @@ void main() {
       expect(rect.right, lessThanOrEqualTo(390));
       expect(rect.width, greaterThanOrEqualTo(44));
     }
+    expect(find.byKey(const ValueKey('canvas-zoom-slider')), findsOneWidget);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
     await tester.pump();
     expect(find.byType(CanvasToolbar), findsNothing);

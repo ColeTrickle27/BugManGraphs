@@ -83,8 +83,27 @@ aids, not verified field measurements. Address search requires an authorized
 OpsBrain session; the standalone host uses `https://ops.holloman-ext.com`, while
 the `/bugman-graphs/` mount uses its current origin.
 
-The imagery is an interactive tracing aid only. Graph exports retain the
-scaled trace geometry and measurements without copying the aerial tiles.
+Trace a yard boundary, then use **Exclude area** to draw and label homes,
+buildings, driveways, or other areas to deduct. Choose a boundary or exclusion
+chip to edit its corners; the chip's delete button removes an exclusion.
+The workspace shows total, excluded, and net yard acreage. On phones, the
+**Trace options** sliders button contains the imagery toggle, and **?** opens
+tracing help. Boundary and exclusion chips scroll horizontally to keep the map
+visible. Exclusions must be
+fully inside the boundary and cannot overlap or touch each other. Crossing
+edges and incomplete polygons must be corrected before saving.
+
+Select **Include satellite imagery in graph and exports** to transfer a bounded
+NC OneMap snapshot along with the scaled outlines. The snapshot keeps provider
+attribution, survives saving/reopening offline, and moves/rotates with the trace.
+PNG/PDF exports include the photo, exclusions, and acreage summary. Traces with
+imagery or exclusions use the rendered diagram in the PDF to preserve alignment;
+other graphs retain vector diagrams. No new provider, API key, or backend route
+is required. Transfer failures preserve the open trace for retry or outline-only
+save. Acreage is a map-derived estimate, not a survey or treatment recommendation.
+
+Optional `exclusions` and `imagery` trace fields extend the saved graph without
+changing existing fields or customer identity; older graphs load with neither.
 
 Each new trace stores its selected address as optional trace metadata. **Add new trace** defaults to the most recent trace address, including after reopening the graph; older graphs without this field fall back to the job address. Editing an existing trace uses that trace's own saved address. This does not change customer identity or measured geometry.
 
@@ -97,3 +116,20 @@ flutter analyze
 flutter test
 flutter build web --release
 ```
+
+## Standalone satellite preview
+
+Build the review app with `python3 tool/build_satellite_preview.py` (Flutter must
+be on PATH). This opens the sample tracer directly and offers **Start a new
+property** after returning to the preview menu. Graphs stay in memory and the
+preview cannot write customer records.
+
+Publish the output only to a Pages preview branch, including its `_worker.js`,
+`_routes.json`, and `_headers` files. The worker supplies a same-origin,
+North-Carolina-only public Census address lookup for this preview; it does not
+call protected OpsBrain APIs. Census locations are approximate and require
+review. Production continues to use the authenticated address service.
+
+The preview shows startup/download errors, uses versioned JavaScript, and
+unregisters old preview service workers rather than silently loading an older
+review build.
