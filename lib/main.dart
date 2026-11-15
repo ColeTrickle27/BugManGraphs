@@ -233,6 +233,7 @@ class _BugManGraphsAppState extends State<BugManGraphsApp> {
                     if (package.isFinalized) return _finalizedPreview(package);
                     return GraphCanvasScreen(
                       document: package.document,
+                      fitToContentOnOpen: true,
                       repository: _repository,
                       portalKey: _portalKey,
                       presentationMode: _presentationMode,
