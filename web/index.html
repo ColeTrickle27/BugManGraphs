@@ -34,6 +34,40 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <main id="bugman-startup" role="status" aria-live="polite"
+      style="position:fixed;inset:0;z-index:2147483647;display:grid;place-content:center;gap:16px;padding:24px;background:white;color:#20212b;font:16px sans-serif;text-align:center">
+    <h1 id="bugman-startup-title" style="font-size:24px;margin:0">Opening BugMan Graphs…</h1>
+    <p id="bugman-startup-message">Please wait.</p>
+    <button id="bugman-startup-reload" hidden style="padding:12px 24px;font:inherit"
+        onclick="window.location.reload()">Reload BugMan Graphs</button>
+  </main>
+  <noscript>JavaScript is required to open BugMan Graphs.</noscript>
+  <script>
+    (() => {
+      let complete = false;
+      const showProblem = (failed) => {
+        if (complete) return;
+        document.getElementById('bugman-startup-title').textContent = failed
+            ? 'BugMan Graphs could not open' : 'Still opening BugMan Graphs';
+        document.getElementById('bugman-startup-message').textContent =
+            'Check your connection. Keep this tab open to continue waiting, or reload to try again.';
+        document.getElementById('bugman-startup-reload').hidden = false;
+      };
+      const timer = setTimeout(() => showProblem(false), 30000);
+      window.bugManStartup = {
+        complete() {
+          complete = true;
+          clearTimeout(timer);
+          document.getElementById('bugman-startup')?.remove();
+        },
+        fail() { clearTimeout(timer); showProblem(true); },
+      };
+      // Resource failures do not always reject Flutter's callback-based loader.
+      window.addEventListener('error', (event) => {
+        if (event.target?.tagName === 'SCRIPT') window.bugManStartup.fail();
+      }, true);
+    })();
+  </script>
   <script>
     // Run on the selected host. Standalone Graphs uses protected OpsBrain APIs;
     // compatibility mounts continue to use their existing base path.
@@ -50,6 +84,6 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
-  <script src="flutter_bootstrap.js?release=20261102-graphs-preview-complete" async></script>
+  <script src="flutter_bootstrap.js?release=20261115-ux-draft-recovery" async></script>
 </body>
 </html>

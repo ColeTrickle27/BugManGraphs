@@ -1754,7 +1754,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         return;
       }
       if (widget.fitToContentOnOpen &&
-          (_wallSegments.isNotEmpty || _shapes.isNotEmpty)) {
+          (_wallSegments.isNotEmpty || _shapes.isNotEmpty ||
+              _annotations.isNotEmpty || _freehandStrokes.isNotEmpty ||
+              _traces.isNotEmpty)) {
         _fitDrawing();
         return;
       }
@@ -7106,12 +7108,26 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   void _fitDrawing() {
-    final bounds = ExportBoundsCalculator.forDocument(_document, padding: 48);
-    _transformationController.value = EditorViewport.fit(
-      bounds,
-      _usableViewport,
-      padding: 12,
-    );
+    // Screen-sized labels depend on the resulting zoom. Refine the fit using
+    // their painted bounds, rather than fitting annotation anchor points only.
+    final factor = _drawingScale.presentationFactor;
+    var fitted = _transformationController.value.clone();
+    for (var iteration = 0; iteration < 16; iteration++) {
+      final zoom = fitted.getMaxScaleOnAxis() * factor;
+      final bounds = ExportBoundsCalculator.forDocument(_document,
+          padding: 48,
+          labels: LabelPresentation(
+              zoom: zoom, textScale: _labelTextScale, bounded: true));
+      final displayBounds = Rect.fromLTRB(bounds.left * factor,
+          bounds.top * factor, bounds.right * factor, bounds.bottom * factor);
+      // Keep measurement callouts clear of the surrounding toolbars as well.
+      final next = EditorViewport.fit(displayBounds, _usableViewport, padding: 32);
+      final difference =
+          (next.getMaxScaleOnAxis() - fitted.getMaxScaleOnAxis()).abs();
+      fitted = next;
+      if (difference < 0.000001) break;
+    }
+    _transformationController.value = fitted;
     setState(
       () =>
           _canvasStatus = 'Drawing fitted to viewport — calibration unchanged',
