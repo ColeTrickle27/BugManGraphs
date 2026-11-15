@@ -22,8 +22,39 @@ import 'package:bugman_graphs/services/cloud_drafts/graph_draft_store.dart';
 import 'package:bugman_graphs/services/cloud_drafts/graph_draft_workspace.dart';
 import 'graph_draft_sync_test.dart'
     show FixtureDraftService, workspace, ownerA, doc, moved;
+import '../station_graph_compatibility_test.dart' show stationGraph;
 
 void main() {
+  testWidgets(
+      'closing unsupported station recovery preserves it without writes',
+      (tester) async {
+    final store = MemoryGraphDraftStore(), api = FixtureDraftService();
+    final scoped = workspace(api, store);
+    final recovery = GraphDraftRecovery(
+        accountId: ownerA,
+        document: stationGraph('installedCoreStation'),
+        blobs: const {},
+        generation: 2,
+        acknowledgedGeneration: 1);
+    await store.write(recovery);
+    final before =
+        jsonEncode((await store.read(ownerA, recovery.id))!.toJson());
+    final session = await scoped.open(recovery.id);
+    await tester.pumpWidget(
+        MaterialApp(home: GraphDraftEditorScreen(session: session)));
+    await tester.pumpAndSettle();
+    expect(find.text(GraphDocument.stationWorkspaceMessage), findsOneWidget);
+    expect(find.byKey(const ValueKey('graph-canvas-paint')), findsNothing);
+    expect(find.byTooltip('Save and share'), findsNothing);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await session.flushLocal();
+    expect(tester.takeException(), isNull);
+    expect(api.writes, isEmpty);
+    expect(
+        jsonEncode((await store.read(ownerA, recovery.id))!.toJson()), before);
+    scoped.dispose();
+  });
+
   testWidgets(
       'held overwrite rejects a second identity switch and binds the late key only to its captured session',
       (tester) async {

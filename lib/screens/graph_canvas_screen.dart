@@ -491,11 +491,15 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   void _scheduleCloudCapture() {
-    if (_cloudSession == null || _cloudCaptureScheduled) return;
+    if (_document.requiresStationWorkspace ||
+        _cloudSession == null ||
+        _cloudCaptureScheduled) {
+      return;
+    }
     _cloudCaptureScheduled = true;
     Future<void>.microtask(() async {
       _cloudCaptureScheduled = false;
-      if (!mounted) return;
+      if (!mounted || _document.requiresStationWorkspace) return;
       final repository = _repository as GraphDraftEditorRepository;
       final session = await repository.ensureSession(
         _document,
@@ -565,7 +569,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     cloud?.removeListener(_cloudChanged);
     cloud?.workspace.account.removeListener(_cloudChanged);
     _observedCloudSession?.removeListener(_cloudChanged);
-    if (cloud != null && cloud.id == _document.id) {
+    if (cloud != null &&
+        cloud.id == _document.id &&
+        !_document.requiresStationWorkspace) {
       cloud.capture(
         _document.toJson(),
         pendingBlobs: _pendingPhotoBlobs,
@@ -8300,6 +8306,32 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         ),
       );
     }
+    if (_document.requiresStationWorkspace) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Open station graph in OpsBrain')),
+        body: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(GraphDocument.stationWorkspaceMessage),
+                  const SizedBox(height: 20),
+                  FilledButton.icon(
+                    onPressed: () => (widget.onPortalSignIn ??
+                        openPortalSignIn)(opsBrainHomeUrl(Uri.base)),
+                    icon: const Icon(Icons.open_in_new),
+                    label: const Text('Open OpsBrain'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     if (widget.presentationMode) {
       return _buildPresentationView(context);
     }
@@ -9034,7 +9066,8 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
     );
     return UnsavedGraphGuard(
       enabled: _cloudSession == null,
-      hasChanges: () => _document.isDirty ||
+      hasChanges: () =>
+          _document.isDirty ||
           _inlineTextAnnotationIndex != null ||
           _inlineTextShapeIndex != null,
       isSaving: () => _publicationInFlight,
@@ -10000,49 +10033,46 @@ class _PropertiesSidebar extends StatelessWidget {
                 ],
               ),
               Expanded(
-                child: SingleChildScrollView(
-                  child: _LayersPanel(
-                    wallCount: wallSegments.length,
-                    shapeCount: shapes
-                        .where(
-                          (shape) =>
-                              shape.preset != GraphDrawingPreset.treatmentArea,
-                        )
-                        .length,
-                    inspectionCount: annotations
-                        .where(
-                          (item) =>
-                              item.kind != GraphAnnotationKind.photo &&
-                              !(item.kind == GraphAnnotationKind.marker &&
-                                  (isTreatmentMarker(item.markerType) ||
-                                      utilityMarkerTypes.contains(
-                                        item.markerType,
-                                      ))),
-                        )
-                        .length,
-                    treatmentCount: annotations
-                            .where(
-                              (item) =>
-                                  item.kind == GraphAnnotationKind.marker &&
-                                  isTreatmentMarker(item.markerType),
-                            )
-                            .length +
-                        shapes
-                            .where(
-                              (shape) =>
-                                  shape.preset ==
-                                  GraphDrawingPreset.treatmentArea,
-                            )
-                            .length,
-                    photoCount: annotations
-                        .where((item) => item.kind == GraphAnnotationKind.photo)
-                        .length,
-                    layerSettings: layerSettings,
-                    traceLayerVisible: traceLayerVisible,
-                    onCollapse: onCollapsePanel,
-                    onToggleVisibility: onToggleLayerVisibility,
-                    onToggleLock: onToggleLayerLock,
-                  ),
+                child: _LayersPanel(
+                  wallCount: wallSegments.length,
+                  shapeCount: shapes
+                      .where(
+                        (shape) =>
+                            shape.preset != GraphDrawingPreset.treatmentArea,
+                      )
+                      .length,
+                  inspectionCount: annotations
+                      .where(
+                        (item) =>
+                            item.kind != GraphAnnotationKind.photo &&
+                            !(item.kind == GraphAnnotationKind.marker &&
+                                (isTreatmentMarker(item.markerType) ||
+                                    utilityMarkerTypes.contains(
+                                      item.markerType,
+                                    ))),
+                      )
+                      .length,
+                  treatmentCount: annotations
+                          .where(
+                            (item) =>
+                                item.kind == GraphAnnotationKind.marker &&
+                                isTreatmentMarker(item.markerType),
+                          )
+                          .length +
+                      shapes
+                          .where(
+                            (shape) =>
+                                shape.preset ==
+                                GraphDrawingPreset.treatmentArea,
+                          )
+                          .length,
+                  photoCount: annotations
+                      .where((item) => item.kind == GraphAnnotationKind.photo)
+                      .length,
+                  layerSettings: layerSettings,
+                  traceLayerVisible: traceLayerVisible,
+                  onToggleVisibility: onToggleLayerVisibility,
+                  onToggleLock: onToggleLayerLock,
                 ),
               ),
             ],
@@ -11086,7 +11116,6 @@ class _LayersPanel extends StatelessWidget {
     required this.photoCount,
     required this.layerSettings,
     required this.traceLayerVisible,
-    required this.onCollapse,
     required this.onToggleVisibility,
     required this.onToggleLock,
   });
@@ -11098,96 +11127,62 @@ class _LayersPanel extends StatelessWidget {
   final int photoCount;
   final Map<_GraphLayer, _LayerSettings> layerSettings;
   final bool traceLayerVisible;
-  final VoidCallback onCollapse;
   final ValueChanged<_GraphLayer> onToggleVisibility;
   final ValueChanged<_GraphLayer> onToggleLock;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 190,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                'Layers',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
-              ),
-              const Spacer(),
-              IconButton(
-                tooltip: 'Collapse layers',
-                visualDensity: VisualDensity.compact,
-                onPressed: onCollapse,
-                icon: const Icon(Icons.expand_more, size: 18),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: ListView(
-              children: [
-                _LayerRow(
-                  icon: Icons.foundation_outlined,
-                  name: 'Building Structure',
-                  detail: '$wallCount lines • $shapeCount shapes',
-                  visible: _isVisible(_GraphLayer.structure) &&
-                      _isVisible(_GraphLayer.shapes),
-                  locked: _isLocked(_GraphLayer.structure) ||
-                      _isLocked(_GraphLayer.shapes),
-                  onToggleVisibility: () =>
-                      onToggleVisibility(_GraphLayer.structure),
-                  onToggleLock: () => onToggleLock(_GraphLayer.structure),
-                ),
-                _LayerRow(
-                  icon: Icons.place_outlined,
-                  name: 'Inspections',
-                  detail: '$inspectionCount markers',
-                  visible: _isVisible(_GraphLayer.inspections),
-                  locked: _isLocked(_GraphLayer.inspections),
-                  onToggleVisibility: () =>
-                      onToggleVisibility(_GraphLayer.inspections),
-                  onToggleLock: () => onToggleLock(_GraphLayer.inspections),
-                ),
-                _LayerRow(
-                  icon: Icons.medical_services_outlined,
-                  name: 'Treatment',
-                  detail: '$treatmentCount markers',
-                  visible: _isVisible(_GraphLayer.treatment),
-                  locked: _isLocked(_GraphLayer.treatment),
-                  onToggleVisibility: () =>
-                      onToggleVisibility(_GraphLayer.treatment),
-                  onToggleLock: () => onToggleLock(_GraphLayer.treatment),
-                ),
-                _LayerRow(
-                  icon: Icons.photo_camera_outlined,
-                  name: 'Photos',
-                  detail: '$photoCount pins',
-                  visible: _isVisible(_GraphLayer.photos),
-                  locked: _isLocked(_GraphLayer.photos),
-                  onToggleVisibility: () =>
-                      onToggleVisibility(_GraphLayer.photos),
-                  onToggleLock: () => onToggleLock(_GraphLayer.photos),
-                ),
-                _LayerRow(
-                  icon: Icons.layers_outlined,
-                  name: 'Trace Layer',
-                  detail:
-                      traceLayerVisible ? 'address trace visible' : 'hidden',
-                  visible: traceLayerVisible,
-                  locked: _isLocked(_GraphLayer.trace),
-                  onToggleVisibility: () =>
-                      onToggleVisibility(_GraphLayer.trace),
-                  onToggleLock: () => onToggleLock(_GraphLayer.trace),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        _LayerRow(
+          icon: Icons.foundation_outlined,
+          name: 'Building Structure',
+          detail: '$wallCount lines • $shapeCount shapes',
+          visible: _isVisible(_GraphLayer.structure) &&
+              _isVisible(_GraphLayer.shapes),
+          locked:
+              _isLocked(_GraphLayer.structure) || _isLocked(_GraphLayer.shapes),
+          onToggleVisibility: () => onToggleVisibility(_GraphLayer.structure),
+          onToggleLock: () => onToggleLock(_GraphLayer.structure),
+        ),
+        _LayerRow(
+          icon: Icons.place_outlined,
+          name: 'Inspections',
+          detail: '$inspectionCount markers',
+          visible: _isVisible(_GraphLayer.inspections),
+          locked: _isLocked(_GraphLayer.inspections),
+          onToggleVisibility: () => onToggleVisibility(_GraphLayer.inspections),
+          onToggleLock: () => onToggleLock(_GraphLayer.inspections),
+        ),
+        _LayerRow(
+          icon: Icons.medical_services_outlined,
+          name: 'Treatment',
+          detail: '$treatmentCount markers',
+          visible: _isVisible(_GraphLayer.treatment),
+          locked: _isLocked(_GraphLayer.treatment),
+          onToggleVisibility: () => onToggleVisibility(_GraphLayer.treatment),
+          onToggleLock: () => onToggleLock(_GraphLayer.treatment),
+        ),
+        _LayerRow(
+          icon: Icons.photo_camera_outlined,
+          name: 'Photos',
+          detail: '$photoCount pins',
+          visible: _isVisible(_GraphLayer.photos),
+          locked: _isLocked(_GraphLayer.photos),
+          onToggleVisibility: () => onToggleVisibility(_GraphLayer.photos),
+          onToggleLock: () => onToggleLock(_GraphLayer.photos),
+        ),
+        _LayerRow(
+          icon: Icons.layers_outlined,
+          name: 'Trace Layer',
+          detail: traceLayerVisible ? 'address trace visible' : 'hidden',
+          visible: traceLayerVisible,
+          locked: _isLocked(_GraphLayer.trace),
+          onToggleVisibility: () => onToggleVisibility(_GraphLayer.trace),
+          onToggleLock: () => onToggleLock(_GraphLayer.trace),
+        ),
+      ],
     );
   }
 

@@ -236,6 +236,45 @@ class GraphDocument extends ChangeNotifier {
   bool get isDirty => _isDirty;
   int get revision => _revision;
 
+  /// Station graphs need the station-aware renderer in the OpsBrain workspace.
+  /// Keep them readable for gallery summaries, but never serialize the legacy
+  /// marker fallback over the original station types.
+  bool get requiresStationWorkspace {
+    const stationTypes = <String>{
+      'plannedSoilStation',
+      'installedSoilStation',
+      'plannedCoreStation',
+      'installedCoreStation',
+    };
+    bool station(Map<String, Object?> value) {
+      if (value['kind'] != null && value['kind'] != 'marker') return false;
+      if (stationTypes.contains(value['markerType'])) return true;
+      final details = _map(value['atbsStation']);
+      return details['schema'] == 1 &&
+          const {'planned', 'installed'}.contains(details['status']) &&
+          const {'soil', 'core'}.contains(details['type']);
+    }
+
+    final nested = _map(_serializationSource['graphObjects']);
+    final source = nested.isEmpty ? _serializationSource : nested;
+    final stationRoutes = _list(source['shapes']).any((value) =>
+        _list(_map(value)['stationRoutes']).any((route) {
+          final details = _map(route);
+          return details['schema'] == 1 &&
+              const {'planned', 'installed'}.contains(details['status']);
+        }));
+    return stationRoutes ||
+        _list(source['annotations']).any((value) => station(_map(value))) ||
+        _annotations.any((item) =>
+            item.kind == GraphAnnotationKind.marker &&
+            station(item.extraProperties));
+  }
+
+  static const stationWorkspaceMessage =
+      'Open this station graph from Customer Files in the OpsBrain structure '
+      'sketch workspace. This editor cannot safely edit its station symbols. '
+      'The saved graph has not been changed.';
+
   int get nextPhotoNumber {
     final persisted = _metadata['nextPhotoNumber'];
     if (persisted is num && persisted.toInt() > 0) {
@@ -402,6 +441,9 @@ class GraphDocument extends ChangeNotifier {
   }
 
   Map<String, Object?> toJson() {
+    if (requiresStationWorkspace) {
+      throw const FormatException(stationWorkspaceMessage);
+    }
     final result = <String, Object?>{
         ..._extraProperties,
         'id': id,
