@@ -41,11 +41,13 @@ class Lookup implements CustomerFilesService {
 }
 
 void main() {
+  Job? returned;
   Finder field(String name) => find.widgetWithText(TextField, name);
   String value(WidgetTester t, String name) =>
       t.widget<TextField>(field(name)).controller!.text;
   Future<void> open(WidgetTester t,
       {CustomerFilesService? service, ValueChanged<Job>? created}) async {
+    returned = null;
     t.view.devicePixelRatio = 1;
     t.view.physicalSize = const Size(1100, 2200);
     addTearDown(t.view.reset);
@@ -53,14 +55,15 @@ void main() {
         home: Builder(
             builder: (context) => Scaffold(
                 body: TextButton(
-                    onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                            builder: (_) => NewJobScreen(
-                                onCreateJob: created ?? (_) {},
-                                returnCreatedJob: true,
-                                customerFilesService: service ?? Lookup(),
-                                authenticatedNameLoader: () async => null))),
+                    onPressed: () => Navigator.push<Job>(
+                            context,
+                            MaterialPageRoute<Job>(
+                                builder: (_) => NewJobScreen(
+                                    onCreateJob: created ?? (_) {},
+                                    returnCreatedJob: true,
+                                    customerFilesService: service ?? Lookup(),
+                                    authenticatedNameLoader: () async => null)))
+                        .then((job) => returned = job),
                     child: const Text('Open intake'))))));
     await t.tap(find.text('Open intake'));
     await t.pumpAndSettle();
@@ -99,6 +102,24 @@ void main() {
     expect(job!.customerName, 'Linked account');
     expect(job!.intakeDetails['phone'], isEmpty);
     expect(find.byType(NewJobScreen), findsNothing);
+  });
+  testWidgets('owner completion can return a Job through dirty intake',
+      (t) async {
+    await open(t, service: Lookup(available: false));
+    await t.enterText(field('Company'), 'Owner-completed draft');
+    final job = Job(
+        customerName: 'Owner-completed draft',
+        serviceAddress: '',
+        pestPacLocationNumber: '',
+        pestPacBillToNumber: '',
+        serviceType: 'Inspection',
+        createdBy: '',
+        createdDate: DateTime(2026));
+    Navigator.of(t.element(find.byType(NewJobScreen))).pop(job);
+    await t.pumpAndSettle();
+    expect(find.text('Discard graph information?'), findsNothing);
+    expect(find.byType(NewJobScreen), findsNothing);
+    expect(returned, same(job));
   });
   testWidgets('dirty intake Back can keep editing then explicitly discard',
       (t) async {

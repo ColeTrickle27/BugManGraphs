@@ -7116,6 +7116,12 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       final zoom = fitted.getMaxScaleOnAxis() * factor;
       final bounds = ExportBoundsCalculator.forDocument(_document,
           padding: 48,
+          structureVisible: _isLayerVisible(_GraphLayer.structure),
+          shapesVisible: _isLayerVisible(_GraphLayer.shapes),
+          inspectionsVisible: _isLayerVisible(_GraphLayer.inspections),
+          treatmentVisible: _isLayerVisible(_GraphLayer.treatment),
+          photosVisible: _isLayerVisible(_GraphLayer.photos),
+          traceVisible: _traceLayerVisible,
           labels: LabelPresentation(
               zoom: zoom, textScale: _labelTextScale, bounded: true));
       final displayBounds = Rect.fromLTRB(bounds.left * factor,

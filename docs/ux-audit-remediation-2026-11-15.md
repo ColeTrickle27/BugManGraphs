@@ -14,11 +14,11 @@ This branch contains no unfinished station/imagery work.
 
 ## Uploaded graph / startup investigation
 
-A service-worker preparation timeout alone did not prevent Flutter boot in a synthetic check. A failed entrypoint did leave the old page blank; the startup screen now provides recovery after resource/engine failure or a long wait. Reload preserves the complete URL and graph key. The release cache marker is updated; service-worker handling and protected API authentication remain intact.
+A service-worker preparation timeout alone did not prevent Flutter boot in a synthetic check. A failed entrypoint did leave the old page blank; the startup screen now provides recovery after resource/engine failure, an unhandled startup dependency failure, or a long wait. Reload preserves the complete URL and graph key. The release cache marker is updated; service-worker handling and protected API authentication remain intact.
 
-A separate synthetic valid graph package at offscreen coordinates (including a note-only package) reproduced an initially blank editor despite correct key/parse. Uploaded editable graphs now fit their content on entry. Two regressions failed before and pass after. Finalized packages still use the existing read-only path.
+A separate synthetic valid graph package at offscreen coordinates (including a note-only package) reproduced an initially blank editor despite correct key/parse. Uploaded editable graphs now fit their visible content on entry. Two regressions failed before and pass after. Finalized packages still use the existing read-only path.
 
-These reproduce bounded software defects; they do not establish the cause of the reported PESTPAC TEST 2 session. The actual signed-in package/transport/cache state remains unverified. Blank rendering is not evidence of data loss.
+These reproduce bounded software defects; they do not establish the cause of the reported signed-in .bgraph session. The actual signed-in package/transport/cache state remains unverified. Blank rendering is not evidence of data loss.
 
 ## Validation and boundaries
 
@@ -29,3 +29,7 @@ Browser checks cover local draft preservation, explicit discard, synthetic creat
 No saved graph schema, geometry, calibration, attachment format, treatment rules, API contract, credentials or authorization policy changes. The local lookup explanation does not promise network/authenticated data availability. Physical-device keyboards and real authenticated customer flows are outside the synthetic evidence.
 
 Rollback reference: pre-release main `41d1aaf03626086180a16620dc7d15f07c42f6b1`. If a production regression occurs, revert this PR merge through a reviewed commit and let the existing deployment workflow publish it; do not reset main or alter customer records.
+
+## Review regressions
+
+A far-away hidden trace was reproduced shrinking visible uploaded walls; fitting now uses the current layer visibility. Hidden content remains stored unchanged. The no-JavaScript explanation was covered by the startup overlay; the no-script path now hides that overlay. Owner-driven `Navigator.pop(Job)` already bypasses system-Back guarding in Flutter: the existing recovery tests and a new direct dirty-intake completion regression pass without changing the guard contract.

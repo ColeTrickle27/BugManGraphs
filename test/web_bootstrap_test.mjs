@@ -22,9 +22,13 @@ test('engine initialization failure shows recovery; successful run removes loadi
  for(const fails of [true,false]){
   const f=fixture(async options=>{assert.equal(options.config.canvasKitBaseUrl,'canvaskit/');await options.onEntrypointLoaded({initializeEngine:async()=>{if(fails)throw Error('synthetic failure');return{runApp:async()=>{}};}});});
   vm.runInNewContext(bootstrap,f.context);await new Promise(resolve=>setImmediate(resolve));
-  if(fails)assert.match(f.elements.get('bugman-startup-title').textContent,/could not open/);else{assert.equal(f.elements.has('bugman-startup'),false);f.listeners.error({target:{tagName:'SCRIPT'}});assert.equal(f.elements.has('bugman-startup'),false);}
+  if(fails)assert.match(f.elements.get('bugman-startup-title').textContent,/could not open/);else{assert.equal(f.elements.has('bugman-startup'),false);f.listeners.error({target:{tagName:'SCRIPT'}});f.listeners.unhandledrejection();assert.equal(f.elements.has('bugman-startup'),false);}
  }
 });
 test('entrypoint loader rejection shows recovery',async()=>{
  const f=fixture(()=>Promise.reject(Error('synthetic entrypoint failure')));vm.runInNewContext(bootstrap,f.context);await new Promise(resolve=>setImmediate(resolve));assert.match(f.elements.get('bugman-startup-title').textContent,/could not open/);
+});
+
+test('unhandled startup dependency rejection offers recovery before engine callback',()=>{
+ const f=fixture(()=>Promise.resolve());f.listeners.unhandledrejection();assert.match(f.elements.get('bugman-startup-title').textContent,/could not open/);assert.equal(f.elements.get('bugman-startup-reload').hidden,false);
 });

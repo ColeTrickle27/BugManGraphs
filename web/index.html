@@ -41,7 +41,10 @@
     <button id="bugman-startup-reload" hidden style="padding:12px 24px;font:inherit"
         onclick="window.location.reload()">Reload BugMan Graphs</button>
   </main>
-  <noscript>JavaScript is required to open BugMan Graphs.</noscript>
+  <noscript>
+    <style>#bugman-startup { display: none !important; }</style>
+    <p>JavaScript is required to open BugMan Graphs. Enable JavaScript and reload this page.</p>
+  </noscript>
   <script>
     (() => {
       let complete = false;
@@ -64,8 +67,11 @@
       };
       // Resource failures do not always reject Flutter's callback-based loader.
       window.addEventListener('error', (event) => {
-        if (event.target?.tagName === 'SCRIPT') window.bugManStartup.fail();
+        if (event.target === window || event.target?.tagName === 'SCRIPT') {
+          window.bugManStartup.fail();
+        }
       }, true);
+      window.addEventListener('unhandledrejection', () => window.bugManStartup.fail());
     })();
   </script>
   <script>
