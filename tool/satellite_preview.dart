@@ -48,7 +48,7 @@ class SatellitePreviewHome extends StatefulWidget {
 
 class _SatellitePreviewHomeState extends State<SatellitePreviewHome> {
   final _repository = MemoryGraphRepository();
-  GraphDocument? _document;
+  String? _savedGraphId;
   bool _opening = false;
 
   @override
@@ -87,19 +87,31 @@ class _SatellitePreviewHomeState extends State<SatellitePreviewHome> {
             createdBy: 'Preview'),
         traces: [trace],
         layers: const {'trace': GraphLayerState(visible: true)});
-    // Exercise the real saved-graph contract before opening the real editor.
-    _document =
+    // Persist complete serialized preview bytes in the session-only repository.
+    // Each canvas owns/disposes its loaded document; the home keeps only its ID.
+    final restored =
         GraphDocument.fromJson(jsonDecode(jsonEncode(document.toJson())));
+    await _repository.saveGraph(restored);
+    final id = restored.id;
+    restored.dispose();
     document.dispose();
+    if (!mounted) return;
+    setState(() => _savedGraphId = id);
     await _showGraph();
   }
 
   Future<void> _showGraph() async {
+    final document = await _repository.loadGraph(_savedGraphId!);
+    if (document == null) return;
+    if (!mounted) {
+      document.dispose();
+      return;
+    }
     final addresses = PreviewAddressService();
     try {
       await Navigator.of(context).push(MaterialPageRoute<void>(
           builder: (_) => GraphCanvasScreen(
-              document: _document!,
+              document: document,
               repository: _repository,
               traceAddressService: addresses,
               traceAddressAttribution: const Text('U.S. Census Geocoder',
@@ -128,7 +140,7 @@ class _SatellitePreviewHomeState extends State<SatellitePreviewHome> {
                 OutlinedButton(
                     onPressed: () => _open(sample: false),
                     child: const Text('Start a new property')),
-                if (_document != null)
+                if (_savedGraphId != null)
                   TextButton(
                       onPressed: _showGraph,
                       child: const Text('View saved preview graph')),
