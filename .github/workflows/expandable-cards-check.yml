@@ -6,6 +6,9 @@ on:
       - lib/widgets/expandable_action_card.dart
       - lib/screens/graph_canvas_screen.dart
       - test/expandable_action_card_test.dart
+      - web/index.html
+      - web/flutter_bootstrap.js
+      - test/web_bootstrap_test.mjs
       - .github/workflows/expandable-cards-check.yml
 
 permissions:
@@ -25,6 +28,7 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+      - run: node --test test/web_bootstrap_test.mjs
       - run: flutter build web --release
       - uses: actions/upload-artifact@v4
         with:

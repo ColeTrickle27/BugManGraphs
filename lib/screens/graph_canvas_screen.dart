@@ -1771,7 +1771,9 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         return;
       }
       if (widget.fitToContentOnOpen &&
-          (_wallSegments.isNotEmpty || _shapes.isNotEmpty)) {
+          (_wallSegments.isNotEmpty || _shapes.isNotEmpty ||
+              _annotations.isNotEmpty || _freehandStrokes.isNotEmpty ||
+              _traces.isNotEmpty)) {
         _fitDrawing();
         return;
       }
@@ -7353,33 +7355,55 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
   }
 
   void _fitDrawing() {
-    var canonicalBounds =
-        ExportBoundsCalculator.forDocument(_document, padding: 48);
-    if (_compactEditor && _traceLayerVisible && _traces.isNotEmpty) {
-      final traceBounds = TracePresentation.bounds(_traces);
+    // Refine screen-sized labels with the deployed audit visibility rules.
+    // Compact trace framing omits only trace label margins, which live in the
+    // phone's fixed acreage/attribution chrome; visible notes still participate.
+    final factor = _drawingScale.presentationFactor;
+    final compactTrace =
+        _compactEditor && _traceLayerVisible && _traces.isNotEmpty;
+    final traceBounds = compactTrace ? TracePresentation.bounds(_traces) : null;
+    var fitted = _transformationController.value.clone();
+    for (var iteration = 0; iteration < 16; iteration++) {
+      final zoom = fitted.getMaxScaleOnAxis() * factor;
+      var bounds = ExportBoundsCalculator.forDocument(
+        _document,
+        padding: 48,
+        structureVisible: _isLayerVisible(_GraphLayer.structure),
+        shapesVisible: _isLayerVisible(_GraphLayer.shapes),
+        inspectionsVisible: _isLayerVisible(_GraphLayer.inspections),
+        treatmentVisible: _isLayerVisible(_GraphLayer.treatment),
+        photosVisible: _isLayerVisible(_GraphLayer.photos),
+        traceVisible: _traceLayerVisible && !compactTrace,
+        labels: LabelPresentation(
+          zoom: zoom,
+          textScale: _labelTextScale,
+          bounded: true,
+        ),
+      );
       if (traceBounds != null) {
-        canonicalBounds = _wallSegments.isEmpty &&
-                _annotations.isEmpty &&
-                _shapes.isEmpty &&
-                _freehandStrokes.isEmpty
+        // forDocument's 1×1 origin is a sentinel for no visible non-trace data.
+        bounds = bounds == const Rect.fromLTWH(0, 0, 1, 1)
             ? traceBounds
-            : ExportBoundsCalculator.forDocument(_document,
-                    padding: 48, traceVisible: false)
-                .expandToInclude(traceBounds);
+            : bounds.expandToInclude(traceBounds);
       }
+      final displayBounds = Rect.fromLTRB(
+        bounds.left * factor,
+        bounds.top * factor,
+        bounds.right * factor,
+        bounds.bottom * factor,
+      );
+      final next = EditorViewport.fit(
+        displayBounds,
+        compactTrace ? _compactTraceFitRect(_usableViewport) : _usableViewport,
+        padding: compactTrace ? 0 : 32,
+      );
+      final difference = (next.getMaxScaleOnAxis() - fitted.getMaxScaleOnAxis())
+          .abs();
+      fitted = next;
+      if (difference < 0.000001) break;
     }
-    final bounds = Rect.fromPoints(
-      _drawingScale.toDisplay(canonicalBounds.topLeft),
-      _drawingScale.toDisplay(canonicalBounds.bottomRight),
-    );
-    _transformationController.value = EditorViewport.fit(
-      bounds,
-      _compactEditor && _traces.isNotEmpty
-          ? _compactTraceFitRect(_usableViewport)
-          : _usableViewport,
-      padding: _compactEditor && _traces.isNotEmpty ? 0 : 12,
-    );
-    _fittedViewport = _transformationController.value.clone();
+    _transformationController.value = fitted;
+    _fittedViewport = fitted.clone();
     setState(
       () =>
           _canvasStatus = 'Drawing fitted to viewport — calibration unchanged',

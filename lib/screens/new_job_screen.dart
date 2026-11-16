@@ -1,5 +1,7 @@
 import '../widgets/graph_page_chrome.dart';
 import '../services/ops_user_service.dart';
+import '../services/unsaved_unload.dart';
+import 'package:flutter/foundation.dart';
 import '../services/ops_user_service_factory.dart';
 import 'dart:async';
 
@@ -131,6 +133,94 @@ class _NewJobScreenState extends State<NewJobScreen> {
   List<CustomerSearchResult> _searchResults = const [];
   Timer? _searchDebounce;
   bool _warningDismissed = false;
+  _CustomerEntryDraft? _manualDraft;
+  _CustomerEntryDraft? _existingDraft;
+  late final Map<String, String> _initialFormValues;
+  late final Map<String, String> _initialManualValues;
+  late final Map<String, String> _initialExistingValues;
+  late final VoidCallback _stopUnload;
+  bool _allowExit = false;
+  bool _confirmingExit = false;
+
+  Map<String, String> _customerValues() => {
+        for (final entry in _details.entries) entry.key: entry.value.text,
+        'locationName': _locationNameController.text,
+        'address': _locationAddressController.text,
+        'billTo': _pestPacBillToController.text,
+        'location': _pestPacLocationController.text,
+        'customerType': _customerType,
+      };
+
+  Map<String, String> _formValues() => {
+        ..._customerValues(),
+        'manual': '$_manualEntryOverride',
+        'service': _serviceType,
+        'date': _createdDate.toIso8601String(),
+        'creator': _createdByController.text,
+        'author': _cloudAuthorId ?? '',
+      };
+
+  bool get _hasUnsavedInformation =>
+      !mapEquals(_initialFormValues, _formValues()) ||
+      (!_manualEntryOverride &&
+          _manualDraft != null &&
+          !mapEquals(_initialManualValues, _manualDraft!.values)) ||
+      (_manualEntryOverride &&
+          _existingDraft != null &&
+          !mapEquals(_initialExistingValues, _existingDraft!.values));
+
+  _CustomerEntryDraft _captureCustomer() => _CustomerEntryDraft(
+      _customerValues(),
+      _selectedLocation,
+      _primaryContactVisible,
+      _alternateContactVisible);
+
+  void _restoreCustomer(_CustomerEntryDraft? draft) {
+    _selectedLocation = draft?.location;
+    _clearLocationFields();
+    if (draft == null) return;
+    for (final entry in _details.entries) {
+      entry.value.text = draft.values[entry.key] ?? '';
+    }
+    _locationNameController.text = draft.values['locationName'] ?? '';
+    _locationAddressController.text = draft.values['address'] ?? '';
+    _pestPacBillToController.text = draft.values['billTo'] ?? '';
+    _pestPacLocationController.text = draft.values['location'] ?? '';
+    _customerType = draft.values['customerType'] ?? '';
+    _primaryContactVisible = draft.primaryVisible;
+    _alternateContactVisible = draft.alternateVisible;
+  }
+
+  Future<void> _requestExit(Object? result) async {
+    if (_confirmingExit || _allowExit) return;
+    _confirmingExit = true;
+    try {
+      if (_hasUnsavedInformation) {
+        final discard = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+                  title: const Text('Discard graph information?'),
+                  content: const Text(
+                      'Your unsaved customer and graph information will be lost.'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const Text('Discard information')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('Keep editing')),
+                  ],
+                ));
+        if (!mounted || discard != true) return;
+      }
+      if (!mounted) return;
+      setState(() => _allowExit = true);
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted) Navigator.of(context).pop(result);
+    } finally {
+      _confirmingExit = false;
+    }
+  }
 
   bool get _searchFlowEnabled => _customerFilesService.isAvailable;
 
@@ -229,6 +319,17 @@ class _NewJobScreenState extends State<NewJobScreen> {
           widget.cloudHistoricalAuthor?.name ??
           '';
     }
+    _initialFormValues = _formValues();
+    _initialManualValues = {
+      for (final entry in _customerValues().entries)
+        entry.key: _manualEntryOverride ? entry.value : '',
+    };
+    _initialExistingValues = {
+      for (final entry in _customerValues().entries)
+        entry.key: !_manualEntryOverride ? entry.value : '',
+    };
+    _stopUnload = listenForUnsavedUnload(
+        () => mounted && !_allowExit && _hasUnsavedInformation);
     if (!_cloudCreatorMode) {
       _loadCreator();
       _loadCreators();
@@ -254,9 +355,11 @@ class _NewJobScreenState extends State<NewJobScreen> {
     if (!mounted || name == null || name.trim().isEmpty) return;
     setState(() {
       _authenticatedCreator = true;
-      if (widget.initialJob == null ||
-          _createdByController.text.trim().isEmpty) {
+      if (!_creatorTouched &&
+          (widget.initialJob == null ||
+              _createdByController.text.trim().isEmpty)) {
         _createdByController.text = name.trim();
+        _initialFormValues['creator'] = _createdByController.text;
       }
     });
   }
@@ -276,6 +379,7 @@ class _NewJobScreenState extends State<NewJobScreen> {
           _createdByController.text.isEmpty &&
           result.current != null) {
         _createdByController.text = result.current!.name;
+        _initialFormValues['creator'] = _createdByController.text;
         _creatorMode = result.current!.username;
       } else if (!_creatorTouched) {
         for (final user in result.users) {
@@ -304,6 +408,7 @@ class _NewJobScreenState extends State<NewJobScreen> {
 
   @override
   void dispose() {
+    _stopUnload();
     _locationNameController.dispose();
     _locationAddressController.dispose();
     _pestPacLocationController.dispose();
@@ -390,12 +495,16 @@ class _NewJobScreenState extends State<NewJobScreen> {
 
   void _toggleManualEntry(bool manual) {
     if (manual == _manualEntryOverride) return;
+    if (_manualEntryOverride) {
+      _manualDraft = _captureCustomer();
+    } else {
+      _existingDraft = _captureCustomer();
+    }
     _searchDebounce?.cancel();
     _searchRequest += 1;
     setState(() {
       _manualEntryOverride = manual;
-      _selectedLocation = null;
-      _clearLocationFields();
+      _restoreCustomer(manual ? _manualDraft : _existingDraft);
       _searchResults = const [];
       _searchController.clear();
       _searchError = null;
@@ -463,7 +572,8 @@ class _NewJobScreenState extends State<NewJobScreen> {
     });
   }
 
-  void _createJob() {
+  Future<void> _createJob() async {
+    if (_allowExit) return;
     if (!_manualEntryOverride && _selectedLocation == null) {
       setState(() {
         _searchError = 'Select an existing customer or choose New Customer.';
@@ -514,6 +624,9 @@ class _NewJobScreenState extends State<NewJobScreen> {
       createdDate: _createdDate,
     );
 
+    setState(() => _allowExit = true);
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
     widget.onCreateJob(job);
 
     if (widget.editOnly || widget.returnCreatedJob) {
@@ -527,7 +640,12 @@ class _NewJobScreenState extends State<NewJobScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => PopScope<Object?>(
+      canPop: _allowExit,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _requestExit(result);
+      },
+      child: Scaffold(
         appBar: AppBar(
           title: Text(
             widget.asDialog
@@ -588,6 +706,15 @@ class _NewJobScreenState extends State<NewJobScreen> {
                       const SizedBox(height: 16),
                       if (_showingLocationSummary) ..._buildLocationSummary(),
                       if (_showingSearch) ..._buildCustomerSearch(),
+                      if (!_manualEntryOverride &&
+                          !_searchFlowEnabled &&
+                          _selectedLocation == null) ...[
+                        const Text(
+                            'Existing-customer lookup is unavailable in this app location. Open BugMan Graphs from OpsBrain to search linked customers, or use New Customer for an unassigned graph.'),
+                        TextButton(
+                            onPressed: () => _toggleManualEntry(true),
+                            child: const Text('Use New Customer')),
+                      ],
                       if (_manualEntryOverride || _selectedLocation != null)
                         ..._buildManualFields(),
                     ],
@@ -774,7 +901,7 @@ class _NewJobScreenState extends State<NewJobScreen> {
             ),
           ),
         ),
-      );
+      ));
 
   List<Widget> _buildLocationSummary() {
     final location = _selectedLocation!;
@@ -1186,4 +1313,13 @@ class _OptionalContactDialogState extends State<_OptionalContactDialog> {
           ),
         ],
       );
+}
+
+class _CustomerEntryDraft {
+  const _CustomerEntryDraft(
+      this.values, this.location, this.primaryVisible, this.alternateVisible);
+  final Map<String, String> values;
+  final CustomerLocation? location;
+  final bool primaryVisible;
+  final bool alternateVisible;
 }
