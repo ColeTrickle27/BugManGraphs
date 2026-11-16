@@ -32,3 +32,10 @@ test('entrypoint loader rejection shows recovery',async()=>{
 test('unhandled startup dependency rejection offers recovery before engine callback',()=>{
  const f=fixture(()=>Promise.resolve());f.listeners.unhandledrejection();assert.match(f.elements.get('bugman-startup-title').textContent,/could not open/);assert.equal(f.elements.get('bugman-startup-reload').hidden,false);
 });
+
+
+test('HTML and entrypoint use the same release cache key',()=>{
+ const htmlRelease=html.match(/flutter_bootstrap\.js\?release=([^"']+)/)?.[1];
+ const bootstrapRelease=bootstrap.match(/const bugManRelease = ['"]([^'"]+)/)?.[1];
+ assert.ok(htmlRelease);assert.equal(htmlRelease,bootstrapRelease);
+});
