@@ -7,6 +7,18 @@ import 'support/crowded_canvas_fixture.dart';
 
 Finder field(String label) => find.byWidgetPredicate(
     (w) => w is TextField && w.decoration?.labelText == label);
+
+Future<void> openGraphInformation(WidgetTester tester) async {
+  if (find.byTooltip('Edit Graph Information').evaluate().isNotEmpty) {
+    await tester.tap(find.byTooltip('Edit Graph Information'));
+  } else {
+    await tester.tap(find.byTooltip('Save and share'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit Graph Information'));
+  }
+  await tester.pumpAndSettle();
+}
+
 void main() {
   for (final size in [const Size(320, 568), const Size(1400, 900)]) {
     testWidgets('graph information modal save/cancel preserves canvas at $size',
@@ -38,7 +50,7 @@ void main() {
       final viewer =
           tester.widget<InteractiveViewer>(find.byType(InteractiveViewer));
       final matrix = viewer.transformationController!.value.clone();
-      await tester.tap(find.byTooltip('Edit Graph Information'));
+      await openGraphInformation(tester);
       await tester.pumpAndSettle();
       expect(find.byType(Dialog), findsOneWidget);
       expect(find.byType(InteractiveViewer), findsOneWidget);
@@ -51,7 +63,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(document.toJson(), original);
       expect(viewer.transformationController!.value, matrix);
-      await tester.tap(find.byTooltip('Edit Graph Information'));
+      await openGraphInformation(tester);
       await tester.pumpAndSettle();
       await tester.ensureVisible(field('Company'));
       expect(tester.widget<TextField>(field('Company')).controller!.text,
@@ -83,7 +95,7 @@ void main() {
       expect(document.toJson()['traces'], original['traces']);
       expect(viewer.transformationController!.value, matrix);
       expect(tester.takeException(), isNull);
-      await tester.tap(find.byTooltip('Edit Graph Information'));
+      await openGraphInformation(tester);
       await tester.pumpAndSettle();
       await tester.ensureVisible(field('Company'));
       expect(tester.widget<TextField>(field('Company')).controller!.text,
@@ -103,7 +115,7 @@ void main() {
     await tester
         .pumpWidget(MaterialApp(home: GraphCanvasScreen(document: document)));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Edit Graph Information'));
+    await openGraphInformation(tester);
     await tester.pumpAndSettle();
     tester.view.viewInsets = const FakeViewPadding(bottom: 300);
     await tester.pumpAndSettle();

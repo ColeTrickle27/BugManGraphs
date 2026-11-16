@@ -24,6 +24,7 @@ class NorthCarolinaTraceMapProvider implements TraceMapProvider {
     required GeoPoint center,
     required GeoPoint selectedAddress,
     required List<GeoPoint> points,
+    List<List<GeoPoint>> referencePolygons = const [],
     required ValueChanged<GeoPoint> onMapTap,
     required void Function(int index, GeoPoint point) onVertexMoved,
   }) =>
@@ -32,6 +33,7 @@ class NorthCarolinaTraceMapProvider implements TraceMapProvider {
         center: center,
         selectedAddress: selectedAddress,
         points: points,
+        referencePolygons: referencePolygons,
         onMapTap: onMapTap,
         onVertexMoved: onVertexMoved,
       );
@@ -43,6 +45,7 @@ class _NorthCarolinaTraceMap extends StatefulWidget {
     required this.center,
     required this.selectedAddress,
     required this.points,
+    required this.referencePolygons,
     required this.onMapTap,
     required this.onVertexMoved,
   });
@@ -51,6 +54,7 @@ class _NorthCarolinaTraceMap extends StatefulWidget {
   final GeoPoint center;
   final GeoPoint selectedAddress;
   final List<GeoPoint> points;
+  final List<List<GeoPoint>> referencePolygons;
   final ValueChanged<GeoPoint> onMapTap;
   final void Function(int index, GeoPoint point) onVertexMoved;
 
@@ -142,6 +146,18 @@ class _NorthCarolinaTraceMapState extends State<_NorthCarolinaTraceMap> {
               maxNativeZoom: _maximumNativeZoom,
               userAgentPackageName: 'com.holloman.bugman_graphs',
             ),
+            PolygonLayer(polygons: [
+              for (final ring in widget.referencePolygons)
+                if (ring.length >= 3)
+                  Polygon(
+                      points: [
+                        for (final p in ring)
+                          latlong.LatLng(p.latitude, p.longitude)
+                      ],
+                      color: const Color(0x22FFB300),
+                      borderColor: const Color(0xFFFFB300),
+                      borderStrokeWidth: 3)
+            ]),
             // This is a temporary trace-workspace aid only. It represents the
             // selected address result, not a saved graph object or an
             // inspection marker.

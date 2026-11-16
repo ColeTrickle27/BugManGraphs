@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'graph_point.dart';
 
 /// How a graph's real-world measurements were established.
@@ -118,6 +120,8 @@ class TraceGeometry {
     this.address = '',
     this.closed = true,
     this.metersPerCanvasUnit,
+    this.exclusions = const [],
+    this.imagery,
   });
 
   factory TraceGeometry.fromJson(Map<String, Object?> json) => TraceGeometry(
@@ -137,6 +141,15 @@ class TraceGeometry {
                   y: (value['y'] as num?)?.toDouble() ?? 0,
                 ))
             .toList(),
+        exclusions: (json['exclusions'] as List? ?? const [])
+            .whereType<Map>()
+            .map((value) => TraceGeometry.fromJson(
+                value.map((key, item) => MapEntry(key.toString(), item))))
+            .toList(),
+        imagery: json['imagery'] is Map
+            ? TraceImagery.fromJson(
+                Map<String, Object?>.from(json['imagery']! as Map))
+            : null,
         closed: json['closed'] as bool? ?? true,
         metersPerCanvasUnit: (json['metersPerCanvasUnit'] as num?)?.toDouble(),
       );
@@ -146,6 +159,8 @@ class TraceGeometry {
   final String address;
   final List<GeoPoint> geoPoints;
   final List<GraphPoint> canvasPoints;
+  final List<TraceGeometry> exclusions;
+  final TraceImagery? imagery;
   final bool closed;
   final double? metersPerCanvasUnit;
 
@@ -155,6 +170,9 @@ class TraceGeometry {
     String? address,
     List<GeoPoint>? geoPoints,
     List<GraphPoint>? canvasPoints,
+    List<TraceGeometry>? exclusions,
+    TraceImagery? imagery,
+    bool removeImagery = false,
     bool? closed,
     double? metersPerCanvasUnit,
   }) =>
@@ -164,8 +182,19 @@ class TraceGeometry {
         address: address ?? this.address,
         geoPoints: geoPoints ?? this.geoPoints,
         canvasPoints: canvasPoints ?? this.canvasPoints,
+        exclusions: exclusions ?? this.exclusions,
+        imagery: removeImagery ? null : imagery ?? this.imagery,
         closed: closed ?? this.closed,
         metersPerCanvasUnit: metersPerCanvasUnit ?? this.metersPerCanvasUnit,
+      );
+
+  TraceGeometry transformCanvas(GraphPoint Function(GraphPoint) transform) =>
+      copyWith(
+        canvasPoints: canvasPoints.map(transform).toList(),
+        exclusions:
+            exclusions.map((e) => e.transformCanvas(transform)).toList(),
+        imagery: imagery?.copyWith(
+            corners: imagery!.corners.map(transform).toList()),
       );
 
   Map<String, Object?> toJson() => {
@@ -175,7 +204,53 @@ class TraceGeometry {
         'geoPoints': geoPoints.map((point) => point.toJson()).toList(),
         'canvasPoints':
             canvasPoints.map((point) => {'x': point.x, 'y': point.y}).toList(),
+        if (exclusions.isNotEmpty)
+          'exclusions': exclusions.map((e) => e.toJson()).toList(),
+        if (imagery != null) 'imagery': imagery!.toJson(),
         'closed': closed,
         'metersPerCanvasUnit': metersPerCanvasUnit,
+      };
+}
+
+/// A bounded NC OneMap snapshot. Corners are top-left, top-right, bottom-left
+/// in graph coordinates so translation/rotation never detaches the photo.
+class TraceImagery {
+  const TraceImagery(
+      {required this.base64Jpeg,
+      required this.corners,
+      required this.capturedAt,
+      this.attribution = 'NC OneMap Orthoimagery · NCCGIA / NC 911 Board'});
+  final String base64Jpeg;
+  final List<GraphPoint> corners;
+  final String capturedAt;
+  final String attribution;
+  Rect? get bounds {
+    if (corners.length != 3) return null;
+    final fourth = corners[1].offset + corners[2].offset - corners[0].offset;
+    return [corners[0].offset, corners[1].offset, corners[2].offset, fourth]
+        .map((p) => Rect.fromLTWH(p.dx, p.dy, 0, 0))
+        .reduce((a, b) => a.expandToInclude(b));
+  }
+
+  TraceImagery copyWith({List<GraphPoint>? corners}) => TraceImagery(
+      base64Jpeg: base64Jpeg,
+      corners: corners ?? this.corners,
+      capturedAt: capturedAt,
+      attribution: attribution);
+  factory TraceImagery.fromJson(Map<String, Object?> json) => TraceImagery(
+      base64Jpeg: json['base64Jpeg'] as String? ?? '',
+      capturedAt: json['capturedAt'] as String? ?? '',
+      attribution: json['attribution'] as String? ??
+          'NC OneMap Orthoimagery · NCCGIA / NC 911 Board',
+      corners: (json['corners'] as List? ?? [])
+          .whereType<Map>()
+          .map((p) => GraphPoint(
+              x: (p['x'] as num).toDouble(), y: (p['y'] as num).toDouble()))
+          .toList());
+  Map<String, Object?> toJson() => {
+        'base64Jpeg': base64Jpeg,
+        'capturedAt': capturedAt,
+        'attribution': attribution,
+        'corners': corners.map((p) => {'x': p.x, 'y': p.y}).toList(),
       };
 }

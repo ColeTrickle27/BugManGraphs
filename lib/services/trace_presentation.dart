@@ -10,6 +10,12 @@ class TracePresentation {
   static Rect? bounds(Iterable<TraceGeometry> traces) {
     Rect? result;
     for (final trace in traces) {
+      final imageryBounds = trace.imagery?.bounds;
+      if (imageryBounds != null) {
+        result = result == null
+            ? imageryBounds
+            : result.expandToInclude(imageryBounds);
+      }
       for (final point in trace.canvasPoints) {
         final rect = Rect.fromLTWH(point.x, point.y, 0, 0);
         result = result == null ? rect : result.expandToInclude(rect);

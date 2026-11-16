@@ -18,9 +18,15 @@ void main() {
           home: GraphCanvasScreen(document: crowdedCanvasFixture())));
       await tester.pumpAndSettle();
       for (var cycle = 0; cycle < 3; cycle++) {
-        await tester.ensureVisible(find.byTooltip('Layers panel'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.byTooltip('Layers panel'));
+        if (find.byTooltip('Layers panel').evaluate().isNotEmpty) {
+          await tester.ensureVisible(find.byTooltip('Layers panel'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byTooltip('Layers panel'));
+        } else {
+          await tester.tap(find.byTooltip('Canvas options'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Layers'));
+        }
         await tester.pumpAndSettle();
         expect(find.text('Layers'), findsOneWidget);
         final panel = find
@@ -32,7 +38,8 @@ void main() {
         await tester.scrollUntilVisible(trace, 80, scrollable: scrollable);
         await tester.pumpAndSettle();
         expect(trace.hitTestable(), findsOneWidget);
-        expect(tester.getRect(trace).bottom, lessThan(size.height - 82));
+        expect(tester.getRect(trace).bottom,
+            lessThan(tester.getRect(find.byKey(const ValueKey('canvas-inspector-panel'))).bottom));
         final photo = find.text('Photos');
         await tester.scrollUntilVisible(photo, -80, scrollable: scrollable);
         await tester.pumpAndSettle();
