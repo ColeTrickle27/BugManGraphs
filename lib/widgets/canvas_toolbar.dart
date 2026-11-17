@@ -1029,13 +1029,14 @@ class _QuickUtilityButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Tooltip(
         message: tooltip,
+        excludeFromSemantics: true,
         child: IconButton(
           constraints: const BoxConstraints.tightFor(width: 44, height: 44),
           padding: EdgeInsets.zero,
           visualDensity: VisualDensity.compact,
           color: selected ? AppColors.red : const Color(0xFF687078),
           onPressed: onPressed,
-          icon: Icon(icon, size: 24),
+          icon: Icon(icon, size: 24, semanticLabel: tooltip),
         ),
       );
 }

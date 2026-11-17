@@ -131,7 +131,7 @@ void main() {
   });
   for (final finish in ['Enter', 'Tab', 'start', 'double']) {
     testWidgets(
-        'geometry first polygon finish $finish and classification roundtrip',
+        'geometry first polygon $finish (Tab traverses before Enter) and classification roundtrip',
         (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(1400, 900);
@@ -158,9 +158,17 @@ void main() {
       } else if (finish == 'double') {
         await tester.tapAt(const Offset(540, 490));
       } else {
-        await tester.sendKeyEvent(finish == 'Enter'
-            ? LogicalKeyboardKey.enter
-            : LogicalKeyboardKey.tab);
+        if (finish == 'Tab') {
+          final canvasFocus = FocusManager.instance.primaryFocus!;
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pumpAndSettle();
+          expect(find.text('Classify shape'), findsNothing);
+          expect(FocusManager.instance.primaryFocus, isNot(same(canvasFocus)));
+          expect(document.shapes, isEmpty);
+          canvasFocus.requestFocus();
+          await tester.pump();
+        }
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       }
       await tester.pumpAndSettle();
       expect(find.text('Classify shape'), findsOneWidget);

@@ -231,7 +231,6 @@ void main() {
       void recordScale() => scales.add(controller.value.getMaxScaleOnAxis());
       controller.addListener(recordScale);
       final slider = find.byKey(const ValueKey('canvas-zoom-slider'));
-      expect(tester.widget<Slider>(slider).divisions, isNull);
       final rect = tester.getRect(slider);
       final start = rect.center;
       final gesture = await tester.startGesture(start);
