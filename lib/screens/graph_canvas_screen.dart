@@ -1,3 +1,4 @@
+import '../widgets/canvas_zoom_control.dart';
 import '../widgets/unsaved_graph_guard.dart';
 import '../widgets/moisture_reading_dialog.dart';
 import '../widgets/expandable_action_card.dart';
@@ -870,6 +871,17 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       return KeyEventResult.ignored;
     }
 
+    // Descendant buttons, menus and fields own their activation/traversal keys.
+    // Canvas shortcuts apply only after the canvas itself requests focus.
+    if (!_editorFocusNode.hasPrimaryFocus) {
+      if (_spacePanActive &&
+          event is KeyUpEvent &&
+          event.logicalKey == LogicalKeyboardKey.space) {
+        setState(() => _spacePanActive = false);
+      }
+      return KeyEventResult.ignored;
+    }
+
     if (event.logicalKey == LogicalKeyboardKey.space) {
       final nextValue = event is KeyDownEvent || event is KeyRepeatEvent;
       if (_spacePanActive != nextValue) {
@@ -925,13 +937,13 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
       return KeyEventResult.ignored;
     }
 
-    if ((key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.tab) &&
+    if (key == LogicalKeyboardKey.enter &&
         _selectedTool == CanvasTool.structure) {
       _finishStructurePath();
       return KeyEventResult.handled;
     }
     if (_sketchFirst &&
-        (key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.tab) &&
+        key == LogicalKeyboardKey.enter &&
         (_selectedTool == CanvasTool.wall ||
             _selectedTool == CanvasTool.curve)) {
       _finishWallPath(autoFinish: true);
@@ -8565,6 +8577,10 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                               child: Semantics(
                                 label: 'Drawing canvas',
                                 container: true,
+                                // Pointer input belongs to the canvas listener
+                                // and the controls painted above it.
+                                hitTestBehavior:
+                                    ui.SemanticsHitTestBehavior.transparent,
                                 child: Listener(
                                   key: _canvasViewportKey,
                                   behavior: HitTestBehavior.opaque,
@@ -9286,38 +9302,17 @@ class _CanvasZoomSlider extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 3,
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 7,
-                    ),
-                    overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 18,
-                    ),
-                  ),
-                  child: Semantics(
-                    label: 'Zoom',
-                    child: Slider(
-                      key: const ValueKey('canvas-zoom-slider'),
-                      activeColor: Theme.of(context).colorScheme.primary,
-                      inactiveColor: const Color(0xFFD8DDE3),
-                      value: value,
-                      // A logarithmic track gives fine control at yard-map zoom
-                      // levels while still reaching the full existing zoom range.
-                      onChanged: (position) =>
-                          controller.value = EditorViewport.zoomAt(
-                            controller.value,
-                            anchor(),
-                            math.exp(minimum + position * range),
-                          ),
-                      semanticFormatterCallback: (position) {
-                        final percent =
-                            math.exp(minimum + position * range) * 100;
-                        return '${percent.toStringAsFixed(1)}%';
-                      },
-                    ),
-                  ),
+                child: CanvasZoomControl(
+                  value: value,
+                  color: Theme.of(context).colorScheme.primary,
+                  onChanged: (position) =>
+                      controller.value = EditorViewport.zoomAt(
+                        controller.value,
+                        anchor(),
+                        math.exp(minimum + position * range),
+                      ),
+                  formatValue: (position) =>
+                      '${(math.exp(minimum + position * range) * 100).toStringAsFixed(1)}%',
                 ),
               ),
               SizedBox(
@@ -9838,11 +9833,12 @@ class _IconOnlyButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
+      excludeFromSemantics: true,
       child: IconButton(
         constraints: const BoxConstraints.tightFor(width: 48, height: 48),
         visualDensity: VisualDensity.standard,
         onPressed: onPressed,
-        icon: Icon(icon, size: 18),
+        icon: Icon(icon, size: 18, semanticLabel: tooltip),
       ),
     );
   }
