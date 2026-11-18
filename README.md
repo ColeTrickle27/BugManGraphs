@@ -4,7 +4,9 @@ Independent Flutter graphing, measurements, and site-plan app for Holloman Exter
 
 Canonical repository: https://github.com/ColeTrickle27/BugManGraphs. A future inspection app will have its own name and repository. Existing graph markers, photos, and saved-file formats remain supported.
 
-OpsBrain is the operations hub; SalesBrain owns sales workflows; Inventory owns inventory; holloman-mcp and shared APIs provide integrations. Existing authenticated OpsBrain API endpoints remain in use during the staged separation. Do not copy another app's source into this repository.
+OpsBrain is the operations hub; [BugMan Quotes](https://github.com/ColeTrickle27/BugMan-Quotes) is the active quoting application; Inventory owns inventory; holloman-mcp and shared APIs provide integrations. Existing authenticated OpsBrain API endpoints remain in use. Do not copy another app's source into this repository.
+
+**SalesBrain is deactivated and has been replaced by BugMan Quotes (owner correction, November 18, 2026).** Its HubSpot leads live feed is the only legacy component retained for possible reuse elsewhere. Existing SalesBrain-named routes and handoff parameters are compatibility references, not active product ownership; this documentation correction does not move the feed or change runtime integrations.
 
 The app currently focuses on the graph editor workflow:
 
@@ -37,7 +39,7 @@ Open Graphs through OpsBrain's `/bugman-graphs/` link to use the same signed-in 
 
 When an online save requires sign-in, Graphs keeps the local saved copy and offers **Sign in in new tab**. Keep the graph tab open, sign in separately, then return and Save again. The open drawing, unfinished line, and photos remain in place. Satellite address search uses the same separate-tab recovery without clearing its address or trace points. **OpsBrain Home** in the job list and New Job headers also opens separately.
 
-New Job and Edit Job use the SalesBrain customer-field order. **Existing Customer** requires a permanent selection from `/api/customer-identity/search`; **New Customer** permits an unnamed, unassigned graph draft. Contact/address details are stored as an optional `customer.intakeDetails` snapshot, with existing name/address fields retained for older graphs. Graphs does not create or update the canonical customer record. The standalone host requires OpsBrain's trusted-origin CORS support for the identity-search route before deploying this client.
+New Job and Edit Job retain the existing customer-field order originally adopted from the now-deactivated SalesBrain. **Existing Customer** requires a permanent selection from `/api/customer-identity/search`; **New Customer** permits an unnamed, unassigned graph draft. Contact/address details are stored as an optional `customer.intakeDetails` snapshot, with existing name/address fields retained for older graphs. Graphs does not create or update the canonical customer record. The standalone host requires OpsBrain's trusted-origin CORS support for the identity-search route before deploying this client.
 
 ## Local setup
 
