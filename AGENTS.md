@@ -6,6 +6,12 @@ This repository is the source implementation for Holloman Exterminators' BugMan 
 
 BugManGraphs is an independent graphing, measurements, and site-plan application. Existing markers, photos, and findings remain supported graph data. A future general inspection app will be a separate product with a unique name; do not repurpose this application for it.
 
+## Application status — November 18, 2026
+
+[BugMan Quotes](https://github.com/ColeTrickle27/BugMan-Quotes) is the active quoting application. SalesBrain is **deactivated** and has been replaced by BugMan Quotes. Its HubSpot leads live feed is the only legacy component retained for possible reuse elsewhere. This owner correction supersedes earlier descriptions of SalesBrain as an active application or future integration target.
+
+Existing SalesBrain-named routes, handoff parameters, and stored references are legacy compatibility. Preserve them until a separately scoped migration changes them; their presence is not authorization to resume SalesBrain development or standalone rollout. This status correction does not move or disable the leads feed.
+
 Treat this as a production business application.
 
 Preserve:
@@ -79,7 +85,7 @@ Do not rewrite BugMan Graphs into:
 * another frontend framework
 * another cross-platform framework
 
-merely to make it match OpsBrain or SalesBrain.
+merely to make it match OpsBrain or another application.
 
 BugMan Graphs has specialized canvas, geometry, gesture, image, PDF, mapping, and field-interaction requirements. Flutter remains an approved technology for this application.
 
@@ -202,7 +208,7 @@ Preserve structured marker identity separately from its visual presentation.
 
 Changing an icon, color, label position, or appearance should not unnecessarily change the underlying marker type or saved data.
 
-Marker data should remain usable by future OpsBrain, SalesBrain, inspection-report, and AI workflows.
+Marker data should remain usable by OpsBrain, BugMan Quotes, inspection-report, and AI workflows.
 
 ---
 
@@ -310,7 +316,7 @@ Do not create a conflicting BugMan-only customer identity system.
 Bill-To / Location compatibility is especially important for:
 
 * Customer Files
-* SalesBrain
+* BugMan Quotes
 * future inspection reporting
 * future PestPac synchronization
 
@@ -328,11 +334,11 @@ Preserve Bill-To / Location compatibility so graph records can participate in fu
 
 ---
 
-# SalesBrain Integration
+# BugMan Quotes and Legacy SalesBrain Integration
 
-BugMan Graphs and SalesBrain should communicate through stable OpsBrain-supported contracts.
+BugMan Quotes is the active quoting application. Graph-to-quote integration should use stable OpsBrain-supported contracts. Existing SalesBrain-named routes and handoff parameters remain legacy compatibility until separately migrated; they do not make SalesBrain an active product.
 
-SalesBrain may consume:
+Approved downstream quoting workflows may consume:
 
 * graph identity
 * customer identity
@@ -342,11 +348,11 @@ SalesBrain may consume:
 * graph exports
 * other approved graph metadata
 
-Do not couple SalesBrain to Flutter widget internals or editor implementation details.
+Do not couple downstream quoting workflows to Flutter widget internals or editor implementation details.
 
-Do not require SalesBrain to parse compiled Flutter code.
+Do not require those workflows to parse compiled Flutter code.
 
-Do not require SalesBrain to infer structured findings from an image when structured graph data is available.
+Do not require them to infer structured findings from an image when structured graph data is available.
 
 ---
 
@@ -651,9 +657,9 @@ Did the change introduce an unnecessary framework, data store, or provider?
 
 Is Graphs using a stable API or depending on implementation details?
 
-## SalesBrain compatibility
+## Quoting and legacy integration compatibility
 
-Can structured graph data still be consumed downstream?
+Can structured graph data still be consumed downstream, with existing legacy contracts preserved?
 
 ## Security
 
@@ -677,7 +683,7 @@ When multiple solutions work, prefer:
 2. Protect drawing and measurement correctness.
 3. Protect field usability.
 4. Preserve structured inspection information.
-5. Preserve OpsBrain and SalesBrain integration.
+5. Preserve OpsBrain and approved quoting integrations, including existing legacy compatibility.
 6. Preserve Bill-To / Location and future PestPac compatibility.
 7. Keep Flutter/Dart architecture simple.
 8. Reuse existing APIs and patterns.
