@@ -20,16 +20,19 @@ class TraceGeometryPainter extends CustomPainter {
     this.selectedTraceIndex,
     this.hoveredTraceIndex,
     this.showDetails = true,
+    this.showSummary = true,
   }) : super(repaint: TraceImageryCache.instance);
 
   final List<TraceGeometry> traces;
   final LabelPresentation labels;
   final bool showDetails;
+  final bool showSummary;
   static double displayScaleFor(
       List<TraceGeometry> traces, LabelPresentation labels) {
     final scale = TracePresentation.labelScale(traces);
     return labels.bounded
-        ? (scale * labels.zoom * labels.textScale).clamp(0.75, 1.3) /
+        ? (scale * labels.zoom).clamp(0.75, 1.0) *
+            labels.textScale /
             labels.zoom
         : scale;
   }
@@ -128,6 +131,7 @@ class TraceGeometryPainter extends CustomPainter {
       }
       if (showDetails) _drawSegmentMeasurements(canvas, trace);
       if (showDetails &&
+          showSummary &&
           (!labels.bounded ||
               selected ||
               hovered ||
@@ -478,6 +482,7 @@ class TraceGeometryPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant TraceGeometryPainter oldDelegate) =>
       oldDelegate.showDetails != showDetails ||
+      oldDelegate.showSummary != showSummary ||
       oldDelegate.labels.zoom != labels.zoom ||
       oldDelegate.labels.textScale != labels.textScale ||
       oldDelegate.traces != traces ||
