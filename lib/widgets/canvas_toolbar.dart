@@ -680,8 +680,8 @@ class CanvasQuickToolbar extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _primaryTool(CanvasTool.select),
-          _primaryTool(CanvasTool.pan),
+          Flexible(child: _primaryTool(CanvasTool.select)),
+          Flexible(child: _primaryTool(CanvasTool.pan)),
           const _QuickToolbarDivider(),
           primarySaveMenu!,
           IconButton(
@@ -921,7 +921,7 @@ class _ActionPicker extends StatelessWidget {
     );
     final picker = SizedBox(
       width: 88,
-      height: 54,
+      height: _pickerHeight(MediaQuery.textScalerOf(context)),
       child: PopupMenuButton<CanvasToolbarAction>(
         tooltip: '$groupLabel: ${displayedAction.tooltip}',
         onSelected: onSelected,
@@ -1081,7 +1081,7 @@ class _ActionFace extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SizedBox(
         width: 88,
-        height: 54,
+        height: _pickerHeight(MediaQuery.textScalerOf(context)),
         child: Tooltip(
           message: '${action.tooltip}\nHold and drag to customize quick tools',
           child: InkWell(
@@ -1200,7 +1200,7 @@ class _MarkerPickerButton extends StatelessWidget {
     final action = CanvasToolbarAction.marker(displayedMarker);
     final picker = SizedBox(
       width: 88,
-      height: 54,
+      height: _pickerHeight(MediaQuery.textScalerOf(context)),
       child: PopupMenuButton<GraphMarkerType>(
         tooltip: '$tooltipLabel: ${displayedMarker.label}',
         onSelected: onSelected,
@@ -1236,6 +1236,10 @@ class _MarkerPickerButton extends StatelessWidget {
     return _DraggableAction(action: action, child: picker);
   }
 }
+
+// Keep two scaled label lines plus the icon inside each picker tile.
+double _pickerHeight(TextScaler scaler) =>
+    54 + (scaler.scale(10) - 10).clamp(0, double.infinity) * 2.1;
 
 class _PickerFace extends StatelessWidget {
   const _PickerFace({
@@ -1315,7 +1319,7 @@ class _PlainToolButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SizedBox(
         width: 88,
-        height: 54,
+        height: _pickerHeight(MediaQuery.textScalerOf(context)),
         child: Tooltip(
           message: label,
           child: InkWell(

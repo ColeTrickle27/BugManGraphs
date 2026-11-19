@@ -8379,12 +8379,16 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         compactPanels && MediaQuery.viewInsetsOf(context).bottom > 0;
     final compactPanelOpen = compactPanels &&
         (!_mainToolbarCollapsed || _sidePanelMode != null);
-    final overviewTrace =
-        compactPanels && _traceLayerVisible && _traces.isNotEmpty
-            ? _traces[_selection?.traceIndex ?? _traces.length - 1]
-            : null;
+    final overviewTrace = _traceLayerVisible &&
+            _traces.isNotEmpty &&
+            (compactPanels ||
+                _selection == null ||
+                _selection?.traceIndex != null)
+        ? _traces[_selection?.traceIndex ?? _traces.length - 1]
+        : null;
     final attribution = overviewTrace?.imagery?.attribution;
-    final traceOverviewShown = overviewTrace != null && !keyboardVisible;
+    final traceOverviewShown =
+        compactPanels && overviewTrace != null && !keyboardVisible;
     final chooseOverlapAvailable = _selection != null &&
         _lastTapSceneOffset != null &&
         _objectsAt(_lastTapSceneOffset!).length > 1;
@@ -8516,15 +8520,26 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
               if (_canvasNotice != null) _buildCanvasNotice(),
               Expanded(
                 child: LayoutBuilder(builder: (context, constraints) {
-                  final overviewHeight =
-                      constraints.maxWidth >= 600 ? 24.0 : 40.0;
+                  final overviewWidth = constraints.maxWidth -
+                      (compactPanels
+                          ? 24
+                          : (_mainToolbarCollapsed
+                                  ? 12
+                                  : _mainToolbarWidth + 24) +
+                              (_sidePanelMode == null
+                                  ? 12
+                                  : sidePanelWidth + 24));
+                  final overviewHeight = MediaQuery.textScalerOf(context)
+                      .scale(overviewWidth >= 560 ? 28 : 44);
                   final canvasTop = compactPanels
                       ? (keyboardVisible
                           ? 8.0
                           : overviewTrace != null
-                          ? 16.0 + overviewHeight
-                          : 8.0)
-                      : 54.0;
+                              ? 16.0 + overviewHeight
+                              : 8.0)
+                      : overviewTrace != null && !keyboardVisible
+                          ? 54.0 + overviewHeight + 8
+                          : 54.0;
                   final panelBottom =
                       constraints.maxHeight - canvasBottomInset - 8;
                   final availableHeight =
@@ -9075,9 +9090,13 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                         ),
                       if (overviewTrace != null && !keyboardVisible)
                         Positioned(
-                          top: 8,
-                          left: 12,
-                          right: 12,
+                          top: compactPanels ? 8 : 54,
+                          left: compactPanels || _mainToolbarCollapsed
+                              ? 12
+                              : _mainToolbarWidth + 24,
+                          right: compactPanels || _sidePanelMode == null
+                              ? 12
+                              : sidePanelWidth + 24,
                           height: overviewHeight,
                           child: _MobileTraceSummary(trace: overviewTrace),
                         ),
@@ -9505,11 +9524,12 @@ class _TopEditorToolbar extends StatelessWidget {
         ),
       ],
       child: mobile
-          ? SizedBox(
+          ? Container(
               width: 48,
-              height: 56,
+              constraints: const BoxConstraints(minHeight: 56),
               child: part == _EditorToolbarPart.save
                   ? const Column(
+                      mainAxisSize: MainAxisSize.min,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
@@ -9863,62 +9883,66 @@ class _MobileTraceSummary extends StatelessWidget {
   final TraceGeometry trace;
 
   @override
-  Widget build(BuildContext context) {
-    final total = MeasurementService.geodesicAreaSquareMeters(trace.geoPoints) /
-        4046.8564224;
-    final excluded =
-        TraceAreaService.excludedSquareMeters(trace) / 4046.8564224;
-    final net = TraceAreaService.netSquareMeters(trace) / 4046.8564224;
-    final wide = MediaQuery.sizeOf(context).width >= 600;
-    return Semantics(
-      label:
-          '${trace.label}. Net yard: ${MeasurementFormat.acres(net)}. Total: ${MeasurementFormat.acres(total)}. Excluded: ${MeasurementFormat.acres(excluded)}.',
-      container: true,
-      child: ExcludeSemantics(
-          child: Material(
-        key: const ValueKey('mobile-trace-summary'),
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Row(children: [
-            Expanded(
-                child: Text(trace.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontSize: 12, fontWeight: FontWeight.w600))),
-            const SizedBox(width: 8),
-            if (wide)
-              Text('Net yard: ${MeasurementFormat.acres(net)}',
-                  style: const TextStyle(
-                      fontSize: 14, height: 1.1, fontWeight: FontWeight.w800)),
-            if (wide) const SizedBox(width: 12),
-            Flexible(
-                flex: 2,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    if (!wide)
-                      Text('Net yard: ${MeasurementFormat.acres(net)}',
-                          maxLines: 1,
-                          style: const TextStyle(
-                              fontSize: 14,
-                              height: 1.1,
-                              fontWeight: FontWeight.w800)),
-                    Text(
-                        'Total: ${MeasurementFormat.acres(total)} · Excluded: ${MeasurementFormat.acres(excluded)}',
+  Widget build(BuildContext context) =>
+      LayoutBuilder(builder: (context, constraints) {
+        final total =
+            MeasurementService.geodesicAreaSquareMeters(trace.geoPoints) /
+                4046.8564224;
+        final excluded =
+            TraceAreaService.excludedSquareMeters(trace) / 4046.8564224;
+        final net = TraceAreaService.netSquareMeters(trace) / 4046.8564224;
+        final wide = constraints.maxWidth >= 560;
+        return Semantics(
+          label:
+              '${trace.label}. Net yard: ${MeasurementFormat.acres(net)}. Total: ${MeasurementFormat.acres(total)}. Excluded: ${MeasurementFormat.acres(excluded)}.',
+          container: true,
+          child: ExcludeSemantics(
+              child: Material(
+            key: const ValueKey('mobile-trace-summary'),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(children: [
+                Expanded(
+                    child: Text(trace.label,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 10, height: 1.1)),
-                  ],
-                )),
-          ]),
-        ),
-      )),
-    );
-  }
+                        style: const TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w600))),
+                const SizedBox(width: 8),
+                if (wide)
+                  Text('Net yard: ${MeasurementFormat.acres(net)}',
+                      style: const TextStyle(
+                          fontSize: 14,
+                          height: 1.1,
+                          fontWeight: FontWeight.w800)),
+                if (wide) const SizedBox(width: 12),
+                Flexible(
+                    flex: 2,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        if (!wide)
+                          Text('Net yard: ${MeasurementFormat.acres(net)}',
+                              maxLines: 1,
+                              style: const TextStyle(
+                                  fontSize: 14,
+                                  height: 1.1,
+                                  fontWeight: FontWeight.w800)),
+                        Text(
+                            'Total: ${MeasurementFormat.acres(total)} · Excluded: ${MeasurementFormat.acres(excluded)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 10, height: 1.1)),
+                      ],
+                    )),
+              ]),
+            ),
+          )),
+        );
+      });
 }
 
 class _PropertiesSidebar extends StatelessWidget {
@@ -10937,9 +10961,7 @@ class _InspectorSectionState extends State<_InspectorSection> {
           if (showTitle)
             Text(
               widget.title,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              style: const TextStyle(fontFamily: 'Bitter', fontSize: 16, height: 1.25, fontWeight: FontWeight.w700),
             ),
           if (showTitle) const SizedBox(height: 12),
           ...widget.children,
@@ -10956,34 +10978,44 @@ class _InspectorValue extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final valueStyle = MediaQuery.sizeOf(context).shortestSide < 600
-        ? Theme.of(context).textTheme.bodySmall
-        : Theme.of(context).textTheme.labelLarge;
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: valueStyle?.copyWith(
-              color: const Color(0xFF666B62),
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
+    final style = Theme.of(context)
+        .textTheme
+        .bodySmall
+        ?.copyWith(fontFamily: 'Bitter', fontSize: 14, height: 1.3);
+    final labelStyle = style?.copyWith(
+        color: const Color(0xFF666B62), fontWeight: FontWeight.w600);
+    final valueStyle = style?.copyWith(fontWeight: FontWeight.w700);
+    return LayoutBuilder(builder: (context, constraints) {
+      double width(String text, TextStyle? style) {
+        final painter = TextPainter(
+            text: TextSpan(text: text, style: style),
+            textDirection: Directionality.of(context),
+            textScaler: MediaQuery.textScalerOf(context))
+          ..layout();
+        return painter.width;
+      }
+
+      if (width(label, labelStyle) + width(value, valueStyle) + 16 >
+          constraints.maxWidth) {
+        return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(label, style: labelStyle),
+              const SizedBox(height: 2),
+              Text(value, style: valueStyle)
+            ]));
+      }
+      return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: Text(label, style: labelStyle)),
         const SizedBox(width: 8),
         Flexible(
-          child: Text(
-            value,
-            textAlign: TextAlign.end,
-            overflow: TextOverflow.ellipsis,
-            maxLines: 2,
-            style: valueStyle?.copyWith(fontWeight: FontWeight.w800),
-          ),
-        ),
-      ],
-    );
+            child: Text(value, textAlign: TextAlign.end, style: valueStyle))
+      ]);
+    });
   }
 }
+
 class _ColorChoiceLabel extends StatelessWidget {
   const _ColorChoiceLabel({required this.label, required this.color});
 
@@ -11429,6 +11461,7 @@ class _CanvasSurface extends StatelessWidget {
                   ? _TraceLayer(
                       labels: labels,
                       showDetails: !labels.bounded || MediaQuery.sizeOf(context).shortestSide >= 600,
+                      showSummary: !labels.bounded,
                       traces: traces,
                       selectedTraceIndex: selectedTraceIndex,
                       hoveredTraceIndex: hoveredTraceIndex,
@@ -11636,6 +11669,7 @@ class _TraceLayer extends StatefulWidget {
   const _TraceLayer({
     required this.labels,
     required this.showDetails,
+    this.showSummary = true,
     required this.traces,
     required this.selectedTraceIndex,
     required this.hoveredTraceIndex,
@@ -11643,6 +11677,7 @@ class _TraceLayer extends StatefulWidget {
 
   final List<TraceGeometry> traces;
   final bool showDetails;
+  final bool showSummary;
   final int? selectedTraceIndex;
   final int? hoveredTraceIndex;
 
@@ -11691,6 +11726,7 @@ class _TraceLayerState extends State<_TraceLayer> {
           painter: TraceGeometryPainter(
             labels: widget.labels,
             showDetails: widget.showDetails,
+            showSummary: widget.showSummary,
             traces: widget.traces,
             selectedTraceIndex: widget.selectedTraceIndex,
             hoveredTraceIndex: widget.hoveredTraceIndex,
