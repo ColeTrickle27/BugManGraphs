@@ -8379,16 +8379,21 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
         compactPanels && MediaQuery.viewInsetsOf(context).bottom > 0;
     final compactPanelOpen = compactPanels &&
         (!_mainToolbarCollapsed || _sidePanelMode != null);
-    final overviewTrace = _traceLayerVisible &&
-            _traces.isNotEmpty &&
+    final hasVisibleTrace = _traceLayerVisible && _traces.isNotEmpty;
+    final overviewTrace = hasVisibleTrace &&
             (compactPanels ||
                 _selection == null ||
                 _selection?.traceIndex != null)
         ? _traces[_selection?.traceIndex ?? _traces.length - 1]
         : null;
     final attribution = overviewTrace?.imagery?.attribution;
-    final traceOverviewShown =
-        compactPanels && overviewTrace != null && !keyboardVisible;
+    final traceOverviewShown = overviewTrace != null && !keyboardVisible;
+    // Attribution can change with the selection. Keep the desktop drawing
+    // bounds stable through pointer-down and the rest of a drag.
+    final reserveAttribution = compactPanels
+        ? attribution != null
+        : hasVisibleTrace &&
+            _traces.any((trace) => trace.imagery?.attribution != null);
     final chooseOverlapAvailable = _selection != null &&
         _lastTapSceneOffset != null &&
         _objectsAt(_lastTapSceneOffset!).length > 1;
@@ -8401,10 +8406,17 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                 : compactPanels
                     ? 84.0
                     : (MediaQuery.sizeOf(context).width < 760 ? 126.0 : 82.0)) +
-        (attribution != null ? 18 : 0);
+        (reserveAttribution ? 18 : 0);
     final documentTitle = _document.customer.displayName;
     final propertyLineSummary = _latestPropertyLineMeasurementSummary;
     final viewportWidth = MediaQuery.sizeOf(context).width;
+    final showPropertyLine = propertyLineSummary != null &&
+        !(compactPanels && traceOverviewShown) &&
+        (_sidePanelMode == null || viewportWidth >= 720);
+    final selectionActionsInOptions =
+        traceOverviewShown ||
+        (!compactPanels &&
+            (showPropertyLine || (hasVisibleTrace && _sidePanelMode != null)));
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     // Keep room for the four drawing controls as well as the normal quick bar.
@@ -8427,10 +8439,11 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
             quickActions: _quickToolbarActions,
             onQuickAction: _activateToolbarAction,
             onResetQuickTools: _resetQuickToolbar,
-            onChooseOverlap: traceOverviewShown && chooseOverlapAvailable
+            onChooseOverlap: selectionActionsInOptions && chooseOverlapAvailable
                 ? () => _chooseOverlappingObjects(_lastTapSceneOffset!)
                 : null,
-            onChangeShapeType: traceOverviewShown && changeShapeTypeAvailable
+            onChangeShapeType: selectionActionsInOptions &&
+                    changeShapeTypeAvailable
                 ? () => _classifySketch(_selection!.shapeIndex!, editing: true)
                 : null,
             drawingRatioLabel: _scaleLabel,
@@ -8520,26 +8533,38 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
               if (_canvasNotice != null) _buildCanvasNotice(),
               Expanded(
                 child: LayoutBuilder(builder: (context, constraints) {
-                  final overviewWidth = constraints.maxWidth -
-                      (compactPanels
-                          ? 24
-                          : (_mainToolbarCollapsed
-                                  ? 12
-                                  : _mainToolbarWidth + 24) +
-                              (_sidePanelMode == null
-                                  ? 12
-                                  : sidePanelWidth + 24));
-                  final overviewHeight = MediaQuery.textScalerOf(context)
-                      .scale(overviewWidth >= 560 ? 28 : 44);
-                  final canvasTop = compactPanels
-                      ? (keyboardVisible
+                  final textScaler = MediaQuery.textScalerOf(context);
+                  final panelLeftInset =
+                      _mainToolbarCollapsed ? 12.0 : _mainToolbarWidth + 24;
+                  final panelRightInset =
+                      _sidePanelMode == null ? 12.0 : sidePanelWidth + 24;
+                  final betweenPanels =
+                      constraints.maxWidth - panelLeftInset - panelRightInset;
+                  final fullWidthOverview = !compactPanels &&
+                      hasVisibleTrace &&
+                      betweenPanels < textScaler.scale(320);
+                  final overviewLeft = compactPanels || fullWidthOverview
+                      ? 12.0
+                      : panelLeftInset;
+                  final overviewRight = compactPanels || fullWidthOverview
+                      ? 12.0
+                      : panelRightInset;
+                  final overviewWidth =
+                      constraints.maxWidth - overviewLeft - overviewRight;
+                  final wideOverview = overviewWidth >=
+                      (compactPanels ? 560.0 : textScaler.scale(560));
+                  final overviewHeight = textScaler.scale(wideOverview ? 28 : 44);
+                  // The desktop band belongs to the visible trace layer. A
+                  // non-trace selection hides its text but cannot move the scene.
+                  final reserveOverview =
+                      compactPanels ? traceOverviewShown : hasVisibleTrace;
+                  final overviewTop = compactPanels ? 8.0 : 64.0;
+                  final canvasTop = reserveOverview
+                      ? overviewTop + overviewHeight + 8
+                      : compactPanels
                           ? 8.0
-                          : overviewTrace != null
-                              ? 16.0 + overviewHeight
-                              : 8.0)
-                      : overviewTrace != null && !keyboardVisible
-                          ? 54.0 + overviewHeight + 8
                           : 54.0;
+                  final panelTop = fullWidthOverview ? canvasTop : 54.0;
                   final panelBottom =
                       constraints.maxHeight - canvasBottomInset - 8;
                   final availableHeight =
@@ -8779,7 +8804,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                             ? dock
                             : Rect.fromLTRB(
                                 12,
-                                54,
+                                panelTop,
                                 12 + _mainToolbarWidth,
                                 constraints.maxHeight -
                                     (landscape && !toolbarsFitSideBySide
@@ -8821,7 +8846,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                       if (_mainToolbarCollapsed && !compactPanels)
                         Positioned(
                           left: 12,
-                          top: 54,
+                          top: reserveOverview ? canvasTop : panelTop,
                           child: Material(
                             elevation: 6,
                             color: Colors.white,
@@ -8938,7 +8963,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                           ),
                         ),
                       ),
-                      if (chooseOverlapAvailable && !traceOverviewShown)
+                      if (chooseOverlapAvailable && !selectionActionsInOptions)
                         Positioned(
                           right: 12,
                           top: 62,
@@ -8962,7 +8987,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                           child: editorToolbar(_EditorToolbarPart.full),
                         ),
                       ),
-                      if (changeShapeTypeAvailable && !traceOverviewShown)
+                      if (changeShapeTypeAvailable && !selectionActionsInOptions)
                         Positioned(
                           top: 62,
                           right: 16,
@@ -8978,14 +9003,12 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                             ),
                           ),
                         ),
-                      if (propertyLineSummary != null &&
-                          !traceOverviewShown &&
-                          (_sidePanelMode == null || viewportWidth >= 720))
+                      if (showPropertyLine)
                         Positioned(
                           key: const ValueKey(
                             'property-line-measurement-summary',
                           ),
-                          top: 72,
+                          top: traceOverviewShown ? canvasTop : 72,
                           right:
                               _sidePanelMode == null ? 24 : sidePanelWidth + 24,
                           child: IgnorePointer(
@@ -9020,7 +9043,7 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                               ? dock
                               : Rect.fromLTRB(
                                   constraints.maxWidth - sidePanelWidth - 12,
-                                  54,
+                                  panelTop,
                                   constraints.maxWidth - 12,
                                   constraints.maxHeight - 82,
                                 ),
@@ -9088,17 +9111,14 @@ class _GraphCanvasScreenState extends State<GraphCanvasScreen> {
                                 _openTraceWorkspace(editIndex: index),
                           ),
                         ),
-                      if (overviewTrace != null && !keyboardVisible)
+                      if (traceOverviewShown)
                         Positioned(
-                          top: compactPanels ? 8 : 54,
-                          left: compactPanels || _mainToolbarCollapsed
-                              ? 12
-                              : _mainToolbarWidth + 24,
-                          right: compactPanels || _sidePanelMode == null
-                              ? 12
-                              : sidePanelWidth + 24,
+                          top: overviewTop,
+                          left: overviewLeft,
+                          right: overviewRight,
                           height: overviewHeight,
-                          child: _MobileTraceSummary(trace: overviewTrace),
+                          child: _MobileTraceSummary(
+                              trace: overviewTrace, wide: wideOverview),
                         ),
                       if (attribution != null)
                         Positioned(
@@ -9879,70 +9899,69 @@ class _ToolbarDivider extends StatelessWidget {
 }
 
 class _MobileTraceSummary extends StatelessWidget {
-  const _MobileTraceSummary({required this.trace});
+  const _MobileTraceSummary({required this.trace, required this.wide});
+  final bool wide;
   final TraceGeometry trace;
 
   @override
-  Widget build(BuildContext context) =>
-      LayoutBuilder(builder: (context, constraints) {
-        final total =
-            MeasurementService.geodesicAreaSquareMeters(trace.geoPoints) /
-                4046.8564224;
-        final excluded =
-            TraceAreaService.excludedSquareMeters(trace) / 4046.8564224;
-        final net = TraceAreaService.netSquareMeters(trace) / 4046.8564224;
-        final wide = constraints.maxWidth >= 560;
-        return Semantics(
-          label:
-              '${trace.label}. Net yard: ${MeasurementFormat.acres(net)}. Total: ${MeasurementFormat.acres(total)}. Excluded: ${MeasurementFormat.acres(excluded)}.',
-          container: true,
-          child: ExcludeSemantics(
-              child: Material(
-            key: const ValueKey('mobile-trace-summary'),
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(children: [
-                Expanded(
-                    child: Text(trace.label,
+  Widget build(BuildContext context) {
+    final total =
+        MeasurementService.geodesicAreaSquareMeters(trace.geoPoints) /
+            4046.8564224;
+    final excluded =
+        TraceAreaService.excludedSquareMeters(trace) / 4046.8564224;
+    final net = TraceAreaService.netSquareMeters(trace) / 4046.8564224;
+    return Semantics(
+      label:
+          '${trace.label}. Net yard: ${MeasurementFormat.acres(net)}. Total: ${MeasurementFormat.acres(total)}. Excluded: ${MeasurementFormat.acres(excluded)}.',
+      container: true,
+      child: ExcludeSemantics(
+          child: Material(
+        key: const ValueKey('mobile-trace-summary'),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(children: [
+            Expanded(
+                child: Text(trace.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w600))),
+            const SizedBox(width: 8),
+            if (wide)
+              Text('Net yard: ${MeasurementFormat.acres(net)}',
+                  style: const TextStyle(
+                      fontSize: 14,
+                      height: 1.1,
+                      fontWeight: FontWeight.w800)),
+            if (wide) const SizedBox(width: 12),
+            Flexible(
+                flex: 2,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (!wide)
+                      Text('Net yard: ${MeasurementFormat.acres(net)}',
+                          maxLines: 1,
+                          style: const TextStyle(
+                              fontSize: 14,
+                              height: 1.1,
+                              fontWeight: FontWeight.w800)),
+                    Text(
+                        'Total: ${MeasurementFormat.acres(total)} · Excluded: ${MeasurementFormat.acres(excluded)}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontSize: 12, fontWeight: FontWeight.w600))),
-                const SizedBox(width: 8),
-                if (wide)
-                  Text('Net yard: ${MeasurementFormat.acres(net)}',
-                      style: const TextStyle(
-                          fontSize: 14,
-                          height: 1.1,
-                          fontWeight: FontWeight.w800)),
-                if (wide) const SizedBox(width: 12),
-                Flexible(
-                    flex: 2,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        if (!wide)
-                          Text('Net yard: ${MeasurementFormat.acres(net)}',
-                              maxLines: 1,
-                              style: const TextStyle(
-                                  fontSize: 14,
-                                  height: 1.1,
-                                  fontWeight: FontWeight.w800)),
-                        Text(
-                            'Total: ${MeasurementFormat.acres(total)} · Excluded: ${MeasurementFormat.acres(excluded)}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 10, height: 1.1)),
-                      ],
-                    )),
-              ]),
-            ),
-          )),
-        );
-      });
+                        style: const TextStyle(fontSize: 10, height: 1.1)),
+                  ],
+                )),
+          ]),
+        ),
+      )),
+    );
+  }
 }
 
 class _PropertiesSidebar extends StatelessWidget {
